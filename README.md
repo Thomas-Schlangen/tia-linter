@@ -176,12 +176,26 @@ tia-linter/
 
 ## Bekannte Einschränkungen (Session 1)
 
-- **Kein Testlauf gegen ein echtes TIA-Portal-Projekt.** Der Connector und
-  alle Check-Module sind vollständig implementiert, aber ungetestet gegen die
-  reale Openness API — das erfolgt in einer Folge-Session unter Windows.
-- Prüfpunkte 11, 11b, 12, 13, 17b, 26, 27, 29 erfordern Kreuzreferenz-Analyse
-  bzw. Hardware-Abgleich und sind entsprechend komplexer/unsicherer in ihrer
-  exakten API-Nutzung als die übrigen Prüfpunkte.
+- **Kein Testlauf gegen ein echtes TIA-Portal-Projekt.** Connector, alle
+  35 Prüfpunkte (`checks/*.py`) und `runner.run_lint()` sind vollständig
+  implementiert, aber ungetestet gegen die reale Openness API — das erfolgt
+  in einer Folge-Session unter Windows. `main.py` verwendet bis dahin
+  `runner.simulate_lint_run()` (Dummy-Befunde) statt `run_lint()`.
+- **Netzwerk-Inhalte (Titel, Kommentar, Elementanzahl, Sprache pro Netzwerk)**
+  werden über den XML-Export eines Bausteins gelesen (`Block.Export()` +
+  Parsen des SIMATIC-ML-Dokuments, siehe `checks/_tia_helpers.py`) — die
+  allgemeine Openness-Referenzdokumentation bietet dafür keinen direkten
+  Objektzugriff. Die angenommenen XML-Elementnamen (`SW.Blocks.CompileUnit`
+  mit `ProgrammingLanguage`/`Title`/`Comment`) sind **nicht** gegen einen
+  echten Export verifiziert. Betrifft: Prüfpunkte 3, 10, 15, 16, 30.
+- **Kreuzreferenz-Scope unklar:** Ob `CrossReferenceService` auch auf
+  einzelnen Interface-Membern (nicht nur Tags/Bausteinen) verfügbar ist, ist
+  nicht belegt. Betrifft: Prüfpunkte 11, 11b, 12, 13, 26, 27.
+- **Weitere unverifizierte Annahmen:** Zugriffspfad auf PLC-Konstanten
+  (Prüfpunkt 8, `TagTable.UserConstants`), Attributname für Bausteinschutz
+  in V21 (Prüfpunkt 35, `IsWriteProtected`), Hardware-Adressabgleich
+  (Prüfpunkt 17, hier vereinfacht auf "PLC ganz ohne Zusatzmodule").
+  Jeweils im Docstring der betroffenen Check-Klasse dokumentiert.
 
 ## License
 
