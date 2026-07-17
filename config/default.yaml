@@ -60,12 +60,12 @@ checks:
     fb_prefix:
       enabled: true
       severity: error
-      prefix: "FB_"
+      regex: "^FB_\\S*$"
 
     fc_prefix:
       enabled: true
       severity: error
-      prefix: "FC_"
+      regex: "^FC_\\S*$"
 
     konstanten_format:
       enabled: true

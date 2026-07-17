@@ -77,7 +77,7 @@ class PlcTagAusgaengeCheck(_PlcTagAddressPatternCheck):
     _direction = "Q"
 
 
-class _BlockPrefixCheck(BaseCheck):
+class _BlockNamingCheck(BaseCheck):
     """Gemeinsame Basis für FB-/FC-Namenskonvention (Prüfpunkt 7)."""
 
     _block_type_name: str = ""
@@ -89,37 +89,32 @@ class _BlockPrefixCheck(BaseCheck):
         block_type = block_types[self._block_type_name]
 
         results: list[CheckResult] = []
-        prefix = self.definition.params.get("prefix", "")
+        pattern = re.compile(self.definition.params.get("regex", ".*"))
 
         for plc_software in iter_plc_software(project):
             for block, group_path in iter_blocks(plc_software):
                 if not isinstance(block, block_type):
                     continue
                 name = block.Name
-                problems = []
-                if prefix and not name.startswith(prefix):
-                    problems.append(f"kein Präfix '{prefix}'")
-                if " " in name:
-                    problems.append("enthält Leerzeichen")
-                if problems:
+                if not pattern.match(name):
                     results.append(
                         self._make_result(
                             path=format_path(plc_software.Name, "Programmbausteine", *group_path, name),
-                            description=f"Bausteinname '{name}': {', '.join(problems)}.",
+                            description=f"Bausteinname '{name}' entspricht nicht dem Muster '{pattern.pattern}'.",
                             value=name,
                         )
                     )
         return results
 
 
-class FbPrefixCheck(_BlockPrefixCheck):
-    """Prüfpunkt 7: Funktionsbausteine ohne konfiguriertes Präfix."""
+class FbPrefixCheck(_BlockNamingCheck):
+    """Prüfpunkt 7: Funktionsbausteine entsprechen nicht dem konfigurierten Regex."""
 
     _block_type_name = "FB"
 
 
-class FcPrefixCheck(_BlockPrefixCheck):
-    """Prüfpunkt 7: Funktionen ohne konfiguriertes Präfix."""
+class FcPrefixCheck(_BlockNamingCheck):
+    """Prüfpunkt 7: Funktionen entsprechen nicht dem konfigurierten Regex."""
 
     _block_type_name = "FC"
 

@@ -79,14 +79,14 @@ CHECK_REGISTRY: dict[str, CheckMeta] = {
     "namenskonventionen.fb_prefix": CheckMeta(
         name="Bausteinname Konvention (FB)",
         category=NAMENSKONVENTIONEN,
-        description="Prüfpunkt 7: Funktionsbaustein ohne konfiguriertes Präfix oder mit Leerzeichen im Namen.",
-        recommendation="Funktionsbaustein umbenennen (Präfix ergänzen, Leerzeichen entfernen).",
+        description="Prüfpunkt 7: Funktionsbaustein entspricht nicht dem konfigurierten Regex.",
+        recommendation="Funktionsbaustein gemäß Namenskonvention umbenennen (siehe Konfiguration).",
     ),
     "namenskonventionen.fc_prefix": CheckMeta(
         name="Bausteinname Konvention (FC)",
         category=NAMENSKONVENTIONEN,
-        description="Prüfpunkt 7: Funktion ohne konfiguriertes Präfix oder mit Leerzeichen im Namen.",
-        recommendation="Funktion umbenennen (Präfix ergänzen, Leerzeichen entfernen).",
+        description="Prüfpunkt 7: Funktion entspricht nicht dem konfigurierten Regex.",
+        recommendation="Funktion gemäß Namenskonvention umbenennen (siehe Konfiguration).",
     ),
     "namenskonventionen.konstanten_format": CheckMeta(
         name="Konstanten-Namensformat",
