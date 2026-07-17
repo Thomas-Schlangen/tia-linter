@@ -18,15 +18,33 @@ from tia_linter.checks.base import BaseCheck
 from tia_linter.models import CheckResult
 
 
-class DbFormatCheck(BaseCheck):
-    """Prüfpunkt 5: Datenbausteinname entspricht nicht dem konfigurierten Regex."""
+class _DbNamingCheck(BaseCheck):
+    """Gemeinsame Basis für Global-/Array-DB- und Instanz-DB-Namenskonvention
+    (Prüfpunkt 5).
+
+    In der Praxis folgen Instanz-DBs — deren Name meist automatisch aus dem
+    zugehörigen FB-Aufruf abgeleitet wird — einer komplett anderen
+    Namenskonvention als "echte", frei benannte Global- bzw. Array-
+    Datenbausteine. Deshalb getrennt konfigurierbar, analog zu Prüfpunkt 6
+    (Eingänge/Ausgänge) und 7 (FB/FC). ``InstanceDB``/``GlobalDB``/
+    ``ArrayDB`` sind laut V21-Openness-Referenz (Manual 03/2026, Abschnitt
+    zu sitzungsübergreifenden Objekt-IDs) drei getrennte, alle von
+    ``DataBlock`` abgeleitete Klassen — Array-DBs werden hier zusammen mit
+    Global-DBs geprüft (beide frei benannt), nicht zusammen mit Instanz-DBs.
+    """
+
+    _match_instance: bool = False
 
     def run(self, project: Any) -> list[CheckResult]:
+        from Siemens.Engineering.SW.Blocks import InstanceDB
+
         results: list[CheckResult] = []
         pattern = re.compile(self.definition.params.get("regex", ".*"))
 
         for plc_software in iter_plc_software(project):
-            for db, group_path in iter_data_blocks(plc_software):
+            for db, group_path in iter_data_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
+                if isinstance(db, InstanceDB) != self._match_instance:
+                    continue
                 if not pattern.match(db.Name):
                     results.append(
                         self._make_result(
@@ -36,6 +54,18 @@ class DbFormatCheck(BaseCheck):
                         )
                     )
         return results
+
+
+class DbFormatGlobalCheck(_DbNamingCheck):
+    """Prüfpunkt 5 (Global-/Array-DB): Name entspricht nicht dem konfigurierten Regex."""
+
+    _match_instance = False
+
+
+class DbFormatInstanceCheck(_DbNamingCheck):
+    """Prüfpunkt 5 (Instanz-DB): Name entspricht nicht dem konfigurierten Regex."""
+
+    _match_instance = True
 
 
 class _PlcTagAddressPatternCheck(BaseCheck):
@@ -48,7 +78,7 @@ class _PlcTagAddressPatternCheck(BaseCheck):
         pattern = re.compile(self.definition.params.get("regex", ".*"))
 
         for plc_software in iter_plc_software(project):
-            for tag_table in iter_tag_tables(plc_software):
+            for tag_table in iter_tag_tables(plc_software, self.excluded_folders):
                 for tag in tag_table.Tags:
                     if tag_direction(tag) != self._direction:
                         continue
@@ -92,7 +122,7 @@ class _BlockNamingCheck(BaseCheck):
         pattern = re.compile(self.definition.params.get("regex", ".*"))
 
         for plc_software in iter_plc_software(project):
-            for block, group_path in iter_blocks(plc_software):
+            for block, group_path in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
                 if not isinstance(block, block_type):
                     continue
                 name = block.Name
@@ -127,7 +157,7 @@ class KonstantenFormatCheck(BaseCheck):
         pattern = re.compile(self.definition.params.get("regex", "^[A-Z][A-Z0-9_]*$"))
 
         for plc_software in iter_plc_software(project):
-            for tag_table in iter_tag_tables(plc_software):
+            for tag_table in iter_tag_tables(plc_software, self.excluded_folders):
                 # Anmerkung: Der Zugriffspfad auf PLC-Konstanten ist über die
                 # allgemeine Openness-Dokumentation nicht eindeutig belegt —
                 # ``UserConstants`` wird hier als plausibler Kandidat
@@ -159,7 +189,7 @@ class TestvariablenCheck(BaseCheck):
             return results
 
         for plc_software in iter_plc_software(project):
-            for tag_table in iter_tag_tables(plc_software):
+            for tag_table in iter_tag_tables(plc_software, self.excluded_folders):
                 for tag in tag_table.Tags:
                     if tag.Name.startswith(prefixes):
                         results.append(
@@ -173,7 +203,8 @@ class TestvariablenCheck(BaseCheck):
 
 
 CHECK_CLASSES = {
-    "namenskonventionen.db_format": DbFormatCheck,
+    "namenskonventionen.db_format_global": DbFormatGlobalCheck,
+    "namenskonventionen.db_format_instance": DbFormatInstanceCheck,
     "namenskonventionen.plc_tag_eingaenge": PlcTagEingaengeCheck,
     "namenskonventionen.plc_tag_ausgaenge": PlcTagAusgaengeCheck,
     "namenskonventionen.fb_prefix": FbPrefixCheck,

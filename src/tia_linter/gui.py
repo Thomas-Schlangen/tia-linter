@@ -169,6 +169,8 @@ class TiaLinterApp(tk.Tk):
                 "cancel_event": self._cancel_event,
                 "max_reconnect_attempts": self.config.max_reconnect_attempts,
                 "reconnect_every_n_checks": self.config.reconnect_every_n_checks,
+                "excluded_folders": self.config.ausgeschlossene_ordner,
+                "excluded_blocks": self.config.ausgeschlossene_bausteine,
             },
             daemon=True,
         )

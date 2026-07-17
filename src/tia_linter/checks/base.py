@@ -14,10 +14,24 @@ class BaseCheck(ABC):
     ``definition`` liefert die Konfiguration (enabled, severity, Parameter)
     aus der YAML-Config; ``run`` erhält das geöffnete TIA-Openness-Projekt
     und liefert eine Liste von Befunden (leer, wenn alles in Ordnung ist).
+
+    ``excluded_folders``/``excluded_blocks`` kommen aus den globalen
+    Config-Schlüsseln ``ausgeschlossene_ordner``/``ausgeschlossene_bausteine``
+    (nicht aus ``definition.params`` — gelten projektweit für alle Checks,
+    nicht nur für einen einzelnen Prüfpunkt). Checks, die Bausteine/DBs/
+    Variablentabellen rekursiv durchlaufen, reichen diese Sets an die
+    entsprechenden ``iter_*``-Hilfsfunktionen aus ``_tia_helpers.py`` weiter.
     """
 
-    def __init__(self, definition: CheckDefinition) -> None:
+    def __init__(
+        self,
+        definition: CheckDefinition,
+        excluded_folders: frozenset[str] = frozenset(),
+        excluded_blocks: frozenset[str] = frozenset(),
+    ) -> None:
         self.definition = definition
+        self.excluded_folders = excluded_folders
+        self.excluded_blocks = excluded_blocks
 
     @abstractmethod
     def run(self, project: Any) -> list[CheckResult]:

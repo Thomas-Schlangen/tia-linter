@@ -33,6 +33,30 @@ max_reconnect_attempts: 3
 # lange bevor ein größeres Projekt vollständig geprüft ist — siehe README.
 reconnect_every_n_checks: 10
 
+# Ordnernamen (Programmbausteine-, Datenbaustein- und Variablentabellen-
+# Ordner), die komplett von der Prüfung ausgenommen werden sollen — z. B.
+# bereits mehrfach geprüfte Bibliotheksordner. Ein ausgeschlossener Ordner
+# nimmt automatisch auch alle seine Unterordner von der Prüfung aus.
+# Vergleich ohne Berücksichtigung von Groß-/Kleinschreibung; es zählt
+# ausschließlich der Ordnername selbst, nicht der vollständige Pfad — ein
+# Ordner mit diesem Namen wird also unabhängig davon ausgeschlossen, wo im
+# Projekt er liegt.
+ausgeschlossene_ordner: []
+#   - "Standardbibliothek"
+#   - "Bereits geprüft"
+
+# Bausteinnamen (FB/FC/OB/DB — Global-, Instanz- und Array-DBs), die komplett
+# von der Prüfung ausgenommen werden sollen, unabhängig davon, in welchem
+# Ordner sie liegen. Ein hier eingetragener Baustein taucht in keinem
+# einzigen Prüfpunkt mehr auf — weder in der Namensprüfung noch in
+# Inhaltsprüfungen (Kommentare, unbenutzte Variablen, Netzwerkkomplexität
+# usw.), da alle Checks ausschließlich über dieselbe zentrale
+# Traversierung an Bausteine gelangen. Vergleich ohne Berücksichtigung von
+# Groß-/Kleinschreibung.
+ausgeschlossene_bausteine: []
+#   - "FB_Altsystem"
+#   - "DB_Legacy_Rezepte"
+
 checks:
   kommentare:
     variablen_kommentar:
@@ -55,7 +79,16 @@ checks:
       severity: warning
 
   namenskonventionen:
-    db_format:
+    # Prüfpunkt 5 ist in zwei unabhängig konfigurierbare Einträge aufgeteilt:
+    # Instanz-DBs (Name meist automatisch aus dem FB-Aufruf abgeleitet)
+    # folgen in der Praxis oft einer komplett anderen Namenskonvention als
+    # frei benannte Global-/Array-Datenbausteine.
+    db_format_global:
+      enabled: true
+      severity: error
+      regex: "^DB_[A-Za-z]"
+
+    db_format_instance:
       enabled: true
       severity: error
       regex: "^DB_[A-Za-z]"
@@ -106,6 +139,15 @@ checks:
     eingaenge_gelesen:
       enabled: true
       severity: warning
+
+    # Eingänge werden jeden Zyklus vom Prozessabbild aus der Hardware
+    # überschrieben — ein Schreibzugriff aus dem Anwenderprogramm wird beim
+    # nächsten Zyklus ohnehin verworfen und deutet meist auf eine
+    # Verwechslung mit einem Merker hin. Deshalb Standard-Schweregrad Fehler,
+    # nicht nur Warnung.
+    eingaenge_nicht_beschrieben:
+      enabled: true
+      severity: error
 
     ausgaenge_mehrfach_schreiben:
       enabled: true

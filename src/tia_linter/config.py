@@ -64,6 +64,8 @@ class AppConfig(BaseModel):
     logging: LoggingConfig = LoggingConfig()
     max_reconnect_attempts: int = Field(default=3, ge=1)
     reconnect_every_n_checks: int = Field(default=10, ge=1)
+    ausgeschlossene_ordner: list[str] = Field(default_factory=list)
+    ausgeschlossene_bausteine: list[str] = Field(default_factory=list)
 
 
 def load_app_config(path: str | Path) -> AppConfig:

@@ -58,11 +58,23 @@ CHECK_REGISTRY: dict[str, CheckMeta] = {
         recommendation="Änderungshistorie im Bausteinkopf gemäß Siemens Standardisierungsleitfaden pflegen.",
     ),
     # --- Namenskonventionen (Prüfpunkte 5-9) -------------------------------
-    "namenskonventionen.db_format": CheckMeta(
-        name="DB-Namensformat",
+    "namenskonventionen.db_format_global": CheckMeta(
+        name="DB-Namensformat (Global-/Array-DB)",
         category=NAMENSKONVENTIONEN,
-        description="Prüfpunkt 5: Datenbausteinname entspricht nicht dem konfigurierten Regex-Muster.",
-        recommendation="Datenbaustein gemäß Namenskonvention umbenennen.",
+        description=(
+            "Prüfpunkt 5: Name eines Global- oder Array-Datenbausteins entspricht "
+            "nicht dem konfigurierten Regex-Muster."
+        ),
+        recommendation="Global-/Array-Datenbaustein gemäß Namenskonvention umbenennen.",
+    ),
+    "namenskonventionen.db_format_instance": CheckMeta(
+        name="DB-Namensformat (Instanz-DB)",
+        category=NAMENSKONVENTIONEN,
+        description=(
+            "Prüfpunkt 5: Name eines Instanz-Datenbausteins entspricht nicht dem "
+            "konfigurierten Regex-Muster."
+        ),
+        recommendation="Instanz-Datenbaustein gemäß Namenskonvention umbenennen.",
     ),
     "namenskonventionen.plc_tag_eingaenge": CheckMeta(
         name="PLC-Tag Namenskonvention (Eingänge)",
@@ -124,6 +136,15 @@ CHECK_REGISTRY: dict[str, CheckMeta] = {
         category=PROGRAMMSTRUKTUR,
         description="Prüfpunkt 12: Eingangs-Tag wird im Programm nie gelesen.",
         recommendation="Prüfen ob der Eingang tatsächlich benötigt wird, sonst Beschaltung/Tag entfernen.",
+    ),
+    "programmstruktur.eingaenge_nicht_beschrieben": CheckMeta(
+        name="Eingänge dürfen nicht beschrieben werden",
+        category=PROGRAMMSTRUKTUR,
+        description="Prüfpunkt 12b: Eingangs-Tag wird im Programm beschrieben (statt nur gelesen).",
+        recommendation=(
+            "Schreibzugriff auf den Eingang entfernen — Eingänge sind nur lesend zu verwenden. "
+            "Falls ein veränderbarer Wert benötigt wird, eine separate Merker-/Hilfsvariable verwenden."
+        ),
     ),
     "programmstruktur.ausgaenge_mehrfach_schreiben": CheckMeta(
         name="Ausgänge max. 1x geschrieben",

@@ -77,6 +77,35 @@ tia_versionen:
 
 3. Prüfpunkte, Schweregrade und Schwellenwerte nach Bedarf anpassen — siehe
    Kommentare in `config/default.yaml`.
+4. Optional: Ordner, die von der Prüfung ausgenommen werden sollen (z. B.
+   bereits mehrfach geprüfte Bibliotheksordner), unter `ausgeschlossene_ordner`
+   eintragen:
+
+```yaml
+ausgeschlossene_ordner:
+  - "Standardbibliothek"
+  - "Bereits geprüft"
+```
+
+   Ein ausgeschlossener Ordner nimmt automatisch auch alle seine Unterordner
+   aus — der Vergleich erfolgt anhand des Ordnernamens (ohne
+   Groß-/Kleinschreibung), unabhängig davon, wo im Projekt der Ordner liegt.
+   Gilt für Programmbausteine-, Datenbaustein- und Variablentabellen-Ordner
+   gleichermaßen.
+5. Optional: einzelne Bausteine (FB/FC/OB/DB), die von der Prüfung
+   ausgenommen werden sollen, unter `ausgeschlossene_bausteine` eintragen:
+
+```yaml
+ausgeschlossene_bausteine:
+  - "FB_Altsystem"
+  - "DB_Legacy_Rezepte"
+```
+
+   Ein hier eingetragener Baustein wird komplett von jedem Prüfpunkt
+   ausgenommen — sowohl von Namensprüfungen als auch von Inhaltsprüfungen
+   (Kommentare, unbenutzte Variablen, Netzwerkkomplexität usw.) —,
+   unabhängig davon, in welchem Ordner er liegt. Vergleich ebenfalls ohne
+   Berücksichtigung von Groß-/Kleinschreibung.
 
 Die Config wird über [`config_loader`](src/config_loader) gegen ein
 Pydantic-v2-Schema validiert (`src/tia_linter/config.py`).
@@ -106,14 +135,22 @@ erfolgt headless über `TiaPortalMode.WithoutUserInterface`.
 |---|---|
 | Kommentare & Beschreibungen | 1–4 |
 | Namenskonventionen | 5–9 |
-| Programmstruktur | 10–16 |
+| Programmstruktur | 10–16 (inkl. 12b, siehe unten) |
 | Hardware & Konfiguration | 17–18c |
 | Projektmetadaten | 19–22 |
 | Bibliotheken & Typen | 23–24 |
 | Siemens Styleguide | 25–35 |
 
-Details zu allen 35 Prüfpunkten: siehe `config/default.yaml`
+Details zu allen Prüfpunkten: siehe `config/default.yaml`
 (`description`/`recommendation` je Prüfpunkt).
+
+**Prüfpunkt 12b — Eingänge dürfen nicht beschrieben werden** (`programmstruktur.eingaenge_nicht_beschrieben`,
+Standard-Schweregrad Fehler): war in der ursprünglichen Liste der 35
+Prüfpunkte kein eigener Punkt, ergänzt aber Prüfpunkt 12 um eine der
+grundlegendsten SPS-Programmierregeln — Eingänge werden jeden Zyklus vom
+Prozessabbild aus der Hardware überschrieben, ein Schreibzugriff aus dem
+Anwenderprogramm wird daher ohnehin verworfen und deutet meist auf eine
+Verwechslung mit einem Merker hin.
 
 ## Pfad-Format im Report
 

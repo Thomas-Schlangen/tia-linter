@@ -43,7 +43,7 @@ class VariablenKommentarCheck(BaseCheck):
         for plc_software in iter_plc_software(project):
             plc_name = plc_software.Name
 
-            for tag_table in iter_tag_tables(plc_software):
+            for tag_table in iter_tag_tables(plc_software, self.excluded_folders):
                 for tag in tag_table.Tags:
                     tag_name = tag.Name
                     if tag_name.startswith(exception_prefixes):
@@ -61,7 +61,7 @@ class VariablenKommentarCheck(BaseCheck):
                         )
 
             project_texts = ProjectTextComments.load(project)
-            for db, group_path in iter_data_blocks(plc_software):
+            for db, group_path in iter_data_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
                 db_name = db.Name
                 for member in getattr(getattr(db, "Interface", None), "Members", []):
                     member_name = member.Name
@@ -93,7 +93,7 @@ class BausteinBeschreibungCheck(BaseCheck):
         min_length = int(self.definition.params.get("min_laenge", 20))
 
         for plc_software in iter_plc_software(project):
-            for block, group_path in iter_blocks(plc_software):
+            for block, group_path in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
                 comment = str(get_attribute(block, "Comment", "") or "").strip()
                 if len(comment) < min_length:
                     results.append(
@@ -119,7 +119,7 @@ class NetzwerkBeschreibungCheck(BaseCheck):
         max_chars = int(self.definition.params.get("max_zeichen", 80))
 
         for plc_software in iter_plc_software(project):
-            for block, group_path in iter_blocks(plc_software):
+            for block, group_path in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
                 if get_attribute(block, "ProgrammingLanguage") in ("SCL", "STL"):
                     continue  # Netzwerk-Titel gibt es nur bei grafischen Sprachen (LAD/FBD/GRAPH)
 
@@ -153,7 +153,7 @@ class AenderungshistorieCheck(BaseCheck):
         results: list[CheckResult] = []
 
         for plc_software in iter_plc_software(project):
-            for block, group_path in iter_blocks(plc_software):
+            for block, group_path in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
                 author = str(get_attribute(block, "HeaderAuthor", "") or "").strip()
                 version = str(get_attribute(block, "HeaderVersion", "") or "").strip()
                 if not author and not version:

@@ -92,7 +92,9 @@ def _release_dotnet_objects() -> None:
         logger.debug("GC.Collect() fehlgeschlagen (evtl. kein .NET-Kontext) — ignoriert.", exc_info=True)
 
 
-def _instantiate_check(definition: CheckDefinition) -> BaseCheck | None:
+def _instantiate_check(
+    definition: CheckDefinition, excluded_folders: frozenset[str], excluded_blocks: frozenset[str]
+) -> BaseCheck | None:
     category_key = definition.check_id.split(".", 1)[0]
     module = _CHECK_MODULES.get(category_key)
     if module is None:
@@ -102,7 +104,7 @@ def _instantiate_check(definition: CheckDefinition) -> BaseCheck | None:
     if check_class is None:
         logger.warning("Keine Check-Klasse für '%s' gefunden — wird übersprungen.", definition.check_id)
         return None
-    return check_class(definition)
+    return check_class(definition, excluded_folders, excluded_blocks)
 
 
 def run_lint(
@@ -117,6 +119,8 @@ def run_lint(
     cancel_event: threading.Event | None = None,
     max_reconnect_attempts: int = 3,
     reconnect_every_n_checks: int = 10,
+    excluded_folders: Iterable[str] = (),
+    excluded_blocks: Iterable[str] = (),
 ) -> LintReport:
     """Führt alle aktivierten Prüfpunkte gegen das echte TIA-Projekt unter
     ``project_path`` aus (headless, über ``TiaConnector``).
@@ -152,6 +156,14 @@ def run_lint(
     Check doppelt läuft. Ein planmäßiger Reconnect zählt nicht gegen
     ``max_reconnect_attempts`` — nur eine tatsächlich gestorbene Session tut
     das.
+
+    ``excluded_folders``/``excluded_blocks`` kommen aus den globalen
+    Config-Schlüsseln ``ausgeschlossene_ordner``/``ausgeschlossene_bausteine``
+    und werden unverändert an jeden instanziierten Check weitergereicht
+    (siehe ``BaseCheck``) — Bausteine/DBs/Variablentabellen in einem
+    passenden Ordner (samt aller Unterordner) bzw. Bausteine mit passendem
+    Namen (unabhängig vom Ordner) werden dadurch von allen Checks
+    übersprungen, die Bausteinstrukturen durchlaufen.
     """
 
     def report(message: str) -> None:
@@ -160,6 +172,8 @@ def run_lint(
             progress(message)
 
     enabled = [d for d in definitions if d.enabled]
+    excluded_folders_set = frozenset(excluded_folders)
+    excluded_blocks_set = frozenset(excluded_blocks)
     results: list[CheckResult] = []
     done_check_ids: set[str] = set()
     resolved_project_name = project_name
@@ -210,7 +224,7 @@ def run_lint(
                         break
 
                     report(f"Prüfe {definition.name} ... {index}/{len(remaining)}")
-                    check = _instantiate_check(definition)
+                    check = _instantiate_check(definition, excluded_folders_set, excluded_blocks_set)
                     if check is None:
                         done_check_ids.add(definition.check_id)
                     else:
@@ -293,15 +307,17 @@ def simulate_lint_run(
     cancel_event: threading.Event | None = None,
     max_reconnect_attempts: int = 3,
     reconnect_every_n_checks: int = 10,
+    excluded_folders: Iterable[str] = (),
+    excluded_blocks: Iterable[str] = (),
 ) -> LintReport:
     """Simuliert einen Prüflauf: 5-10 zufällige Dummy-Befunde aus den
     aktivierten Prüfpunkten, mit realistischen Statuswerten und Pfaden.
 
     Nimmt dieselben Parameter wie ``run_lint`` entgegen (inkl. ``dll_path``/
-    ``tia_version``/``max_reconnect_attempts``/``reconnect_every_n_checks``,
-    hier ungenutzt), damit die GUI beide Funktionen ohne Anpassung
-    gegeneinander austauschen kann. ``cancel_event`` erlaubt sauberes
-    Abbrechen zwischen zwei Dummy-Checks.
+    ``tia_version``/``max_reconnect_attempts``/``reconnect_every_n_checks``/
+    ``excluded_folders``/``excluded_blocks``, hier ungenutzt), damit die GUI
+    beide Funktionen ohne Anpassung gegeneinander austauschen kann.
+    ``cancel_event`` erlaubt sauberes Abbrechen zwischen zwei Dummy-Checks.
     """
 
     def report(message: str) -> None:

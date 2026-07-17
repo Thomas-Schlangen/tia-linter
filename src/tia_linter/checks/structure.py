@@ -37,7 +37,7 @@ class LeereNetzwerkeCheck(BaseCheck):
     def run(self, project: Any) -> list[CheckResult]:
         results: list[CheckResult] = []
         for plc_software in iter_plc_software(project):
-            for block, group_path in iter_blocks(plc_software):
+            for block, group_path in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
                 if get_attribute(block, "ProgrammingLanguage") in ("SCL", "STL"):
                     continue
                 xml_root = export_block_xml(block)
@@ -71,7 +71,7 @@ class UnbenutzteVariablenCheck(BaseCheck):
 
         results: list[CheckResult] = []
         for plc_software in iter_plc_software(project):
-            for tag_table in iter_tag_tables(plc_software):
+            for tag_table in iter_tag_tables(plc_software, self.excluded_folders):
                 for tag in tag_table.Tags:
                     if not cross_reference_locations(tag):
                         results.append(
@@ -82,7 +82,7 @@ class UnbenutzteVariablenCheck(BaseCheck):
                             )
                         )
 
-            for db, group_path in iter_data_blocks(plc_software):
+            for db, group_path in iter_data_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
                 try:
                     service = db.GetService[CrossReferenceService]()
                 except Exception:  # noqa: BLE001
@@ -118,7 +118,7 @@ class UnbenutzteBausteineCheck(BaseCheck):
 
         results: list[CheckResult] = []
         for plc_software in iter_plc_software(project):
-            for block, group_path in iter_blocks(plc_software):
+            for block, group_path in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
                 if isinstance(block, OB):
                     continue
                 if not cross_reference_locations(block):
@@ -140,7 +140,7 @@ class EingaengeGelesenCheck(BaseCheck):
 
         results: list[CheckResult] = []
         for plc_software in iter_plc_software(project):
-            for tag_table in iter_tag_tables(plc_software):
+            for tag_table in iter_tag_tables(plc_software, self.excluded_folders):
                 for tag in tag_table.Tags:
                     if tag_direction(tag) != "I":
                         continue
@@ -157,6 +157,43 @@ class EingaengeGelesenCheck(BaseCheck):
         return results
 
 
+class EingaengeNichtBeschriebenCheck(BaseCheck):
+    """Prüfpunkt 12b: Eingangs-Tags dürfen im Programm nicht beschrieben werden.
+
+    Ergänzung zu Prüfpunkt 12 (liest nur, ob ein Eingang gelesen wird) — war
+    in der ursprünglichen Prüfpunkte-Liste kein eigener Punkt, ist aber eine
+    der grundlegendsten SPS-Programmierregeln: Eingänge werden jeden Zyklus
+    vom Prozessabbild aus der Hardware überschrieben, ein Schreibzugriff aus
+    dem Anwenderprogramm wird beim nächsten Zyklus also ohnehin wieder
+    verworfen — er täuscht daher bestenfalls einen Wert vor, der real nie
+    ankommt, und deutet meist auf eine Verwechslung mit einem Merker hin.
+    """
+
+    def run(self, project: Any) -> list[CheckResult]:
+        from Siemens.Engineering.CrossReference import Access
+
+        results: list[CheckResult] = []
+        for plc_software in iter_plc_software(project):
+            for tag_table in iter_tag_tables(plc_software, self.excluded_folders):
+                for tag in tag_table.Tags:
+                    if tag_direction(tag) != "I":
+                        continue
+                    locations = cross_reference_locations(tag)
+                    write_count = sum(1 for loc in locations if getattr(loc, "Access", None) == Access.Write)
+                    if write_count > 0:
+                        results.append(
+                            self._make_result(
+                                path=format_path(plc_software.Name, "Variablentabellen", tag_table.Name, tag.Name),
+                                description=(
+                                    f"Eingang '{tag.Name}' wird im Programm an {write_count} Stelle(n) "
+                                    "beschrieben — Eingänge dürfen nicht beschrieben werden."
+                                ),
+                                value=str(write_count),
+                            )
+                        )
+        return results
+
+
 class AusgaengeMehrfachSchreibenCheck(BaseCheck):
     """Prüfpunkt 13: Ausgangs-Tags, die an mehreren Stellen beschrieben werden."""
 
@@ -165,7 +202,7 @@ class AusgaengeMehrfachSchreibenCheck(BaseCheck):
 
         results: list[CheckResult] = []
         for plc_software in iter_plc_software(project):
-            for tag_table in iter_tag_tables(plc_software):
+            for tag_table in iter_tag_tables(plc_software, self.excluded_folders):
                 for tag in tag_table.Tags:
                     if tag_direction(tag) != "Q":
                         continue
@@ -188,7 +225,7 @@ class AwlCodeCheck(BaseCheck):
     def run(self, project: Any) -> list[CheckResult]:
         results: list[CheckResult] = []
         for plc_software in iter_plc_software(project):
-            for block, group_path in iter_blocks(plc_software):
+            for block, group_path in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
                 if get_attribute(block, "ProgrammingLanguage") == "STL":
                     results.append(
                         self._make_result(
@@ -205,7 +242,7 @@ class GemischteSprachenCheck(BaseCheck):
     def run(self, project: Any) -> list[CheckResult]:
         results: list[CheckResult] = []
         for plc_software in iter_plc_software(project):
-            for block, group_path in iter_blocks(plc_software):
+            for block, group_path in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
                 if get_attribute(block, "ProgrammingLanguage") in ("SCL", "STL"):
                     continue
                 xml_root = export_block_xml(block)
@@ -233,7 +270,7 @@ class MaxNetzwerkElementeCheck(BaseCheck):
         max_elements = int(self.definition.params.get("max_elemente", 50))
 
         for plc_software in iter_plc_software(project):
-            for block, group_path in iter_blocks(plc_software):
+            for block, group_path in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
                 if get_attribute(block, "ProgrammingLanguage") in ("SCL", "STL"):
                     continue
                 xml_root = export_block_xml(block)
@@ -257,6 +294,7 @@ CHECK_CLASSES = {
     "programmstruktur.unbenutzte_variablen": UnbenutzteVariablenCheck,
     "programmstruktur.unbenutzte_bausteine": UnbenutzteBausteineCheck,
     "programmstruktur.eingaenge_gelesen": EingaengeGelesenCheck,
+    "programmstruktur.eingaenge_nicht_beschrieben": EingaengeNichtBeschriebenCheck,
     "programmstruktur.ausgaenge_mehrfach_schreiben": AusgaengeMehrfachSchreibenCheck,
     "programmstruktur.awl_code": AwlCodeCheck,
     "programmstruktur.gemischte_sprachen": GemischteSprachenCheck,

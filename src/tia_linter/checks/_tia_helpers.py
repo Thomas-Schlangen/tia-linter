@@ -62,39 +62,76 @@ def iter_devices_with_items(project: Any) -> Iterator[tuple[Any, Any]]:
             yield device, device_item
 
 
-def iter_blocks(plc_software: Any) -> Iterator[tuple[Any, list[str]]]:
+def _normalize_excluded(excluded_folders: Iterable[str]) -> frozenset[str]:
+    """Normalisiert Ordnernamen für den Vergleich ohne Berücksichtigung von
+    Groß-/Kleinschreibung (siehe ``ausgeschlossene_ordner`` in der Config)."""
+    return frozenset(name.casefold() for name in excluded_folders)
+
+
+def iter_blocks(
+    plc_software: Any,
+    excluded_folders: Iterable[str] = (),
+    excluded_blocks: Iterable[str] = (),
+) -> Iterator[tuple[Any, list[str]]]:
     """Durchläuft rekursiv alle Bausteine (FB/FC/OB/DB) einer PLC-Software und
     liefert je Baustein ein Tupel ``(block, gruppenpfad)``. ``gruppenpfad``
     sind die Namen der durchlaufenen Ordner/Gruppen (ohne den Baustein selbst,
-    ohne den PLC-Namen) — für die Root-Ebene eine leere Liste."""
+    ohne den PLC-Namen) — für die Root-Ebene eine leere Liste.
+
+    ``excluded_folders`` — Ordnernamen (aus ``ausgeschlossene_ordner`` in der
+    Config), deren Inhalt inklusive aller Unterordner komplett übersprungen
+    wird: Sobald eine Gruppe passt, wird gar nicht erst in sie hinabgestiegen,
+    wodurch auch verschachtelte Unterordner automatisch ausgeschlossen sind.
+
+    ``excluded_blocks`` — Bausteinnamen (aus ``ausgeschlossene_bausteine`` in
+    der Config), die unabhängig davon, in welchem Ordner sie liegen, komplett
+    übersprungen werden — der Baustein taucht dann in keinem einzigen
+    Prüfpunkt mehr auf (weder Namens- noch Inhaltsprüfung), da alle
+    Check-Module ausschließlich über diese Funktion (bzw. ``iter_data_blocks``)
+    an Bausteine gelangen.
+    """
+    excluded_group_names = _normalize_excluded(excluded_folders)
+    excluded_block_names = _normalize_excluded(excluded_blocks)
 
     def _walk(block_group: Any, path: list[str]) -> Iterator[tuple[Any, list[str]]]:
         for block in block_group.Blocks:
+            if block.Name.casefold() in excluded_block_names:
+                continue
             yield block, path
         for subgroup in getattr(block_group, "Groups", []):
+            if subgroup.Name.casefold() in excluded_group_names:
+                continue
             yield from _walk(subgroup, [*path, subgroup.Name])
 
     yield from _walk(plc_software.BlockGroup, [])
 
 
-def iter_data_blocks(plc_software: Any) -> Iterator[tuple[Any, list[str]]]:
+def iter_data_blocks(
+    plc_software: Any,
+    excluded_folders: Iterable[str] = (),
+    excluded_blocks: Iterable[str] = (),
+) -> Iterator[tuple[Any, list[str]]]:
     """Wie ``iter_blocks``, aber nur Datenbausteine (Global-DB, Instanz-DB,
     Array-DB) — Openness kennt keine gemeinsame Klasse ``DB``, alle drei
     leiten von ``Siemens.Engineering.SW.Blocks.DataBlock`` ab."""
     from Siemens.Engineering.SW.Blocks import DataBlock
 
-    for block, path in iter_blocks(plc_software):
+    for block, path in iter_blocks(plc_software, excluded_folders, excluded_blocks):
         if isinstance(block, DataBlock):
             yield block, path
 
 
-def iter_tag_tables(plc_software: Any) -> Iterator[Any]:
-    """Durchläuft rekursiv alle Variablentabellen einer PLC-Software (inkl. Untergruppen)."""
+def iter_tag_tables(plc_software: Any, excluded_folders: Iterable[str] = ()) -> Iterator[Any]:
+    """Durchläuft rekursiv alle Variablentabellen einer PLC-Software (inkl.
+    Untergruppen). ``excluded_folders`` wirkt wie bei ``iter_blocks``."""
+    excluded = _normalize_excluded(excluded_folders)
 
     def _walk(tag_table_group: Any) -> Iterator[Any]:
         for tag_table in tag_table_group.TagTables:
             yield tag_table
         for subgroup in getattr(tag_table_group, "Groups", []):
+            if subgroup.Name.casefold() in excluded:
+                continue
             yield from _walk(subgroup)
 
     yield from _walk(plc_software.TagTableGroup)

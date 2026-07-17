@@ -104,9 +104,9 @@ class VerwaisteInstanzDbsCheck(BaseCheck):
 
         results: list[CheckResult] = []
         for plc_software in iter_plc_software(project):
-            fb_names = {block.Name for block, _ in iter_blocks(plc_software) if isinstance(block, FB)}
+            fb_names = {block.Name for block, _ in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks) if isinstance(block, FB)}
 
-            for db, group_path in iter_data_blocks(plc_software):
+            for db, group_path in iter_data_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
                 if not isinstance(db, InstanceDB):
                     continue
                 instance_of = str(get_attribute(db, "InstanceOfName", "") or "")
@@ -173,9 +173,9 @@ class StaticZugriffExternCheck(BaseCheck):
 
         results: list[CheckResult] = []
         for plc_software in iter_plc_software(project):
-            fb_by_name = {block.Name: block for block, _ in iter_blocks(plc_software) if isinstance(block, FB)}
+            fb_by_name = {block.Name: block for block, _ in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks) if isinstance(block, FB)}
 
-            for db, group_path in iter_data_blocks(plc_software):
+            for db, group_path in iter_data_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
                 if not isinstance(db, InstanceDB):
                     continue
                 owner_name = str(get_attribute(db, "InstanceOfName", "") or "")
@@ -229,7 +229,7 @@ class OutputMehrfachBeschriebenCheck(BaseCheck):
 
         results: list[CheckResult] = []
         for plc_software in iter_plc_software(project):
-            for block, group_path in iter_blocks(plc_software):
+            for block, group_path in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
                 if not isinstance(block, (FB, FC)):
                     continue
 
@@ -277,7 +277,7 @@ class MultiInstanzenCheck(BaseCheck):
 
         results: list[CheckResult] = []
         for plc_software in iter_plc_software(project):
-            for db, group_path in iter_data_blocks(plc_software):
+            for db, group_path in iter_data_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
                 if not isinstance(db, InstanceDB):
                     continue
                 instance_of = str(get_attribute(db, "InstanceOfName", "") or "")
@@ -302,7 +302,7 @@ class UdtWiederkehrendeStrukturenCheck(BaseCheck):
         results: list[CheckResult] = []
         for plc_software in iter_plc_software(project):
             signatures: dict[tuple, list[tuple[Any, list[str]]]] = {}
-            for db, group_path in iter_data_blocks(plc_software):
+            for db, group_path in iter_data_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
                 interface = getattr(db, "Interface", None)
                 members = getattr(interface, "Members", None)
                 if not members:
@@ -341,7 +341,7 @@ class Ob1KomplexitaetCheck(BaseCheck):
         max_networks = int(self.definition.params.get("max_netzwerke_mit_logik", 5))
 
         for plc_software in iter_plc_software(project):
-            for block, group_path in iter_blocks(plc_software):
+            for block, group_path in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
                 if not isinstance(block, OB) or int(get_attribute(block, "Number", -1) or -1) != 1:
                     continue
 
@@ -371,7 +371,7 @@ class KnowHowSchutzCheck(BaseCheck):
     def run(self, project: Any) -> list[CheckResult]:
         results: list[CheckResult] = []
         for plc_software in iter_plc_software(project):
-            for block, group_path in iter_blocks(plc_software):
+            for block, group_path in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
                 if not bool(get_attribute(block, "IsKnowHowProtected", False)):
                     continue
                 comment = str(get_attribute(block, "Comment", "") or "").lower()
@@ -394,7 +394,7 @@ class TagTabellenNurIoCheck(BaseCheck):
     def run(self, project: Any) -> list[CheckResult]:
         results: list[CheckResult] = []
         for plc_software in iter_plc_software(project):
-            for tag_table in iter_tag_tables(plc_software):
+            for tag_table in iter_tag_tables(plc_software, self.excluded_folders):
                 tags = list(tag_table.Tags)
                 if not tags:
                     continue
@@ -427,7 +427,7 @@ class NichtOptimierteBausteineCheck(BaseCheck):
     def run(self, project: Any) -> list[CheckResult]:
         results: list[CheckResult] = []
         for plc_software in iter_plc_software(project):
-            for block, group_path in iter_blocks(plc_software):
+            for block, group_path in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
                 memory_layout = str(get_attribute(block, "MemoryLayout", "") or "")
                 if memory_layout == "Standard":
                     results.append(
@@ -478,7 +478,7 @@ class SchreibschutzCheck(BaseCheck):
     def run(self, project: Any) -> list[CheckResult]:
         results: list[CheckResult] = []
         for plc_software in iter_plc_software(project):
-            for block, group_path in iter_blocks(plc_software):
+            for block, group_path in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
                 if not bool(get_attribute(block, "IsWriteProtected", False)):
                     continue
                 comment = str(get_attribute(block, "Comment", "") or "").lower()
