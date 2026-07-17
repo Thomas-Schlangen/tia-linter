@@ -25,9 +25,8 @@ class HardwareVorhandenCheck(BaseCheck):
 
     def run(self, project: Any) -> list[CheckResult]:
         results: list[CheckResult] = []
-        for plc_software, device_item in iter_plc_targets(project):
-            device = device_item.Parent if hasattr(device_item, "Parent") else None
-            module_count = len(list(device.DeviceItems)) if device is not None else 0
+        for plc_software, device_item, device in iter_plc_targets(project):
+            module_count = len(list(device.DeviceItems))
             if module_count <= 1:
                 results.append(
                     self._make_result(
@@ -46,7 +45,7 @@ class CpuFirmwareDokumentiertCheck(BaseCheck):
 
     def run(self, project: Any) -> list[CheckResult]:
         results: list[CheckResult] = []
-        for plc_software, device_item in iter_plc_targets(project):
+        for plc_software, device_item, _device in iter_plc_targets(project):
             order_number = str(get_attribute(device_item, "OrderNumber", "") or "").strip()
             firmware = str(get_attribute(device_item, "FirmwareVersion", "") or "").strip()
             missing = [
@@ -69,7 +68,7 @@ class SafetyPasswortCheck(BaseCheck):
 
     def run(self, project: Any) -> list[CheckResult]:
         results: list[CheckResult] = []
-        for plc_software, device_item in iter_plc_targets(project):
+        for plc_software, device_item, _device in iter_plc_targets(project):
             try:
                 from Siemens.Engineering.Safety import SafetyAdministration
 
@@ -104,7 +103,7 @@ class ZertifikatCheck(BaseCheck):
         results: list[CheckResult] = []
         min_months = int(self.definition.params.get("min_restlaufzeit_monate", 6))
 
-        for plc_software, device_item in iter_plc_targets(project):
+        for plc_software, device_item, _device in iter_plc_targets(project):
             try:
                 from Siemens.Engineering.SW.Security import LocalCertificateManager
 

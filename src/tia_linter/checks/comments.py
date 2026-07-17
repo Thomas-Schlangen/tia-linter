@@ -20,7 +20,21 @@ from tia_linter.project_texts import ProjectTextComments
 
 
 class VariablenKommentarCheck(BaseCheck):
-    """Prüfpunkt 1: PLC-Tags und DB-Variablen ohne Kommentar."""
+    """Prüfpunkt 1: PLC-Tags und DB-Variablen ohne Kommentar.
+
+    Beim ersten Testlauf gegen ein echtes Projekt hat sich gezeigt, dass
+    ``db.Interface.Members`` nicht nur die deklarierten Top-Level-Variablen
+    liefert, sondern rekursiv jedes einzelne verschachtelte Array-/
+    Struct-Element als eigenes Member mit Punkt-/Klammer-Notation im Namen
+    (z. B. ``GlobalMan``, ``GlobalMan.GlobalMan[0]``,
+    ``GlobalMan.GlobalMan[0].Plus.Ena``, ...) — ein einziger großer Array-DB
+    erzeugte dadurch fast 40.000 Einzelbefunde. Ein Kommentar auf dem Array
+    selbst reicht aus (nicht jedes Array-Element einzeln); Struct-Felder
+    dagegen sind normale, für sich kommentierbare Variablen und werden
+    weiterhin einzeln geprüft. Daher wird hier nur übersprungen, was
+    irgendwo im Namen einen Array-Index (``[...]``) enthält — reine
+    Punkt-Notation ohne Klammer (Struct-Verschachtelung) bleibt geprüft.
+    """
 
     def run(self, project: Any) -> list[CheckResult]:
         results: list[CheckResult] = []
@@ -51,6 +65,8 @@ class VariablenKommentarCheck(BaseCheck):
                 db_name = db.Name
                 for member in getattr(getattr(db, "Interface", None), "Members", []):
                     member_name = member.Name
+                    if "[" in member_name:
+                        continue  # Array-Element (auch verschachtelt darunter) — Array selbst reicht
                     if member_name.startswith(exception_prefixes):
                         continue
                     comment = project_texts.get(plc_name, db_name, member_name)

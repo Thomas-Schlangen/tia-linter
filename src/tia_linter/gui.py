@@ -156,6 +156,7 @@ class TiaLinterApp(tk.Tk):
                 "definitions": enabled_definitions,
                 "cancel_event": self._cancel_event,
                 "max_reconnect_attempts": self.config.max_reconnect_attempts,
+                "reconnect_every_n_checks": self.config.reconnect_every_n_checks,
             },
             daemon=True,
         )

@@ -63,6 +63,35 @@ _DUMMY_PATH_TEMPLATES = [
 _STATUS_WEIGHTS = {CheckStatus.ERROR: 0.25, CheckStatus.WARNING: 0.45, CheckStatus.OK: 0.30}
 
 
+def _release_dotnet_objects() -> None:
+    """Erzwingt eine .NET-Garbage-Collection nach jedem Check.
+
+    Beim ersten Testlauf gegen ein echtes Projekt (288 Bausteine) ist
+    ``run_lint`` bei Check 31/40 mit
+    ``Siemens.Engineering.EngineeringOutOfMemoryException: The maximum
+    number (500000) of instances for this TIA-Portal has been exceeded``
+    abgestürzt — außerhalb der Per-Check-Fehlerisolation, da die Exception
+    tief in pythonnet selbst auftrat. Ursache: TIA Portal Openness zählt
+    intern offene Instanz-Handles (RCW-gewrappte Engineering-Objekte, z. B.
+    aus ``CrossReferenceService``-Ergebnisbäumen oder Baustein-Exports) pro
+    Session und wirft ab diesem harten Limit die Exception — Pythons eigenes
+    Referenzcounting reicht nicht, die zugrunde liegenden .NET-Objekte werden
+    erst bei einem tatsächlichen .NET-GC-Lauf freigegeben, den ein langer
+    Headless-Prozess von sich aus zu selten auslöst, um mit der Anzahl der
+    pro Check erzeugten Objekte Schritt zu halten. Deshalb wird nach jedem
+    einzelnen Check eine .NET-GC erzwungen, um den Instanzzähler regelmäßig
+    zurückzusetzen statt ihn über den ganzen Lauf anwachsen zu lassen.
+    """
+    try:
+        from System import GC
+
+        GC.Collect()
+        GC.WaitForPendingFinalizers()
+        GC.Collect()
+    except Exception:  # noqa: BLE001 — reine Aufräum-Maßnahme, darf den Lauf nicht gefährden
+        logger.debug("GC.Collect() fehlgeschlagen (evtl. kein .NET-Kontext) — ignoriert.", exc_info=True)
+
+
 def _instantiate_check(definition: CheckDefinition) -> BaseCheck | None:
     category_key = definition.check_id.split(".", 1)[0]
     module = _CHECK_MODULES.get(category_key)
@@ -87,6 +116,7 @@ def run_lint(
     progress: ProgressFn | None = None,
     cancel_event: threading.Event | None = None,
     max_reconnect_attempts: int = 3,
+    reconnect_every_n_checks: int = 10,
 ) -> LintReport:
     """Führt alle aktivierten Prüfpunkte gegen das echte TIA-Projekt unter
     ``project_path`` aus (headless, über ``TiaConnector``).
@@ -103,8 +133,25 @@ def run_lint(
     (erfolgreich oder mit eigenem Fehlerbefund) werden dabei nicht wiederholt.
     Schlägt auch der letzte Versuch fehl, wird ein Fehlerbefund für die
     Verbindung selbst aufgenommen und die Prüfung mit den bis dahin
-    gesammelten Ergebnissen beendet. Noch nicht gegen ein echtes
-    TIA-Projekt getestet.
+    gesammelten Ergebnissen beendet.
+
+    Zusätzlich wird die Verbindung **proaktiv** alle ``reconnect_every_n_checks``
+    Prüfpunkte neu aufgebaut (unabhängig davon, ob die Session tatsächlich
+    stirbt). Grund: der erste Testlauf gegen ein echtes Projekt (288
+    Bausteine) ist bei Check 31/40 mit
+    ``EngineeringOutOfMemoryException: The maximum number (500000) of
+    instances ... has been exceeded`` abgestürzt — TIA Portal Openness zählt
+    offene Instanz-Handles (u. a. aus ``CrossReferenceService``-Ergebnissen
+    und Baustein-Exports) pro Session und lässt sich durch erzwungene
+    .NET-Garbage-Collection (``_release_dotnet_objects``) *nicht* davon
+    abbringen, den Zähler hochzuzählen — ein zweiter Testlauf mit GC nach
+    jedem Check ist an exakt derselben Stelle abgestürzt. Ein periodischer
+    Reconnect umgeht das Problem zuverlässig, weil er den Zähler der ganzen
+    Session (nicht nur einzelner Objekte) zurücksetzt; die bestehende
+    Wiederaufnahme-Logik (``done_check_ids``) sorgt dafür, dass dabei kein
+    Check doppelt läuft. Ein planmäßiger Reconnect zählt nicht gegen
+    ``max_reconnect_attempts`` — nur eine tatsächlich gestorbene Session tut
+    das.
     """
 
     def report(message: str) -> None:
@@ -117,18 +164,29 @@ def run_lint(
     done_check_ids: set[str] = set()
     resolved_project_name = project_name
     disposed_exc_types: tuple[type, ...] = ()
+    consecutive_failures = 0
+    session_number = 0
+    cancelled = False
 
-    for attempt in range(1, max_reconnect_attempts + 1):
+    while True:
         remaining = [d for d in enabled if d.check_id not in done_check_ids]
+        if not remaining or cancelled:
+            break
 
+        session_number += 1
         connector = create_connector(tia_version, dll_path)
         try:
-            if attempt == 1:
+            if session_number == 1:
                 report(f"Verbinde mit TIA Portal ({tia_version_name}) ...")
-            else:
+            elif consecutive_failures > 0:
                 report(
                     f"TIA-Portal-Session unerwartet beendet — verbinde neu "
-                    f"(Versuch {attempt}/{max_reconnect_attempts}) ..."
+                    f"(Versuch {consecutive_failures + 1}/{max_reconnect_attempts}) ..."
+                )
+            else:
+                report(
+                    f"Verbinde nach {reconnect_every_n_checks} Prüfpunkten vorsorglich neu, "
+                    "um die TIA-Portal-Session zu entlasten ..."
                 )
 
             with connector:
@@ -144,43 +202,53 @@ def run_lint(
                     except ImportError:
                         disposed_exc_types = (Exception,)
 
+                checks_this_session = 0
                 for index, definition in enumerate(remaining, start=1):
                     if cancel_event is not None and cancel_event.is_set():
                         report("Prüfung abgebrochen.")
+                        cancelled = True
                         break
 
                     report(f"Prüfe {definition.name} ... {index}/{len(remaining)}")
                     check = _instantiate_check(definition)
                     if check is None:
                         done_check_ids.add(definition.check_id)
-                        continue
-                    try:
-                        results.extend(check.run(project))
-                        done_check_ids.add(definition.check_id)
-                    except disposed_exc_types:
-                        # Session komplett gestorben — nicht als Fehler dieses
-                        # einen Checks werten, sondern an den äußeren
-                        # Reconnect-Handler weiterreichen (siehe unten).
-                        raise
-                    except Exception as exc:  # noqa: BLE001 — ein Check darf die gesamte Prüfung nicht abbrechen
-                        logger.exception("Fehler bei Prüfpunkt %s", definition.check_id)
-                        results.append(
-                            CheckResult(
-                                check_id=definition.check_id,
-                                check_name=definition.name,
-                                category=definition.category,
-                                status=CheckStatus.ERROR,
-                                path=resolved_project_name,
-                                description=f"Prüfpunkt konnte nicht ausgeführt werden: {exc}",
-                                recommendation="Log-Datei prüfen — vermutlich ein API-Zugriffsproblem.",
+                    else:
+                        try:
+                            results.extend(check.run(project))
+                            done_check_ids.add(definition.check_id)
+                        except disposed_exc_types:
+                            # Session komplett gestorben — nicht als Fehler dieses
+                            # einen Checks werten, sondern an den äußeren
+                            # Reconnect-Handler weiterreichen (siehe unten).
+                            raise
+                        except Exception as exc:  # noqa: BLE001 — ein Check darf die gesamte Prüfung nicht abbrechen
+                            logger.exception("Fehler bei Prüfpunkt %s", definition.check_id)
+                            results.append(
+                                CheckResult(
+                                    check_id=definition.check_id,
+                                    check_name=definition.name,
+                                    category=definition.category,
+                                    status=CheckStatus.ERROR,
+                                    path=resolved_project_name,
+                                    description=f"Prüfpunkt konnte nicht ausgeführt werden: {exc}",
+                                    recommendation="Log-Datei prüfen — vermutlich ein API-Zugriffsproblem.",
+                                )
                             )
-                        )
-                        done_check_ids.add(definition.check_id)
+                            done_check_ids.add(definition.check_id)
+                        finally:
+                            _release_dotnet_objects()
+
+                    checks_this_session += 1
+                    if checks_this_session >= reconnect_every_n_checks and index < len(remaining):
+                        break  # geplanter Reconnect, siehe Docstring — kein "Abbruch", nur Session-Wechsel
                 else:
                     report("Prüfung abgeschlossen.")
-            break  # with-Block ohne Session-Abbruch durchlaufen (regulär fertig oder abgebrochen) -> keine weiteren Versuche
+
+            consecutive_failures = 0  # Session ohne Absturz beendet (fertig, geplanter Reconnect oder Abbruch)
         except disposed_exc_types as exc:
-            if attempt == max_reconnect_attempts:
+            consecutive_failures += 1
+            if consecutive_failures >= max_reconnect_attempts:
                 logger.error(
                     "TIA-Portal-Verbindung nach %d Versuchen weiterhin instabil: %s",
                     max_reconnect_attempts,
@@ -201,7 +269,7 @@ def run_lint(
                     )
                 )
                 break
-            logger.warning("TIA-Portal-Session unerwartet beendet (Versuch %d): %s", attempt, exc)
+            logger.warning("TIA-Portal-Session unerwartet beendet (Versuch %d): %s", consecutive_failures, exc)
 
     return LintReport(
         project_name=resolved_project_name,
@@ -224,14 +292,16 @@ def simulate_lint_run(
     progress: ProgressFn | None = None,
     cancel_event: threading.Event | None = None,
     max_reconnect_attempts: int = 3,
+    reconnect_every_n_checks: int = 10,
 ) -> LintReport:
     """Simuliert einen Prüflauf: 5-10 zufällige Dummy-Befunde aus den
     aktivierten Prüfpunkten, mit realistischen Statuswerten und Pfaden.
 
     Nimmt dieselben Parameter wie ``run_lint`` entgegen (inkl. ``dll_path``/
-    ``tia_version``/``max_reconnect_attempts``, hier ungenutzt), damit die
-    GUI beide Funktionen ohne Anpassung gegeneinander austauschen kann.
-    ``cancel_event`` erlaubt sauberes Abbrechen zwischen zwei Dummy-Checks.
+    ``tia_version``/``max_reconnect_attempts``/``reconnect_every_n_checks``,
+    hier ungenutzt), damit die GUI beide Funktionen ohne Anpassung
+    gegeneinander austauschen kann. ``cancel_event`` erlaubt sauberes
+    Abbrechen zwischen zwei Dummy-Checks.
     """
 
     def report(message: str) -> None:

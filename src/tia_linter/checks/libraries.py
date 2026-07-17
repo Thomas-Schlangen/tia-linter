@@ -53,10 +53,17 @@ class VeralteteBibliothekenCheck(BaseCheck):
     jede Blattmeldung ist somit ein Befund. Deckt nur die Projektbibliothek
     ab (``project.ProjectLibrary``); globale Bibliotheken sind in dieser
     Session nicht konfigurierbar.
+
+    ``UpdateCheckMode`` liegt (gegen die tatsächlich installierte V21-API
+    verifiziert, ``Siemens.Engineering.Base.xml``) unter
+    ``Siemens.Engineering.Library.Types``, nicht direkt unter
+    ``Siemens.Engineering.Library`` — der erste Testlauf gegen ein echtes
+    Projekt ist an dieser falschen Fundstelle mit einem ``ImportError``
+    gescheitert.
     """
 
     def run(self, project: Any) -> list[CheckResult]:
-        from Siemens.Engineering.Library import UpdateCheckMode
+        from Siemens.Engineering.Library.Types import UpdateCheckMode
 
         library = getattr(project, "ProjectLibrary", None)
         if library is None:

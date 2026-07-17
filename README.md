@@ -187,13 +187,21 @@ tia-linter/
 └── LICENSE
 ```
 
-## Bekannte Einschränkungen (Session 1)
+## Bekannte Einschränkungen
 
-- **Kein Testlauf gegen ein echtes TIA-Portal-Projekt.** Connector, alle
-  35 Prüfpunkte (`checks/*.py`) und `runner.run_lint()` sind vollständig
-  implementiert, aber ungetestet gegen die reale Openness API — das erfolgt
-  in einer Folge-Session unter Windows. `main.py` verwendet bis dahin
-  `runner.simulate_lint_run()` (Dummy-Befunde) statt `run_lint()`.
+- **`run_lint()` wurde erfolgreich gegen ein echtes TIA-Portal-V21-Projekt
+  getestet** (288 Bausteine, 32 DBs) — vollständiger Lauf über alle 40
+  Check-Einträge, kein Absturz, plausible Befundzahlen. Dabei gefunden und
+  behoben: ein `EngineeringOutOfMemoryException`-Absturz nach ~30 Checks
+  (TIA Portal begrenzt offene Openness-Objektinstanzen pro Session auf
+  500.000 — behoben durch planmäßigen Reconnect alle `reconnect_every_n_checks`
+  Prüfpunkte, siehe Abschnitt "Verbindungsstabilität"), ein falscher
+  Namespace für `UpdateCheckMode` (Prüfpunkt 23) sowie ein `AttributeError`
+  bei Prüfpunkt 17 (`device_item.Parent` lieferte nur ein generisches
+  `IEngineeringObject` ohne `.DeviceItems`). `main.py` verwendet weiterhin
+  standardmäßig `runner.simulate_lint_run()` (Dummy-Befunde) statt
+  `run_lint()` — die Umstellung des Produktiv-Einstiegspunkts ist ein
+  bewusster separater Schritt.
 - **API-Zugriffe wurden gegen die TIA Portal V21 Openness-Referenz (Manual
   03/2026, lokal unter `~/Dokumente/ObsidianVault/Projekte/TiaOpenness/`)
   geprüft und mehrfach korrigiert** (u. a. `MemoryLayout` statt der

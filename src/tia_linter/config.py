@@ -63,6 +63,7 @@ class AppConfig(BaseModel):
     checks: dict[str, dict[str, CheckEntryConfig]]
     logging: LoggingConfig = LoggingConfig()
     max_reconnect_attempts: int = Field(default=3, ge=1)
+    reconnect_every_n_checks: int = Field(default=10, ge=1)
 
 
 def load_app_config(path: str | Path) -> AppConfig:

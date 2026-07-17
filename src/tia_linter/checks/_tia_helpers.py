@@ -33,11 +33,17 @@ def iter_plc_software(project: Any) -> Iterator[Any]:
                 yield container.Software
 
 
-def iter_plc_targets(project: Any) -> Iterator[tuple[Any, Any]]:
-    """Liefert ``(plc_software, device_item)``-Paare — ``device_item`` ist das
-    Hardware-Objekt (CPU), das die jeweilige PLC-Software hostet. Für
+def iter_plc_targets(project: Any) -> Iterator[tuple[Any, Any, Any]]:
+    """Liefert ``(plc_software, device_item, device)``-Tripel — ``device_item``
+    ist das Hardware-Objekt (CPU), das die jeweilige PLC-Software hostet, für
     Hardware-/Safety-/Zertifikats-Prüfungen, die am ``DeviceItem`` statt an
-    der Software ansetzen (``GetService[SafetyAdministration]()`` u. Ä.)."""
+    der Software ansetzen (``GetService[SafetyAdministration]()`` u. Ä.).
+    ``device`` ist die umgebende ``Device``-Station (aus ``project.Devices``,
+    korrekt typisiert) — wird zusätzlich mitgeliefert, weil
+    ``device_item.Parent`` beim ersten Testlauf gegen ein echtes Projekt nur
+    ein generisches ``IEngineeringObject`` ohne ``.DeviceItems``-Zugriff
+    geliefert hat (bekannte Openness-Einschränkung: Navigations-Properties
+    liefern oft nur die Basisschnittstelle statt des konkreten Typs)."""
     from Siemens.Engineering.HW.Features import SoftwareContainer
     from Siemens.Engineering.SW import PlcSoftware
 
@@ -45,7 +51,7 @@ def iter_plc_targets(project: Any) -> Iterator[tuple[Any, Any]]:
         for device_item in device.DeviceItems:
             container = device_item.GetService[SoftwareContainer]()
             if container is not None and isinstance(container.Software, PlcSoftware):
-                yield container.Software, device_item
+                yield container.Software, device_item, device
 
 
 def iter_devices_with_items(project: Any) -> Iterator[tuple[Any, Any]]:

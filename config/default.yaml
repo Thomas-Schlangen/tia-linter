@@ -26,6 +26,13 @@ tia_versionen:
 # wiederholt.
 max_reconnect_attempts: 3
 
+# Nach so vielen Prüfpunkten wird die TIA-Portal-Verbindung vorsorglich neu
+# aufgebaut (unabhängig von echten Verbindungsabbrüchen). Grund: TIA Portal
+# Openness zählt offene Objekt-Instanzen pro Session und wirft ab einem
+# harten Limit (beobachtet: 500.000) eine EngineeringOutOfMemoryException,
+# lange bevor ein größeres Projekt vollständig geprüft ist — siehe README.
+reconnect_every_n_checks: 10
+
 checks:
   kommentare:
     variablen_kommentar:
