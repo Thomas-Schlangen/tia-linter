@@ -41,7 +41,14 @@ def _timestamp() -> str:
 class TiaLinterApp(tk.Tk):
     """Hauptfenster: schaltet zwischen Eingabeseite (``MainPage``) und
     Ergebnisseite (``ResultPage``) um und koordiniert den Prüflauf im
-    Hintergrund-Thread."""
+    Hintergrund-Thread.
+
+    Nimmt sowohl ``run_lint`` (Produktivmodus, Standard) als auch
+    ``simulate_lint_run`` (Testmodus, Dummy-Befunde ohne TIA-Verbindung)
+    entgegen — welche der beiden Funktionen für einen konkreten Lauf
+    verwendet wird, entscheidet die "Testmodus"-Checkbox auf der
+    ``MainPage`` zum Zeitpunkt von ``start_lint_run()``.
+    """
 
     def __init__(
         self,
@@ -49,6 +56,7 @@ class TiaLinterApp(tk.Tk):
         config_path: Path,
         settings: Settings,
         run_lint: RunLintFn,
+        simulate_lint_run: RunLintFn,
     ) -> None:
         super().__init__()
         self.title("TIA Linter")
@@ -58,7 +66,8 @@ class TiaLinterApp(tk.Tk):
         self.settings = settings
         self.definitions: list[CheckDefinition] = build_check_definitions(config)
 
-        self._run_lint = run_lint
+        self._run_lint_fn = run_lint
+        self._simulate_lint_run_fn = simulate_lint_run
         self._report: LintReport | None = None
         self._lint_thread: threading.Thread | None = None
         self._cancel_event = threading.Event()
@@ -144,8 +153,11 @@ class TiaLinterApp(tk.Tk):
         self._cancel_event = threading.Event()
         self.main_page.set_running(True)
 
+        active_run_lint = self._simulate_lint_run_fn if self.main_page.test_mode.get() else self._run_lint_fn
+
         self._lint_thread = threading.Thread(
             target=self._run_lint_thread,
+            args=(active_run_lint,),
             kwargs={
                 "dll_path": dll_path,
                 "tia_version": version_number,
@@ -166,9 +178,9 @@ class TiaLinterApp(tk.Tk):
         self._cancel_event.set()
         self._status_queue.put(("status", "Abbruch angefordert ..."))
 
-    def _run_lint_thread(self, **kwargs) -> None:
+    def _run_lint_thread(self, run_lint_fn: RunLintFn, **kwargs) -> None:
         try:
-            report = self._run_lint(progress=lambda message: self._status_queue.put(("status", message)), **kwargs)
+            report = run_lint_fn(progress=lambda message: self._status_queue.put(("status", message)), **kwargs)
             self._status_queue.put(("report", report))
         except Exception as exc:  # noqa: BLE001 — letzte Instanz gegen rohe Tracebacks in der GUI
             logger.exception("Unerwarteter Fehler bei der Prüfung")
@@ -211,6 +223,7 @@ class TiaLinterApp(tk.Tk):
         self.settings.last_output_folder = self.main_page.output_folder.get().strip()
         self.settings.last_config_path = str(self.config_path)
         self.settings.last_tia_version = self.main_page.tia_version.get()
+        self.settings.test_mode = self.main_page.test_mode.get()
         self.settings.save()
         self.destroy()
 
@@ -235,6 +248,7 @@ class MainPage(ttk.Frame):
             else app.config.tia_versionen.standard
         )
         self.tia_version = tk.StringVar(value=default_version)
+        self.test_mode = tk.BooleanVar(value=settings.test_mode)
 
         self._check_vars: dict[str, tk.BooleanVar] = {}
 
@@ -266,6 +280,12 @@ class MainPage(ttk.Frame):
         # OptionMenu setzt beim Erzeugen die Variable auf den ersten Eintrag —
         # die Vorauswahl aus settings.json danach explizit wiederherstellen.
         self.tia_version.set(default_version)
+
+        ttk.Checkbutton(
+            form,
+            text="Testmodus (simulierter Lauf ohne TIA-Verbindung, Dummy-Befunde)",
+            variable=self.test_mode,
+        ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(4, 0))
 
         checks_outer = ttk.LabelFrame(self, text="Prüfpunkte")
         checks_outer.pack(fill="both", expand=True, **pad)

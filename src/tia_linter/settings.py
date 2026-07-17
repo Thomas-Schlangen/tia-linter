@@ -21,6 +21,7 @@ class Settings:
     last_config_path: str = ""
     last_tia_version: str = ""
     window_geometry: str = DEFAULT_WINDOW_GEOMETRY
+    test_mode: bool = False
 
     @classmethod
     def load(cls, path: str | Path = DEFAULT_SETTINGS_PATH) -> "Settings":

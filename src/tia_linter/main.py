@@ -9,7 +9,7 @@ from pathlib import Path
 from my_logger import setup_logger
 
 from tia_linter.config import load_app_config
-from tia_linter.runner import simulate_lint_run
+from tia_linter.runner import run_lint, simulate_lint_run
 from tia_linter.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -52,12 +52,11 @@ def main() -> int:
 
     from tia_linter.gui import TiaLinterApp
 
-    # HINWEIS (Session 1): Es wird noch der simulierte Prüflauf verwendet, da
-    # TIA Portal unter Linux nicht verfügbar ist und der echte Prüflauf daher
-    # in dieser Session nicht getestet werden kann. Sobald runner.run_lint()
-    # unter Windows gegen ein echtes Projekt verifiziert wurde, hier auf
-    # `from tia_linter.runner import run_lint` umstellen.
-    app = TiaLinterApp(config, config_path, settings, simulate_lint_run)
+    # run_lint() ist der Produktivmodus (Standard); simulate_lint_run() bleibt
+    # über die "Testmodus"-Checkbox in der GUI erreichbar (siehe gui.py) —
+    # beide werden hier übergeben, die GUI entscheidet zur Laufzeit anhand
+    # der Checkbox, welche Funktion für den jeweiligen Lauf verwendet wird.
+    app = TiaLinterApp(config, config_path, settings, run_lint, simulate_lint_run)
     app.mainloop()
     return 0
 
