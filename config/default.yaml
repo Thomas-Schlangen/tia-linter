@@ -70,6 +70,7 @@ checks:
     konstanten_grossbuchstaben:
       enabled: true
       severity: warning
+      regex: "^[A-Z][A-Z0-9_]*$"
 
     testvariablen:
       enabled: true

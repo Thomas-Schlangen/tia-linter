@@ -91,7 +91,7 @@ CHECK_REGISTRY: dict[str, CheckMeta] = {
     "namenskonventionen.konstanten_grossbuchstaben": CheckMeta(
         name="Konstanten in GROSSBUCHSTABEN",
         category=NAMENSKONVENTIONEN,
-        description="Prüfpunkt 8: Konstante ist nicht in UPPERCASE_WITH_UNDERSCORES geschrieben.",
+        description="Prüfpunkt 8: Konstante entspricht nicht dem konfigurierten Regex (Standard: nur Großbuchstaben).",
         recommendation="Konstantenname in Großbuchstaben mit Unterstrichen umbenennen.",
     ),
     "namenskonventionen.testvariablen": CheckMeta(

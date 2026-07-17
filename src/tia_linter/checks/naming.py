@@ -125,12 +125,11 @@ class FcPrefixCheck(_BlockPrefixCheck):
 
 
 class KonstantenGrossbuchstabenCheck(BaseCheck):
-    """Prüfpunkt 8: Konstanten nicht in UPPERCASE_WITH_UNDERSCORES."""
-
-    _UPPERCASE_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]*$")
+    """Prüfpunkt 8: Konstanten entsprechen nicht dem konfigurierten Regex (Standard: nur Großbuchstaben)."""
 
     def run(self, project: Any) -> list[CheckResult]:
         results: list[CheckResult] = []
+        pattern = re.compile(self.definition.params.get("regex", "^[A-Z][A-Z0-9_]*$"))
 
         for plc_software in iter_plc_software(project):
             for tag_table in iter_tag_tables(plc_software):
@@ -144,11 +143,11 @@ class KonstantenGrossbuchstabenCheck(BaseCheck):
                     continue
                 for constant in constants:
                     name = constant.Name
-                    if not self._UPPERCASE_PATTERN.match(name):
+                    if not pattern.match(name):
                         results.append(
                             self._make_result(
                                 path=format_path(plc_software.Name, "Variablentabellen", tag_table.Name, name),
-                                description=f"Konstante '{name}' ist nicht in GROSSBUCHSTABEN_MIT_UNTERSTRICHEN.",
+                                description=f"Konstante '{name}' entspricht nicht dem Muster '{pattern.pattern}'.",
                                 value=name,
                             )
                         )
