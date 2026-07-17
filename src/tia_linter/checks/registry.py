@@ -88,11 +88,11 @@ CHECK_REGISTRY: dict[str, CheckMeta] = {
         description="Prüfpunkt 7: Funktion ohne konfiguriertes Präfix oder mit Leerzeichen im Namen.",
         recommendation="Funktion umbenennen (Präfix ergänzen, Leerzeichen entfernen).",
     ),
-    "namenskonventionen.konstanten_grossbuchstaben": CheckMeta(
-        name="Konstanten in GROSSBUCHSTABEN",
+    "namenskonventionen.konstanten_format": CheckMeta(
+        name="Konstanten-Namensformat",
         category=NAMENSKONVENTIONEN,
         description="Prüfpunkt 8: Konstante entspricht nicht dem konfigurierten Regex (Standard: nur Großbuchstaben).",
-        recommendation="Konstantenname in Großbuchstaben mit Unterstrichen umbenennen.",
+        recommendation="Konstantenname gemäß Namenskonvention anpassen (siehe Konfiguration).",
     ),
     "namenskonventionen.testvariablen": CheckMeta(
         name="Testvariablen vorhanden",

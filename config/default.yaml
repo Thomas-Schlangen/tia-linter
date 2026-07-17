@@ -67,7 +67,7 @@ checks:
       severity: error
       prefix: "FC_"
 
-    konstanten_grossbuchstaben:
+    konstanten_format:
       enabled: true
       severity: warning
       regex: "^[A-Z][A-Z0-9_]*$"

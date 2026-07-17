@@ -124,7 +124,7 @@ class FcPrefixCheck(_BlockPrefixCheck):
     _block_type_name = "FC"
 
 
-class KonstantenGrossbuchstabenCheck(BaseCheck):
+class KonstantenFormatCheck(BaseCheck):
     """Prüfpunkt 8: Konstanten entsprechen nicht dem konfigurierten Regex (Standard: nur Großbuchstaben)."""
 
     def run(self, project: Any) -> list[CheckResult]:
@@ -183,6 +183,6 @@ CHECK_CLASSES = {
     "namenskonventionen.plc_tag_ausgaenge": PlcTagAusgaengeCheck,
     "namenskonventionen.fb_prefix": FbPrefixCheck,
     "namenskonventionen.fc_prefix": FcPrefixCheck,
-    "namenskonventionen.konstanten_grossbuchstaben": KonstantenGrossbuchstabenCheck,
+    "namenskonventionen.konstanten_format": KonstantenFormatCheck,
     "namenskonventionen.testvariablen": TestvariablenCheck,
 }
