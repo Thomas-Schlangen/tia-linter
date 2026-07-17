@@ -131,6 +131,7 @@ class TiaLinterApp(tk.Tk):
         version_name = self.main_page.tia_version.get()
         version_entry = self.config.tia_versionen.find(version_name)
         dll_path = version_entry.dll_pfad if version_entry else ""
+        version_number = version_entry.version if version_entry else 0
 
         if self.config.logging.file:
             project_name = Path(project_path_str).stem
@@ -146,6 +147,7 @@ class TiaLinterApp(tk.Tk):
             target=self._run_lint_thread,
             kwargs={
                 "dll_path": dll_path,
+                "tia_version": version_number,
                 "project_path": project_path_str,
                 "project_name": Path(project_path_str).stem,
                 "tia_version_name": version_name,

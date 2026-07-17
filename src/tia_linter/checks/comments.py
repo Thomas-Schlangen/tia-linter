@@ -1,0 +1,160 @@
+"""Prüfpunkte 1-4: Kommentare & Beschreibungen."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from tia_linter.checks._tia_helpers import (
+    compile_unit_attribute,
+    export_block_xml,
+    format_path,
+    get_attribute,
+    iter_compile_units,
+    iter_data_blocks,
+    iter_plc_software,
+    iter_tag_tables,
+)
+from tia_linter.checks.base import BaseCheck
+from tia_linter.models import CheckResult
+from tia_linter.project_texts import ProjectTextComments
+
+
+class VariablenKommentarCheck(BaseCheck):
+    """Prüfpunkt 1: PLC-Tags und DB-Variablen ohne Kommentar."""
+
+    def run(self, project: Any) -> list[CheckResult]:
+        results: list[CheckResult] = []
+        exception_prefixes = tuple(self.definition.params.get("ausnahme_prefixe", []))
+
+        for plc_software in iter_plc_software(project):
+            plc_name = plc_software.Name
+
+            for tag_table in iter_tag_tables(plc_software):
+                for tag in tag_table.Tags:
+                    tag_name = tag.Name
+                    if tag_name.startswith(exception_prefixes):
+                        continue
+                    comment = get_attribute(tag, "Comment", "")
+                    if not str(comment or "").strip():
+                        results.append(
+                            self._make_result(
+                                path=format_path(
+                                    plc_name, "Variablentabellen", tag_table.Name, tag_name
+                                ),
+                                description=f"Variable '{tag_name}' hat keinen Kommentar.",
+                                value=tag_name,
+                            )
+                        )
+
+            project_texts = ProjectTextComments.load(project)
+            for db, group_path in iter_data_blocks(plc_software):
+                db_name = db.Name
+                for member in getattr(getattr(db, "Interface", None), "Members", []):
+                    member_name = member.Name
+                    if member_name.startswith(exception_prefixes):
+                        continue
+                    comment = project_texts.get(plc_name, db_name, member_name)
+                    if not comment:
+                        results.append(
+                            self._make_result(
+                                path=format_path(
+                                    plc_name, "Datenbaustein", *group_path, db_name, "Member", member_name
+                                ),
+                                description=f"DB-Variable '{member_name}' hat keinen Kommentar.",
+                                value=member_name,
+                            )
+                        )
+        return results
+
+
+class BausteinBeschreibungCheck(BaseCheck):
+    """Prüfpunkt 2: Bausteine ohne (aussagekräftige) Kopfbeschreibung."""
+
+    def run(self, project: Any) -> list[CheckResult]:
+        from tia_linter.checks._tia_helpers import iter_blocks
+
+        results: list[CheckResult] = []
+        min_length = int(self.definition.params.get("min_laenge", 20))
+
+        for plc_software in iter_plc_software(project):
+            for block, group_path in iter_blocks(plc_software):
+                comment = str(get_attribute(block, "Comment", "") or "").strip()
+                if len(comment) < min_length:
+                    results.append(
+                        self._make_result(
+                            path=format_path(plc_software.Name, "Programmbausteine", *group_path, block.Name),
+                            description=(
+                                f"Baustein '{block.Name}' hat keine oder zu kurze Kopfbeschreibung "
+                                f"(mind. {min_length} Zeichen erwartet)."
+                            ),
+                            value=comment,
+                        )
+                    )
+        return results
+
+
+class NetzwerkBeschreibungCheck(BaseCheck):
+    """Prüfpunkt 3: Netzwerke ohne Titel bzw. mit zu langer Beschreibung."""
+
+    def run(self, project: Any) -> list[CheckResult]:
+        from tia_linter.checks._tia_helpers import iter_blocks
+
+        results: list[CheckResult] = []
+        max_chars = int(self.definition.params.get("max_zeichen", 80))
+
+        for plc_software in iter_plc_software(project):
+            for block, group_path in iter_blocks(plc_software):
+                if get_attribute(block, "ProgrammingLanguage") in ("SCL", "STL"):
+                    continue  # Netzwerk-Titel gibt es nur bei grafischen Sprachen (LAD/FBD/GRAPH)
+
+                xml_root = export_block_xml(block)
+                for index, compile_unit in enumerate(iter_compile_units(xml_root), start=1):
+                    title = (compile_unit_attribute(compile_unit, "Title") or "").strip()
+                    block_path = format_path(
+                        plc_software.Name, "Programmbausteine", *group_path, block.Name, f"Netzwerk {index}"
+                    )
+                    if not title:
+                        results.append(
+                            self._make_result(path=block_path, description="Netzwerk hat keinen Titel.")
+                        )
+                    elif len(title) > max_chars:
+                        results.append(
+                            self._make_result(
+                                path=block_path,
+                                description=f"Netzwerktitel ist länger als {max_chars} Zeichen.",
+                                value=title,
+                            )
+                        )
+        return results
+
+
+class AenderungshistorieCheck(BaseCheck):
+    """Prüfpunkt 4: Bausteinkopf ohne Versionsinfo/Änderungshistorie."""
+
+    def run(self, project: Any) -> list[CheckResult]:
+        from tia_linter.checks._tia_helpers import iter_blocks
+
+        results: list[CheckResult] = []
+
+        for plc_software in iter_plc_software(project):
+            for block, group_path in iter_blocks(plc_software):
+                author = str(get_attribute(block, "HeaderAuthor", "") or "").strip()
+                version = str(get_attribute(block, "HeaderVersion", "") or "").strip()
+                if not author and not version:
+                    results.append(
+                        self._make_result(
+                            path=format_path(plc_software.Name, "Programmbausteine", *group_path, block.Name),
+                            description=(
+                                f"Baustein '{block.Name}' hat weder Autor noch Version im Bausteinkopf hinterlegt."
+                            ),
+                        )
+                    )
+        return results
+
+
+CHECK_CLASSES = {
+    "kommentare.variablen_kommentar": VariablenKommentarCheck,
+    "kommentare.baustein_beschreibung": BausteinBeschreibungCheck,
+    "kommentare.netzwerk_beschreibung": NetzwerkBeschreibungCheck,
+    "kommentare.aenderungshistorie": AenderungshistorieCheck,
+}
