@@ -1,0 +1,210 @@
+# TIA Linter — Standard-Konfiguration
+#
+# Enthält alle 35 Prüfpunkte aus Pruefpunkte.md (einige Prüfpunkte sind hier
+# als mehrere separat schaltbare Einträge abgebildet, z. B. Prüfpunkt 6 als
+# plc_tag_eingaenge + plc_tag_ausgaenge).
+#
+# enabled   — Standardzustand der Checkbox in der GUI
+# severity  — Standard-Schweregrad bei Verstoß: warning | error
+# weitere Schlüssel je Prüfpunkt: Regex, Schwellenwerte, Listen, ...
+
+report:
+  pruefer: ""
+  firma: ""
+  logo_pfad: ""
+
+tia_versionen:
+  verfuegbar:
+    - name: "TIA Portal V21"
+      version: 21
+      dll_pfad: "C:\\Program Files\\Siemens\\Automation\\Portal V21\\PublicAPI\\V21\\net48\\Siemens.Engineering.Base.dll"
+  standard: "TIA Portal V21"
+
+checks:
+  kommentare:
+    variablen_kommentar:
+      enabled: true
+      severity: warning
+      ausnahme_prefixe: ["_"]
+
+    baustein_beschreibung:
+      enabled: true
+      severity: warning
+      min_laenge: 20
+
+    netzwerk_beschreibung:
+      enabled: true
+      severity: warning
+      max_zeichen: 80
+
+    aenderungshistorie:
+      enabled: true
+      severity: warning
+
+  namenskonventionen:
+    db_format:
+      enabled: true
+      severity: error
+      regex: "^DB_[A-Za-z]"
+
+    plc_tag_eingaenge:
+      enabled: true
+      severity: error
+      regex: "^I_"
+
+    plc_tag_ausgaenge:
+      enabled: true
+      severity: error
+      regex: "^Q_"
+
+    fb_prefix:
+      enabled: true
+      severity: error
+      prefix: "FB_"
+
+    fc_prefix:
+      enabled: true
+      severity: error
+      prefix: "FC_"
+
+    konstanten_grossbuchstaben:
+      enabled: true
+      severity: warning
+
+    testvariablen:
+      enabled: true
+      severity: warning
+      prefixe: ["TEST_", "DEBUG_", "_TEMP"]
+
+  programmstruktur:
+    leere_netzwerke:
+      enabled: true
+      severity: warning
+
+    unbenutzte_variablen:
+      enabled: true
+      severity: warning
+
+    unbenutzte_bausteine:
+      enabled: true
+      severity: warning
+
+    eingaenge_gelesen:
+      enabled: true
+      severity: warning
+
+    ausgaenge_mehrfach_schreiben:
+      enabled: true
+      severity: error
+
+    awl_code:
+      enabled: true
+      severity: warning
+
+    gemischte_sprachen:
+      enabled: true
+      severity: warning
+
+    max_netzwerk_elemente:
+      enabled: true
+      severity: warning
+      max_elemente: 50
+
+  hardware:
+    hardware_vorhanden:
+      enabled: true
+      severity: error
+
+    cpu_firmware_dokumentiert:
+      enabled: true
+      severity: warning
+
+    safety_passwort:
+      enabled: true
+      severity: error
+
+    zertifikat:
+      enabled: true
+      severity: warning
+      min_restlaufzeit_monate: 6
+
+  projektmetadaten:
+    pflichtfelder:
+      enabled: true
+      severity: warning
+      felder: ["Autor", "Version"]
+
+    max_sprachen:
+      enabled: true
+      severity: warning
+      max: 2
+
+    kompilierfehler:
+      enabled: true
+      severity: error
+
+    projektversion:
+      enabled: true
+      severity: warning
+
+  bibliotheken:
+    veraltete_bibliotheken:
+      enabled: true
+      severity: warning
+
+    verwaiste_instanz_dbs:
+      enabled: true
+      severity: error
+
+  styleguide:
+    sprachen_konsistent:
+      enabled: true
+      severity: warning
+      erwartete_sprache: "de"
+
+    static_zugriff_extern:
+      enabled: true
+      severity: warning
+
+    output_mehrfach_beschrieben:
+      enabled: true
+      severity: error
+
+    multi_instanzen:
+      enabled: true
+      severity: warning
+
+    udt_wiederkehrende_strukturen:
+      enabled: true
+      severity: warning
+
+    ob1_komplexitaet:
+      enabled: true
+      severity: warning
+      max_netzwerke_mit_logik: 5
+
+    know_how_schutz:
+      enabled: true
+      severity: warning
+
+    tag_tabellen_nur_io:
+      enabled: true
+      severity: warning
+
+    nicht_optimierte_bausteine:
+      enabled: true
+      severity: warning
+
+    bausteine_im_root:
+      enabled: true
+      severity: warning
+      max_bausteine_root: 20
+
+    schreibschutz:
+      enabled: true
+      severity: warning
+
+logging:
+  level: "INFO"
+  file: null
+  console: true

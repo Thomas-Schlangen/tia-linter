@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tia-linter"
+version = "0.1.0"
+description = "TIA Portal Projekt Qualitätsprüfer — prüft Konventionen und Qualität, erstellt PDF-Report"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "GPL-3.0-or-later" }
+authors = [{ name = "Thomas Schlangen" }]
+
+dependencies = [
+    "pythonnet>=3.0.3",
+    "pyyaml>=6.0",
+    "pydantic>=2.0",
+    "reportlab>=4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[project.scripts]
+tia-linter = "tia_linter.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tia_linter", "src/config_loader", "src/my_logger"]
