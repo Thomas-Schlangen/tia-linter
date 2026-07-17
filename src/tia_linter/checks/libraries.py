@@ -1,10 +1,13 @@
 """Prüfpunkte 23-35: Bibliotheken & Typen sowie Siemens Styleguide & Best Practices.
 
-Einige Checks in diesem Modul (26-29, 35) beruhen auf Attributen/Diensten,
-die in der allgemeinen Openness-Referenzdokumentation nicht abschließend
-belegt sind (siehe jeweilige Klassen-Docstrings) — Struktur und Zugriffspfad
-sind plausibel gewählt, aber vor produktivem Einsatz gegen ein echtes
-TIA-Portal-V21-Projekt zu verifizieren (siehe README, "Bekannte Einschränkungen").
+Gegen die TIA Portal V21 Openness-Referenz (Manual 03/2026, lokal unter
+~/Dokumente/ObsidianVault/Projekte/TiaOpenness/) geprüft. Checks 26/27 (Static-
+/Output-Zugriff auf einzelne Interface-Member) bleiben teilweise heuristisch,
+da die Referenz zwar bestätigt, dass Member als namenlose Kind-Objekte im
+Kreuzreferenzbaum ihres Bausteins/DBs auftauchen (siehe
+``_tia_helpers.find_source_child_by_name``), aber kein Codebeispiel zeigt,
+welche ``Location``-Eigenschaft den Namen des zugreifenden Bausteins trägt —
+siehe jeweiligen Klassen-Docstring.
 """
 
 from __future__ import annotations
@@ -14,10 +17,12 @@ from typing import Any
 from tia_linter.checks._tia_helpers import (
     compile_unit_attribute,
     compile_unit_element_count,
-    cross_reference_locations,
+    cross_reference_root_source,
     export_block_xml,
+    find_source_child_by_name,
     format_path,
     get_attribute,
+    interface_section_members,
     iter_blocks,
     iter_compile_units,
     iter_data_blocks,
@@ -142,47 +147,74 @@ class SprachenKonsistentCheck(BaseCheck):
 class StaticZugriffExternCheck(BaseCheck):
     """Prüfpunkt 26: Static-Tags eines FB werden von außerhalb direkt gelesen/beschrieben.
 
-    Nicht abschließend belegt: ob ``Interface.Member``-Objekte selbst einen
-    ``CrossReferenceService`` bereitstellen (die Referenzdokumentation belegt
-    das nur für Bausteine). ``cross_reference_locations`` fängt eine
-    fehlende Service-Verfügbarkeit ab und liefert dann schlicht keine
-    Befunde für diesen Member.
+    Ablauf: Die Namen der "Static"-Interface-Mitglieder kommen aus dem
+    XML-Export der FB-Definition (Interface-Sections sind dort laut V21-
+    Referenz bestätigt vorhanden, siehe ``interface_section_members``). Der
+    Kreuzreferenzbaum der zugehörigen Instanz-DB (``CrossReferenceService``
+    ist für Instanz-DBs laut V21-Referenz bestätigt unterstützt) wird dann
+    nach einem Kind-Objekt mit passendem Namen durchsucht
+    (``find_source_child_by_name`` — Member erscheinen dort laut Referenz als
+    Kind-Objekte ohne ``UnderlyingObject``, aber mit Namens-Textinfo).
+    Welche ``Location``-Eigenschaft den Namen des zugreifenden Bausteins
+    trägt, zeigt kein Codebeispiel in der Referenz — hier wird
+    ``Location.Name`` verwendet (plausibelste der dokumentierten
+    Location-Eigenschaften), nicht gegen ein echtes Projekt verifiziert.
     """
 
     def run(self, project: Any) -> list[CheckResult]:
-        from Siemens.Engineering.SW.Blocks import InstanceDB
+        from Siemens.Engineering.SW.Blocks import FB, InstanceDB
 
         results: list[CheckResult] = []
         for plc_software in iter_plc_software(project):
+            fb_by_name = {block.Name: block for block, _ in iter_blocks(plc_software) if isinstance(block, FB)}
+
             for db, group_path in iter_data_blocks(plc_software):
                 if not isinstance(db, InstanceDB):
                     continue
-                owner_fb = str(get_attribute(db, "InstanceOfName", "") or "")
-                interface = getattr(db, "Interface", None)
-                for member in getattr(interface, "Members", []) or []:
-                    if str(get_attribute(member, "Modifier", "")).lower() != "static":
+                owner_name = str(get_attribute(db, "InstanceOfName", "") or "")
+                owner_fb = fb_by_name.get(owner_name)
+                if owner_fb is None:
+                    continue
+
+                static_members = interface_section_members(export_block_xml(owner_fb), "Static")
+                if not static_members:
+                    continue
+
+                root_source = cross_reference_root_source(db)
+                if root_source is None:
+                    continue
+
+                for member_name in static_members:
+                    member_source = find_source_child_by_name(root_source, member_name)
+                    if member_source is None:
                         continue
-                    for location in cross_reference_locations(member):
-                        source_block_name = str(getattr(getattr(location, "Parent", None), "Name", "") or "")
-                        if source_block_name and source_block_name != owner_fb and source_block_name != db.Name:
-                            results.append(
-                                self._make_result(
-                                    path=format_path(
-                                        plc_software.Name, "Datenbaustein", *group_path, db.Name, "Member", member.Name
-                                    ),
-                                    description=(
-                                        f"Static-Tag '{member.Name}' wird von außerhalb "
-                                        f"('{source_block_name}') direkt zugegriffen."
-                                    ),
-                                    value=source_block_name,
+                    for reference in getattr(member_source, "References", []) or []:
+                        for location in getattr(reference, "Locations", []) or []:
+                            accessor = str(getattr(location, "Name", "") or "")
+                            if accessor and accessor not in (owner_name, db.Name):
+                                results.append(
+                                    self._make_result(
+                                        path=format_path(
+                                            plc_software.Name, "Datenbaustein", *group_path, db.Name, "Member", member_name
+                                        ),
+                                        description=(
+                                            f"Static-Tag '{member_name}' wird von außerhalb "
+                                            f"('{accessor}') direkt zugegriffen."
+                                        ),
+                                        value=accessor,
+                                    )
                                 )
-                            )
-                            break
         return results
 
 
 class OutputMehrfachBeschriebenCheck(BaseCheck):
-    """Prüfpunkt 27: VAR_OUTPUT-Parameter wird an mehreren Stellen im Baustein beschrieben."""
+    """Prüfpunkt 27: VAR_OUTPUT-Parameter wird an mehreren Stellen beschrieben.
+
+    Wie Prüfpunkt 26: Output-Mitgliedernamen kommen aus dem XML-Export
+    (Interface-Section "Output"), die Kreuzreferenz wird direkt am FB/FC
+    abgefragt (bestätigt unterstützter Objekttyp) und pro gefundenem
+    Output-Mitglied werden ``Access``-Schreibzugriffe gezählt.
+    """
 
     def run(self, project: Any) -> list[CheckResult]:
         from Siemens.Engineering.CrossReference import Access
@@ -193,19 +225,32 @@ class OutputMehrfachBeschriebenCheck(BaseCheck):
             for block, group_path in iter_blocks(plc_software):
                 if not isinstance(block, (FB, FC)):
                     continue
-                interface = getattr(block, "Interface", None)
-                for member in getattr(interface, "Members", []) or []:
-                    if str(get_attribute(member, "Modifier", "")).lower() != "output":
+
+                output_members = interface_section_members(export_block_xml(block), "Output")
+                if not output_members:
+                    continue
+
+                root_source = cross_reference_root_source(block)
+                if root_source is None:
+                    continue
+
+                for member_name in output_members:
+                    member_source = find_source_child_by_name(root_source, member_name)
+                    if member_source is None:
                         continue
-                    locations = cross_reference_locations(member)
-                    write_count = sum(1 for loc in locations if getattr(loc, "Access", None) == Access.Write)
+                    write_count = sum(
+                        1
+                        for reference in getattr(member_source, "References", []) or []
+                        for location in getattr(reference, "Locations", []) or []
+                        if getattr(location, "Access", None) == Access.Write
+                    )
                     if write_count > 1:
                         results.append(
                             self._make_result(
                                 path=format_path(
-                                    plc_software.Name, "Programmbausteine", *group_path, block.Name, member.Name
+                                    plc_software.Name, "Programmbausteine", *group_path, block.Name, member_name
                                 ),
-                                description=f"Output-Parameter '{member.Name}' wird an {write_count} Stellen beschrieben.",
+                                description=f"Output-Parameter '{member_name}' wird an {write_count} Stellen beschrieben.",
                                 value=str(write_count),
                             )
                         )
@@ -363,18 +408,25 @@ class TagTabellenNurIoCheck(BaseCheck):
 
 
 class NichtOptimierteBausteineCheck(BaseCheck):
-    """Prüfpunkt 33: Bausteine mit Standard- statt optimiertem Bausteinzugriff."""
+    """Prüfpunkt 33: Bausteine mit Standard- statt optimiertem Bausteinzugriff.
+
+    Attribut ``MemoryLayout`` (enum, Werte ``Standard``/``Optimized``) ist in
+    der V21-Openness-Referenz als allgemeines Bausteinattribut bestätigt
+    (Manual 03/2026, "Standardwert: Standard bei klassischen PLCs und
+    Optimized bei S7-1200/1500-PLCs") — ersetzt die ursprünglich angenommene,
+    nicht belegte Eigenschaft ``IsOptimizedBlockAccess``.
+    """
 
     def run(self, project: Any) -> list[CheckResult]:
         results: list[CheckResult] = []
         for plc_software in iter_plc_software(project):
             for block, group_path in iter_blocks(plc_software):
-                is_optimized = get_attribute(block, "IsOptimizedBlockAccess")
-                if is_optimized is False:
+                memory_layout = str(get_attribute(block, "MemoryLayout", "") or "")
+                if memory_layout == "Standard":
                     results.append(
                         self._make_result(
                             path=format_path(plc_software.Name, "Programmbausteine", *group_path, block.Name),
-                            description=f"Baustein '{block.Name}' ist nicht optimiert (Standardzugriff).",
+                            description=f"Baustein '{block.Name}' ist nicht optimiert (MemoryLayout = Standard).",
                         )
                     )
         return results
@@ -406,11 +458,14 @@ class BausteineImRootCheck(BaseCheck):
 class SchreibschutzCheck(BaseCheck):
     """Prüfpunkt 35 (neu in V21): Schreibschutz von Bausteinen ohne Dokumentation.
 
-    Attributname ``IsWriteProtected`` ist eine plausible Annahme (V21 führt
-    laut Openness-API-V21-Aenderungen.md "Verwalten des Schreibschutzes von
-    Bausteinen" neu ein) — nicht gegen ein echtes V21-Projekt verifiziert.
-    ``get_attribute`` liefert defensiv ``None``/``False``, falls das Attribut
-    nicht existiert, statt abzustürzen.
+    Attribut ``IsWriteProtected`` (Bool) ist als allgemeines Bausteinattribut
+    in der V21-Openness-Referenz bestätigt (Manual 03/2026, Tabelle der
+    allgemeinen Bausteinattribute). Getrennt davon führt V21 zusätzlich den
+    Dienst ``PlcBlockWriteProtectionProvider`` ein (Passwort-Workflow zum
+    Setzen/Aufheben des Schutzes, Abschnitt "Schreibschutz für Bausteine
+    einrichten") — dieser bietet aber keine dokumentierte Eigenschaft zum
+    reinen Auslesen des aktuellen Schutzstatus, daher wird hier weiterhin
+    das lesbare ``IsWriteProtected``-Attribut verwendet.
     """
 
     def run(self, project: Any) -> list[CheckResult]:

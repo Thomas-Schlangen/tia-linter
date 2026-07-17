@@ -181,21 +181,28 @@ tia-linter/
   implementiert, aber ungetestet gegen die reale Openness API — das erfolgt
   in einer Folge-Session unter Windows. `main.py` verwendet bis dahin
   `runner.simulate_lint_run()` (Dummy-Befunde) statt `run_lint()`.
+- **API-Zugriffe wurden gegen die TIA Portal V21 Openness-Referenz (Manual
+  03/2026, lokal unter `~/Dokumente/ObsidianVault/Projekte/TiaOpenness/`)
+  geprüft und mehrfach korrigiert** (u. a. `MemoryLayout` statt der
+  ursprünglich angenommenen `IsOptimizedBlockAccess`, `ICompilable`-Dienst
+  statt einer direkten `Compile()`-Methode, `CrossReferenceService` nur auf
+  einzelnen STEP-7-Objekten statt auf der PLC-Software als Ganzes). Details
+  und Fundstellen in den jeweiligen Klassen-Docstrings.
 - **Netzwerk-Inhalte (Titel, Kommentar, Elementanzahl, Sprache pro Netzwerk)**
   werden über den XML-Export eines Bausteins gelesen (`Block.Export()` +
   Parsen des SIMATIC-ML-Dokuments, siehe `checks/_tia_helpers.py`) — die
-  allgemeine Openness-Referenzdokumentation bietet dafür keinen direkten
-  Objektzugriff. Die angenommenen XML-Elementnamen (`SW.Blocks.CompileUnit`
-  mit `ProgrammingLanguage`/`Title`/`Comment`) sind **nicht** gegen einen
-  echten Export verifiziert. Betrifft: Prüfpunkte 3, 10, 15, 16, 30.
-- **Kreuzreferenz-Scope unklar:** Ob `CrossReferenceService` auch auf
-  einzelnen Interface-Membern (nicht nur Tags/Bausteinen) verfügbar ist, ist
-  nicht belegt. Betrifft: Prüfpunkte 11, 11b, 12, 13, 26, 27.
-- **Weitere unverifizierte Annahmen:** Zugriffspfad auf PLC-Konstanten
-  (Prüfpunkt 8, `TagTable.UserConstants`), Attributname für Bausteinschutz
-  in V21 (Prüfpunkt 35, `IsWriteProtected`), Hardware-Adressabgleich
-  (Prüfpunkt 17, hier vereinfacht auf "PLC ganz ohne Zusatzmodule").
-  Jeweils im Docstring der betroffenen Check-Klasse dokumentiert.
+  Openness-Referenz bestätigt den Export-Aufruf selbst und die
+  Interface-Section-Struktur (`<Sections><Section Name="Static">`), aber
+  nicht die exakten Netzwerk-Elementnamen (angenommen: `SW.Blocks.CompileUnit`
+  mit `ProgrammingLanguage`/`Title`/`Comment`). Betrifft: Prüfpunkte 3, 10,
+  15, 16, 30.
+- **Prüfpunkte 26/27 (Static-/Output-Zugriff auf einzelne Interface-Member)**
+  bleiben heuristisch: Die Referenz bestätigt, dass Member als namenlose
+  Kind-Objekte im Kreuzreferenzbaum ihres Bausteins/DBs auftauchen, zeigt
+  aber kein Codebeispiel dafür, welche `Location`-Eigenschaft den Namen des
+  zugreifenden Bausteins trägt (`Location.Name` wird angenommen).
+- Hardware-Adressabgleich (Prüfpunkt 17) ist vereinfacht auf "PLC ganz ohne
+  Zusatzmodule" statt exaktem Adressbereichs-Abgleich pro I/O-Tag.
 
 ## License
 

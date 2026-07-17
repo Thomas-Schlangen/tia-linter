@@ -49,13 +49,29 @@ class MaxSprachenCheck(BaseCheck):
 
 
 class KompilierfehlerCheck(BaseCheck):
-    """Prüfpunkt 21: Kompilierfehler und -warnungen je PLC-Software."""
+    """Prüfpunkt 21: Kompilierfehler und -warnungen je PLC-Software.
+
+    Übersetzt wird über den ``ICompilable``-Dienst, nicht über eine direkte
+    ``Compile()``-Methode auf der PLC-Software — bestätigt durch die V21-
+    Openness-Referenz (Manual 03/2026, Namespace ``Siemens.Engineering.Compiler``):
+    ``plcSoftware.GetService<ICompilable>().Compile()``. Voraussetzung laut
+    Referenz: alle Geräte müssen vor dem Start der Übersetzung offline sein.
+
+    ``CompilerResultMessage`` hat laut Referenz **kein** ``Severity``-Feld,
+    sondern rekursiv verschachtelte ``Messages`` mit je eigenem
+    ``ErrorCount``/``WarningCount`` (analog zu ``UpdateCheckResultMessage`` in
+    ``libraries.py``) — Blattmeldungen mit ``ErrorCount > 0`` werden als
+    Fehler eingestuft, alle übrigen als Warnung.
+    """
 
     def run(self, project: Any) -> list[CheckResult]:
+        from Siemens.Engineering.Compiler import ICompilable
+
         results: list[CheckResult] = []
         for plc_software in iter_plc_software(project):
             try:
-                compile_result = plc_software.Compile()
+                compile_service = plc_software.GetService[ICompilable]()
+                compile_result = compile_service.Compile()
             except Exception as exc:  # noqa: BLE001 — .NET-Exception beim Übersetzen
                 results.append(
                     self._make_result(
@@ -66,18 +82,30 @@ class KompilierfehlerCheck(BaseCheck):
                 )
                 continue
 
-            for message in getattr(compile_result, "Messages", []) or []:
-                description = str(getattr(message, "Description", message))
-                severity = str(getattr(message, "Severity", "")).lower()
-                status = CheckStatus.ERROR if "error" in severity else CheckStatus.WARNING
+            for message in _leaf_compiler_messages(getattr(compile_result, "Messages", [])):
+                description = str(getattr(message, "Description", "Compiler-Meldung"))
+                error_count = int(getattr(message, "ErrorCount", 0) or 0)
+                status = CheckStatus.ERROR if error_count > 0 else CheckStatus.WARNING
+                path_hint = str(getattr(message, "Path", "") or "")
                 results.append(
                     self._make_result(
-                        path=format_path(plc_software.Name, "Compiler-Meldung"),
+                        path=format_path(plc_software.Name, "Compiler-Meldung", path_hint),
                         description=description,
                         status=status,
                     )
                 )
         return results
+
+
+def _leaf_compiler_messages(messages: Any) -> list[Any]:
+    leaves = []
+    for message in messages or []:
+        children = list(getattr(message, "Messages", []) or [])
+        if children:
+            leaves.extend(_leaf_compiler_messages(children))
+        else:
+            leaves.append(message)
+    return leaves
 
 
 class ProjektversionCheck(BaseCheck):

@@ -1,11 +1,12 @@
 """Prüfpunkte 10-16: Programmstruktur.
 
-Prüfpunkte 11-13 (Kreuzreferenz-basiert) nutzen den ``CrossReferenceService``
-(siehe Openness-API-Referenz-fuer-Linter.md) — die exakte Objekt-Scope
-(Baustein/PLC-Software/Projekt), auf der der Service abgerufen werden muss,
-ist in der allgemeinen Referenzdokumentation nicht abschließend belegt; hier
-wird er auf PLC-Software- bzw. Tag-Ebene verwendet (plausibelste Variante,
-nicht gegen ein echtes Projekt verifiziert).
+Prüfpunkte 11-13 nutzen den ``CrossReferenceService``. Gegen die TIA Portal
+V21 Openness-Referenz (Manual 03/2026, Abschnitt "Unter STEP 7 auf Cross
+Reference Service zugreifen") verifiziert: der Dienst ist nur auf einzelnen
+STEP-7-Objekten verfügbar (OB, FB, FC, DB, Instanz-DB, Globaler DB, Array-DB,
+PLC-Variable, PLC-Systemkonstante, PLC-Anwenderdatentyp) — **nicht** auf der
+PLC-Software als Ganzes. Entsprechend wird hier pro Tag bzw. pro Baustein
+abgefragt, nicht projektweit in einem Aufruf.
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ from tia_linter.checks._tia_helpers import (
     get_attribute,
     iter_blocks,
     iter_compile_units,
+    iter_data_blocks,
     iter_plc_software,
     iter_tag_tables,
     tag_direction,
@@ -53,58 +55,80 @@ class LeereNetzwerkeCheck(BaseCheck):
 
 
 class UnbenutzteVariablenCheck(BaseCheck):
-    """Prüfpunkt 11: PLC-Tags/DB-Variablen ohne jegliche Referenz im Programm."""
+    """Prüfpunkt 11: PLC-Tags ohne jegliche Referenz im Programm, sowie
+    unbenutzte DB-Variablen.
+
+    PLC-Tags: ``cross_reference_locations`` direkt am Tag (bestätigt
+    unterstützter Objekttyp) — leer bedeutet unbenutzt. DB-Variablen: da
+    Interface-Member selbst keinen ``CrossReferenceService`` bereitstellen,
+    wird ``CrossReferenceFilter.UnusedObjects`` am jeweiligen DB abgefragt
+    (DB ist bestätigt unterstützt) — die zurückgegebenen ``Sources`` sind
+    dann die unbenutzten Mitglieder dieses DBs.
+    """
 
     def run(self, project: Any) -> list[CheckResult]:
         from Siemens.Engineering.CrossReference import CrossReferenceFilter, CrossReferenceService
 
         results: list[CheckResult] = []
         for plc_software in iter_plc_software(project):
-            service = plc_software.GetService[CrossReferenceService]()
-            if service is None:
-                continue
-            cross_ref = service.GetCrossReferences(CrossReferenceFilter.UnusedObjects)
-            for source in getattr(cross_ref, "Sources", []) or []:
-                type_name = str(getattr(source, "TypeName", "") or "")
-                if "Tag" not in type_name and "Member" not in type_name:
+            for tag_table in iter_tag_tables(plc_software):
+                for tag in tag_table.Tags:
+                    if not cross_reference_locations(tag):
+                        results.append(
+                            self._make_result(
+                                path=format_path(plc_software.Name, "Variablentabellen", tag_table.Name, tag.Name),
+                                description=f"Variable '{tag.Name}' wird im gesamten Programm nicht verwendet.",
+                                value=tag.Name,
+                            )
+                        )
+
+            for db, group_path in iter_data_blocks(plc_software):
+                try:
+                    service = db.GetService[CrossReferenceService]()
+                except Exception:  # noqa: BLE001
+                    service = None
+                if service is None:
                     continue
-                name = getattr(source, "Name", "?")
-                path = getattr(source, "Path", "") or name
-                results.append(
-                    self._make_result(
-                        path=format_path(plc_software.Name, path),
-                        description=f"Variable '{name}' wird im gesamten Programm nicht verwendet.",
-                        value=name,
+                unused_result = service.GetCrossReferences(CrossReferenceFilter.UnusedObjects)
+                for source in getattr(unused_result, "Sources", []) or []:
+                    name = getattr(source, "Name", None)
+                    if not name:
+                        continue
+                    results.append(
+                        self._make_result(
+                            path=format_path(plc_software.Name, "Datenbaustein", *group_path, db.Name, "Member", name),
+                            description=f"DB-Variable '{name}' wird im gesamten Programm nicht verwendet.",
+                            value=name,
+                        )
                     )
-                )
         return results
 
 
 class UnbenutzteBausteineCheck(BaseCheck):
-    """Prüfpunkt 11b: FBs/FCs/DBs, die von keiner Stelle aufgerufen/referenziert werden."""
+    """Prüfpunkt 11b: FBs/FCs/DBs, die von keiner Stelle aufgerufen/referenziert werden.
+
+    ``cross_reference_locations`` direkt am Baustein (OB/FB/FC/DB sind
+    bestätigt unterstützte Objekttypen) — leer bedeutet unbenutzt. OBs werden
+    ausgenommen, da sie als Einstiegspunkte vom Betriebssystem und nicht von
+    anderem Anwendercode aufgerufen werden.
+    """
 
     def run(self, project: Any) -> list[CheckResult]:
-        from Siemens.Engineering.CrossReference import CrossReferenceFilter, CrossReferenceService
+        from Siemens.Engineering.SW.Blocks import OB
 
         results: list[CheckResult] = []
         for plc_software in iter_plc_software(project):
-            service = plc_software.GetService[CrossReferenceService]()
-            if service is None:
-                continue
-            cross_ref = service.GetCrossReferences(CrossReferenceFilter.UnusedObjects)
-            for source in getattr(cross_ref, "Sources", []) or []:
-                type_name = str(getattr(source, "TypeName", "") or "")
-                if not any(keyword in type_name for keyword in ("Block", "FunctionBlock", "Function", "DataBlock")):
+            for block, group_path in iter_blocks(plc_software):
+                if isinstance(block, OB):
                     continue
-                name = getattr(source, "Name", "?")
-                path = getattr(source, "Path", "") or name
-                results.append(
-                    self._make_result(
-                        path=format_path(plc_software.Name, "Programmbausteine", path),
-                        description=f"Baustein '{name}' wird von keiner Stelle im Projekt referenziert.",
-                        value=name,
+                if not cross_reference_locations(block):
+                    results.append(
+                        self._make_result(
+                            path=format_path(plc_software.Name, "Programmbausteine", *group_path, block.Name),
+                            description=f"Baustein '{block.Name}' wird von keiner Stelle im Projekt referenziert.",
+                            value=block.Name,
+                        )
                     )
-                )
         return results
 
 

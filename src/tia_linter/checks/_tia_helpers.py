@@ -126,15 +126,15 @@ def export_block_xml(block: Any):
 
     Die Openness-API bietet für LAD/FBD/GRAPH-Bausteine keinen dokumentierten
     Objektzugriff auf einzelne Netzwerke (Titel, Kommentar, Elementanzahl) —
-    das ist nur über den XML-Export erreichbar (``Block.Export()``, in der
-    Referenzdokumentation als reguläre Openness-Funktion belegt). Die
-    Netzwerk-Checks in ``structure.py`` und ``libraries.py`` gehen davon aus,
-    dass jedes Netzwerk als ``SW.Blocks.CompileUnit``-Element mit
-    ``ProgrammingLanguage``/``Title``/``Comment``-Kindelementen auftaucht
-    (öffentlich bekanntes SIMATIC-ML-Schema) — das ist **nicht** gegen einen
-    echten Export in TIA Portal V21 verifiziert (siehe README, "Bekannte
-    Einschränkungen") und sollte vor produktivem Einsatz an einem realen
-    Projekt geprüft werden.
+    das ist nur über den XML-Export erreichbar. ``block.Export(FileInfo,
+    ExportOptions.WithDefaults)`` ist gegen die TIA Portal V21 Openness-Referenz
+    verifiziert (Manual 03/2026, z. B. Abschnitt zum Baustein-Export, exakt
+    dieses Aufrufmuster in mehreren Codebeispielen). Die exakten
+    XML-Elementnamen pro Netzwerk (angenommen: ``SW.Blocks.CompileUnit`` mit
+    ``ProgrammingLanguage``/``Title``/``Comment``) sind dagegen **nicht**
+    anhand eines echten Exports verifiziert — die Interface-Sections
+    (``<Interface><Sections><Section Name="Static">...``) hingegen schon,
+    siehe ``interface_section_members``.
     """
     import xml.etree.ElementTree as ET
 
@@ -173,25 +173,89 @@ def compile_unit_attribute(compile_unit: Any, name: str) -> str | None:
     return None
 
 
-def cross_reference_locations(engineering_object: Any) -> list[Any]:
-    """Liefert alle ``Location``-Objekte (mit ``Access``: Lesen/Schreiben)
-    über alle Kreuzreferenzen eines Openness-Objekts (Tag, Baustein, ggf.
-    Interface-Member — Letzteres laut Referenzdokumentation nicht
-    abschließend belegt, siehe ``structure.py``/``libraries.py``)."""
+# STEP-7-Objekttypen, für die GetService[CrossReferenceService]() laut V21-
+# Openness-Referenz (Manual 03/2026, "Unter STEP 7 auf Cross Reference Service
+# zugreifen") bestätigt unterstützt ist: OB, FB, FC, DB, Instanz-DB, Globaler
+# DB, Array-DB, PLC-Variable, PLC-Systemkonstante, PLC-Anwenderdatentyp.
+# Interface-Member (DB-/FB-/FC-Mitglieder) sind explizit NICHT in dieser
+# Liste — sie tauchen aber als texbasierte (UnderlyingObject == null)
+# Kind-Objekte unter ``SourceObject.Children`` auf, siehe
+# ``find_source_child_by_name``.
+def cross_reference_root_source(engineering_object: Any) -> Any | None:
+    """Ruft ``CrossReferenceService`` auf einem unterstützten STEP-7-Objekt ab
+    und liefert dessen (einziges) Root-``SourceObject``, oder ``None`` wenn
+    der Dienst für diesen Objekttyp nicht verfügbar ist."""
     from Siemens.Engineering.CrossReference import CrossReferenceFilter, CrossReferenceService
 
     try:
         service = engineering_object.GetService[CrossReferenceService]()
     except Exception:  # noqa: BLE001 — Service evtl. für diesen Objekttyp nicht verfügbar
-        return []
+        return None
     if service is None:
-        return []
+        return None
     result = service.GetCrossReferences(CrossReferenceFilter.AllObjects)
+    sources = list(getattr(result, "Sources", []) or [])
+    return sources[0] if sources else None
+
+
+def cross_reference_locations(engineering_object: Any) -> list[Any]:
+    """Liefert alle ``Location``-Objekte (mit ``Access``: Lesen/Schreiben)
+    über alle Kreuzreferenzen eines Openness-Objekts — nur für die laut
+    V21-Referenz bestätigt unterstützten Objekttypen sinnvoll (siehe
+    ``cross_reference_root_source``); bei nicht unterstützten Typen liefert
+    der Dienst ``None`` zurück und diese Funktion entsprechend eine leere
+    Liste, statt abzustürzen."""
+    source = cross_reference_root_source(engineering_object)
+    if source is None:
+        return []
     locations = []
-    for reference in getattr(result, "References", []) or []:
+    for reference in getattr(source, "References", []) or []:
         for location in getattr(reference, "Locations", []) or []:
             locations.append(location)
     return locations
+
+
+def find_source_child_by_name(source_object: Any, name: str) -> Any | None:
+    """Durchsucht rekursiv ``SourceObject.Children`` nach einem Kind mit
+    gegebenem Namen.
+
+    Laut V21-Openness-Referenz tauchen Interface-Member (DB-/FB-/FC-
+    Mitglieder) als Kind-``SourceObject``s auf, deren ``UnderlyingObject``
+    ``null`` ist ("Currently, the EOM support is NOT available for Member
+    objects... In such cases, the source.UnderlyingObject will be null.") —
+    Name/Address/TypeName/Path bleiben aber als Textinformation verfügbar.
+    Damit lässt sich ein einzelnes Interface-Mitglied im Kreuzreferenzbaum
+    seines Bausteins/DBs anhand des Namens wiederfinden.
+    """
+    for child in getattr(source_object, "Children", []) or []:
+        if getattr(child, "Name", None) == name:
+            return child
+        found = find_source_child_by_name(child, name)
+        if found is not None:
+            return found
+    return None
+
+
+def interface_section_members(xml_root: Any, section_name: str) -> set[str]:
+    """Liefert die Namen aller Mitglieder einer Interface-Section (z. B.
+    ``"Static"``, ``"Output"``) aus dem XML-Export eines Bausteins.
+
+    Bestätigt durch die V21-Openness-Referenz (Manual 03/2026, SIMATIC-ML-
+    Beispiele): ``<Interface><Sections><Section Name="Static">
+    <Member Name="...">...</Member></Section></Sections></Interface>``.
+    """
+    if xml_root is None:
+        return set()
+    names: set[str] = set()
+    for section in xml_root.iter():
+        if _local_name(section.tag) != "Section" or section.attrib.get("Name") != section_name:
+            continue
+        for member in section:
+            if _local_name(member.tag) == "Member":
+                member_name = member.attrib.get("Name")
+                if member_name:
+                    names.add(member_name)
+    return names
 
 
 def compile_unit_element_count(compile_unit: Any) -> int:
