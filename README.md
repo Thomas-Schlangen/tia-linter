@@ -262,6 +262,12 @@ tia-linter/
 - Hardware-Adressabgleich (Prüfpunkt 17) ist vereinfacht auf "PLC ganz ohne
   Zusatzmodule" statt exaktem Adressbereichs-Abgleich pro I/O-Tag.
 
+## Mitwirken
+
+Beiträge sind willkommen — siehe [CONTRIBUTING.md](CONTRIBUTING.md) für
+den Ablauf. Für Pull Requests gilt zusätzlich zur Projektlizenz das
+[Contributor License Agreement (CLA.md)](CLA.md).
+
 ## License
 
 This project is licensed under the GNU General Public License v3.0 — see the [LICENSE](LICENSE) file for details.
