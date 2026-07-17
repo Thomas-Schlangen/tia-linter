@@ -17,17 +17,16 @@ Dieses Projekt steht unter der
 [GNU General Public License v3.0](LICENSE). Damit der Projektinhaber das
 Projekt langfristig flexibel weiterentwickeln kann (z. B. bei einer
 künftigen Umlizenzierung), gilt zusätzlich das
-[Contributor License Agreement (CLA.md)](CLA.md).
+[Contributor License Agreement (.github/CLA.md)](.github/CLA.md).
 
-**Mit dem Einreichen eines Pull Requests stimmst du dem CLA automatisch
-zu.** Bitte lies es vorher durch — im Kern regelt es, dass du dem Projekt
-ein zusätzliches, weitreichendes Nutzungsrecht an deinem Beitrag
+**Ein automatisierter CLA-Check (CLA Assistant) läuft für dieses
+Repository.** Bei deinem ersten Pull Request postet der Bot einen
+Kommentar mit einem Link zum CLA — erst nach deiner Zustimmung (Kommentar
+*„I have read the CLA Document and I hereby sign the CLA"*) wird der PR
+mergebar. Bitte lies das CLA vorher durch — im Kern regelt es, dass du dem
+Projekt ein zusätzliches, weitreichendes Nutzungsrecht an deinem Beitrag
 einräumst, während du selbst Urheber deines Beitrags bleibst und ihn auch
 weiterhin frei anderweitig verwenden darfst.
-
-> Ein automatisierter CLA-Check ist für dieses Repository derzeit noch
-> nicht eingerichtet. Bitte ergänze bis dahin in der Beschreibung deines
-> ersten Pull Requests den Satz: *„Ich stimme dem CLA (CLA.md) zu."*
 
 ## Ablauf für einen Beitrag
 
@@ -58,4 +57,4 @@ weiterhin frei anderweitig verwenden darfst.
 
 Mit deinem Beitrag erklärst du dich einverstanden, dass er unter der
 [GNU General Public License v3.0](LICENSE) veröffentlicht wird (siehe
-auch [CLA.md](CLA.md)).
+auch [.github/CLA.md](.github/CLA.md)).

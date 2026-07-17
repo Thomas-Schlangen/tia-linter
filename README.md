@@ -266,7 +266,9 @@ tia-linter/
 
 Beiträge sind willkommen — siehe [CONTRIBUTING.md](CONTRIBUTING.md) für
 den Ablauf. Für Pull Requests gilt zusätzlich zur Projektlizenz das
-[Contributor License Agreement (CLA.md)](CLA.md).
+[Contributor License Agreement (.github/CLA.md)](.github/CLA.md), dessen
+Zustimmung über einen automatisierten CLA-Assistant-Check eingefordert
+wird.
 
 ## License
 

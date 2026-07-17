@@ -5,7 +5,7 @@
 Dieses Dokument regelt die rechtlichen Bedingungen, unter denen Beiträge
 (Code, Dokumentation, sonstige Werke) zum Projekt „TIA Linter" angenommen
 werden. Es ergänzt die Projektlizenz
-([GNU General Public License v3.0](LICENSE)) um zusätzliche Rechte
+([GNU General Public License v3.0](../LICENSE)) um zusätzliche Rechte
 zugunsten des Projektinhabers.
 
 > **Hinweis:** Dieses CLA ist eine Vorlage und wurde nicht von einem
