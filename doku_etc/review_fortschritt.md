@@ -414,3 +414,24 @@ Umschaltlogik, Settings-Persistenz), kompletter Lauf gegen echtes Projekt verifi
 (0 Fehler, 6.422 Befunde, deckungsgleich mit Vorlauf), PDF-Report erstellt und inhaltlich
 geprüft (595 Seiten, Struktur/Inhalt plausibel), committed und gepusht. Bereit für
 nächste Aufgabe."
+
+## Runde 12 — Obsidian-Doku aktualisiert, LinkedIn-Post-Entwurf erstellt
+
+**Implementierungsstatus in `~/Dokumente/ObsidianVault/Projekte/TIA-Linter/Pruefpunkte.md`
+aktualisiert:** Alle 77 offenen Checkboxen (`- [ ]` in den Einzelabschnitten sowie in der
+Übersichtstabelle) auf `- [x]` gesetzt — alle 35 Prüfpunkte (inkl. Splits 11b/18b/18c und
+den beiden Fest-Pattern→Regex-Umbauten aus den letzten Commits vor dem Pull) sind
+implementiert und gegen das echte Salzmaschine-Projekt verifiziert. Ausnahmen wie
+gefordert unverändert gelassen: die Format-Legende in Zeile 10 und Prüfpunkt 17b
+(Hardware-Typ passt zum Datentyp) — bleibt `- [ ] (spätere Version)` in beiden Vorkommen
+(Detailabschnitt + Übersichtstabelle), da laut `Pruefpunkte.md` selbst ausdrücklich als
+"spätere Version" markiert und bewusst nicht Teil dieses Projektstands.
+
+**LinkedIn-Post-Entwurf erstellt:**
+`~/Dokumente/ObsidianVault/Projekte/TIA-Linter/LinkedIn-Post-Entwurf.md` —
+persönlicher Stil analog zum TIA Tag Exporter Post, mit Tool-Beschreibung, Nutzen für
+SPS-Programmierer, GitHub-Link, Community-Frage am Ende und Hashtags.
+
+Letzter Stand: "Obsidian-Implementierungsstatus aktualisiert (77 Checkboxen → erledigt,
+17b korrekt als Ausnahme belassen) und LinkedIn-Post-Entwurf erstellt. Beide Dateien
+liegen im Obsidian-Vault, nicht im Code-Repo — kein Commit/Push nötig."
