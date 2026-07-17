@@ -132,7 +132,7 @@ checks:
     pflichtfelder:
       enabled: true
       severity: warning
-      felder: ["Autor", "Version"]
+      felder: ["Author", "Version"]
 
     max_sprachen:
       enabled: true

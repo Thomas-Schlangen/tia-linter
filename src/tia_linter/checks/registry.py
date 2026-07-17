@@ -178,7 +178,11 @@ CHECK_REGISTRY: dict[str, CheckMeta] = {
     "projektmetadaten.pflichtfelder": CheckMeta(
         name="Kundeninformation in Projekteigenschaften",
         category=PROJEKTMETADATEN,
-        description="Prüfpunkt 19: Konfiguriertes Pflichtfeld in den Top-Level-Projekteigenschaften ist leer.",
+        description=(
+            "Prüfpunkt 19: Konfiguriertes Pflichtfeld in den Top-Level-Projekteigenschaften ist leer. "
+            "Wichtig: 'felder' in der Config muss die echten (englischen) Openness-Attributnamen "
+            "enthalten, z. B. 'Author', nicht die deutsche GUI-Bezeichnung 'Autor'."
+        ),
         recommendation="Pflichtfeld in den Projekteigenschaften ausfüllen.",
     ),
     "projektmetadaten.max_sprachen": CheckMeta(
