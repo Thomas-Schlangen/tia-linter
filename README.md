@@ -135,6 +135,19 @@ aufgebaut, dass weitere Versionen (V22, V23, …) durch Ergänzen einer weiteren
 weiteren Eintrags in `tia_versionen.verfuegbar` in der Config unterstützt
 werden können — ohne Änderungen an GUI oder Check-Logik.
 
+## Verbindungsstabilität (Reconnect)
+
+TIA Portal V19 hat sich im Schwesterprojekt `tia-tag-exporter` wiederholt
+nicht-deterministisch als instabil erwiesen — die Openness-Session kann
+mitten in der Prüfung unerwartet sterben. `run_lint()` fängt das ab und
+verbindet automatisch neu (bis zu `max_reconnect_attempts`, Standard `3`,
+konfigurierbar in `config/default.yaml`). Bereits abgeschlossene Prüfpunkte
+werden dabei nicht wiederholt — die Prüfung setzt genau bei den noch
+fehlenden Punkten fort. Schlägt auch der letzte Versuch fehl, landet ein
+Fehlerbefund zur Verbindung selbst im Report, statt die gesamte Prüfung
+abzubrechen. Reconnects sind live im Log und in der GUI-Fortschrittsanzeige
+sichtbar.
+
 ## Logging
 
 Alle Läufe werden über [`my_logger`](src/my_logger) (stdlib `logging`)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from config_loader import load_config
 from my_logger import LoggingConfig
@@ -62,6 +62,7 @@ class AppConfig(BaseModel):
     report: ReportConfig = ReportConfig()
     checks: dict[str, dict[str, CheckEntryConfig]]
     logging: LoggingConfig = LoggingConfig()
+    max_reconnect_attempts: int = Field(default=3, ge=1)
 
 
 def load_app_config(path: str | Path) -> AppConfig:

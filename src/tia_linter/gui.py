@@ -24,6 +24,7 @@ RunLintFn = Callable[..., LintReport]
 
 _ALL_CATEGORIES = "(Alle Kategorien)"
 _ALL_STATUSES = "(Alle Status)"
+_PATH_FILTER_PLACEHOLDER = "Pfad / Baustein filtern..."
 
 _STATUS_LABEL = {CheckStatus.ERROR: "Fehler", CheckStatus.WARNING: "Warnung", CheckStatus.OK: "OK"}
 _STATUS_TAG_COLOR = {
@@ -154,6 +155,7 @@ class TiaLinterApp(tk.Tk):
                 "checker_name": self.config.report.pruefer,
                 "definitions": enabled_definitions,
                 "cancel_event": self._cancel_event,
+                "max_reconnect_attempts": self.config.max_reconnect_attempts,
             },
             daemon=True,
         )
@@ -408,6 +410,8 @@ class ResultPage(ttk.Frame):
 
         self._status_filter = tk.StringVar(value=_ALL_STATUSES)
         self._category_filter = tk.StringVar(value=_ALL_CATEGORIES)
+        self._path_filter = tk.StringVar()
+        self._path_filter_is_placeholder = False
 
         self._build_widgets()
 
@@ -430,8 +434,17 @@ class ResultPage(ttk.Frame):
         self._category_combo = ttk.Combobox(
             filter_frame, textvariable=self._category_filter, state="readonly", width=36
         )
-        self._category_combo.pack(side="left", padx=(4, 0))
+        self._category_combo.pack(side="left", padx=(4, 12))
         self._category_combo.bind("<<ComboboxSelected>>", lambda e: self._refresh_table())
+
+        ttk.Label(filter_frame, text="Pfad:").pack(side="left")
+        style = ttk.Style()
+        style.configure("TiaPathFilterPlaceholder.TEntry", foreground="#888888")
+        style.configure("TiaPathFilter.TEntry", foreground="")
+        self._path_entry = ttk.Entry(filter_frame, textvariable=self._path_filter, width=28)
+        self._path_entry.pack(side="left", padx=(4, 0))
+        self._path_entry.bind("<FocusIn>", self._on_path_filter_focus_in)
+        self._path_entry.bind("<FocusOut>", self._on_path_filter_focus_out)
 
         table_frame = ttk.Frame(self)
         table_frame.pack(fill="both", expand=True, **pad)
@@ -459,6 +472,11 @@ class ResultPage(ttk.Frame):
         ttk.Button(action_frame, text="PDF-Report erstellen", command=self.app.generate_pdf_report).pack(side="left")
         ttk.Button(action_frame, text="Neue Prüfung", command=self.app.start_new_run).pack(side="left", padx=(6, 0))
 
+        # Trace erst registrieren, nachdem self._tree existiert — _refresh_table()
+        # greift darauf zu und wird bei jedem Tastendruck im Pfad-Filter ausgelöst.
+        self._path_filter.trace_add("write", lambda *_args: self._refresh_table())
+        self._show_path_filter_placeholder()
+
     def load_report(self, report: LintReport) -> None:
         self._report = report
         self._summary_var.set(
@@ -470,8 +488,26 @@ class ResultPage(ttk.Frame):
         self._status_combo["values"] = [_ALL_STATUSES, *(_STATUS_LABEL[s] for s in CheckStatus)]
         self._status_filter.set(_ALL_STATUSES)
         self._category_filter.set(_ALL_CATEGORIES)
+        self._show_path_filter_placeholder()
 
         self._refresh_table()
+
+    # -- Pfad-Filter (Freitext mit Placeholder) --------------------------
+
+    def _show_path_filter_placeholder(self) -> None:
+        self._path_filter_is_placeholder = True
+        self._path_filter.set(_PATH_FILTER_PLACEHOLDER)
+        self._path_entry.configure(style="TiaPathFilterPlaceholder.TEntry")
+
+    def _on_path_filter_focus_in(self, _event: tk.Event) -> None:
+        if self._path_filter_is_placeholder:
+            self._path_filter_is_placeholder = False
+            self._path_filter.set("")
+            self._path_entry.configure(style="TiaPathFilter.TEntry")
+
+    def _on_path_filter_focus_out(self, _event: tk.Event) -> None:
+        if not self._path_filter.get():
+            self._show_path_filter_placeholder()
 
     def _refresh_table(self) -> None:
         self._tree.delete(*self._tree.get_children())
@@ -479,11 +515,14 @@ class ResultPage(ttk.Frame):
             return
         status_filter = self._status_filter.get()
         category_filter = self._category_filter.get()
+        path_filter = "" if self._path_filter_is_placeholder else self._path_filter.get().strip().lower()
 
         for index, result in enumerate(self._report.results):
             if status_filter != _ALL_STATUSES and _STATUS_LABEL[result.status] != status_filter:
                 continue
             if category_filter != _ALL_CATEGORIES and result.category != category_filter:
+                continue
+            if path_filter and path_filter not in result.path.lower():
                 continue
             self._tree.insert(
                 "",

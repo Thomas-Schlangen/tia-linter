@@ -7,7 +7,7 @@ from typing import Any
 
 from tia_linter.checks._tia_helpers import format_path, get_attribute, iter_plc_targets
 from tia_linter.checks.base import BaseCheck
-from tia_linter.models import CheckResult
+from tia_linter.models import CheckResult, CheckStatus
 
 
 class HardwareVorhandenCheck(BaseCheck):
@@ -91,7 +91,14 @@ class SafetyPasswortCheck(BaseCheck):
 
 
 class ZertifikatCheck(BaseCheck):
-    """Prüfpunkt 18c: Kommunikationszertifikat vorhanden und gültig."""
+    """Prüfpunkt 18c: Kommunikationszertifikat vorhanden und gültig.
+
+    Der Status wird abweichend vom sonst üblichen Muster (konfigurierter
+    Standard-Schweregrad aus ``definition.severity``) für jeden Fall explizit
+    gesetzt (siehe Pruefpunkte.md, Prüfpunkt 18c):
+    kein Zertifikat vorhanden -> ERROR, abgelaufen -> ERROR, läuft innerhalb
+    der konfigurierten Restlaufzeit ab -> WARNING, sonst -> OK.
+    """
 
     def run(self, project: Any) -> list[CheckResult]:
         results: list[CheckResult] = []
@@ -111,6 +118,7 @@ class ZertifikatCheck(BaseCheck):
                     self._make_result(
                         path=format_path(plc_software.Name, "Zertifikate"),
                         description=f"Kein Kommunikationszertifikat für '{plc_software.Name}' vorhanden.",
+                        status=CheckStatus.ERROR,
                     )
                 )
                 continue
@@ -120,23 +128,35 @@ class ZertifikatCheck(BaseCheck):
                 valid_until = getattr(cert, "ValidUntil", None)
                 if valid_until is None:
                     continue
+                cert_path = format_path(plc_software.Name, "Zertifikate", str(getattr(cert, "Id", "?")))
                 valid_until_dt = datetime(valid_until.Year, valid_until.Month, valid_until.Day)
                 if valid_until_dt < datetime.now():
                     results.append(
                         self._make_result(
-                            path=format_path(plc_software.Name, "Zertifikate", str(getattr(cert, "Id", "?"))),
+                            path=cert_path,
                             description="Zertifikat ist abgelaufen.",
+                            status=CheckStatus.ERROR,
                             value=valid_until_dt.isoformat(),
                         )
                     )
                 elif valid_until_dt < threshold:
                     results.append(
                         self._make_result(
-                            path=format_path(plc_software.Name, "Zertifikate", str(getattr(cert, "Id", "?"))),
+                            path=cert_path,
                             description=(
                                 f"Zertifikat läuft bald ab (gültig bis {valid_until_dt.date()}, "
                                 f"Schwellenwert {min_months} Monate)."
                             ),
+                            status=CheckStatus.WARNING,
+                            value=valid_until_dt.isoformat(),
+                        )
+                    )
+                else:
+                    results.append(
+                        self._make_result(
+                            path=cert_path,
+                            description=f"Zertifikat ist gültig (gültig bis {valid_until_dt.date()}).",
+                            status=CheckStatus.OK,
                             value=valid_until_dt.isoformat(),
                         )
                     )

@@ -20,6 +20,12 @@ tia_versionen:
       dll_pfad: "C:\\Program Files\\Siemens\\Automation\\Portal V21\\PublicAPI\\V21\\net48\\Siemens.Engineering.Base.dll"
   standard: "TIA Portal V21"
 
+# Maximale Anzahl automatischer Reconnect-Versuche, falls die TIA-Portal-
+# Session während der Prüfung unerwartet stirbt (bekannt von TIA V19, siehe
+# README). Bereits abgeschlossene Prüfpunkte werden bei einem Reconnect nicht
+# wiederholt.
+max_reconnect_attempts: 3
+
 checks:
   kommentare:
     variablen_kommentar:
