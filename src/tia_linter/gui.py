@@ -358,7 +358,14 @@ class MainPage(ttk.Frame):
             for definition in definitions:
                 var = tk.BooleanVar(value=definition.enabled)
                 self._check_vars[definition.check_id] = var
-                ttk.Checkbutton(cat_frame, text=definition.name, variable=var).pack(anchor="w", padx=16)
+
+                row = ttk.Frame(cat_frame)
+                row.pack(fill="x", anchor="w", padx=16)
+                # Feste Breite links von jeder Checkbox für die Prüfpunkt-
+                # Nummer(n) (z. B. "18c") — rechtsbündig, damit die Namen der
+                # Checkboxen selbst untereinander bündig stehen.
+                ttk.Label(row, text=definition.nummer, width=6, anchor="e").pack(side="left")
+                ttk.Checkbutton(row, text=definition.name, variable=var).pack(side="left", padx=(4, 0))
 
     def collect_enabled_definitions(self) -> list[CheckDefinition]:
         result = []

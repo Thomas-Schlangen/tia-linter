@@ -1,6 +1,6 @@
 # TIA Linter — Benutzerhandbuch
 
-**Version dieses Handbuchs:** 0.20 (Entwurf)
+**Version dieses Handbuchs:** 0.21 (Entwurf)
 **Stand:** 18.07.2026
 **Programmversion:** 0.1.0
 
@@ -209,13 +209,11 @@ Kontrollkästchen angezeigt werden (siehe [Abschnitt 6.2](#62-die-eingabeseite))
 
 ### 4.4 Wie ein Befund bewertet wird
 
-Jeder einzelne Prüfpunkt liefert für jedes untersuchte Objekt (z. B. einen
-Baustein, eine Variable oder eine Projekteinstellung) genau einen von drei
-möglichen Status:
+Jeder Befund im Report hat genau einen von drei möglichen Status:
 
 | Status | Bedeutung |
 |---|---|
-| **OK** | Der Prüfpunkt wurde eingehalten. Kein Handlungsbedarf. |
+| **OK** | Der Prüfpunkt wurde vollständig eingehalten. Kein Handlungsbedarf. |
 | **Warnung** | Eine Abweichung von der Konvention wurde festgestellt, die den Betrieb nicht unmittelbar gefährdet. |
 | **Fehler** | Eine schwerwiegende Abweichung wurde festgestellt, die dringend behoben werden sollte. |
 
@@ -223,6 +221,19 @@ Ob eine konkrete Abweichung als Warnung oder als Fehler gilt, ist für jeden
 Prüfpunkt einzeln in der Konfigurationsdatei festgelegt (siehe
 [Kapitel 5](#5-installation-und-einrichtung)) und kann bei Bedarf angepasst
 werden.
+
+**Wie "OK" zustande kommt:** Ein Prüfpunkt meldet grundsätzlich nur
+tatsächliche Verstöße einzeln (ein Fehler- oder Warnungs-Befund pro
+betroffenem Objekt, z. B. pro unkommentierter Variable) — für Objekte ohne
+Verstoß entsteht **kein** eigener Befund. Läuft ein Prüfpunkt über das
+gesamte Projekt hinweg vollständig ohne einen einzigen Fehler oder eine
+einzige Warnung durch, erzeugt er stattdessen **genau einen** zusammen-
+fassenden OK-Befund für sich selbst (nicht einen OK-Befund pro geprüftem
+Objekt) — ohne diesen zusammenfassenden Befund wäre ein vollständig
+sauberer Prüfpunkt im Report nirgends sichtbar, weder als Fehler/Warnung
+noch als OK. Die "OK"-Zeile in der Gesamtübersicht der GUI
+(siehe [Abschnitt 6.4](#64-die-ergebnisseite)) zählt also nicht Objekte,
+sondern **vollständig fehlerfreie Prüfpunkte**.
 
 ---
 
@@ -367,7 +378,11 @@ echt geprüft.
 
 In diesem Bereich werden alle verfügbaren Prüfpunkte als Kontrollkästchen
 angezeigt, gruppiert nach Kategorie (siehe [Abschnitt 4.3](#43-wie-die-prüfpunkte-organisiert-sind)).
-Zur schnellen Auswahl stehen zur Verfügung:
+Links neben jedem Kontrollkästchen steht die zugehörige Prüfpunkt-Nummer
+aus diesem Handbuch (z. B. "17" oder "18c") — damit lässt sich ein
+Kontrollkästchen direkt einem Abschnitt in [Kapitel 10](#10-die-prüfpunkte-im-detail)
+zuordnen, ohne den Namen abgleichen zu müssen. Zur schnellen Auswahl
+stehen zur Verfügung:
 
 - **"Alle auswählen" / "Alle abwählen"** — wirkt auf sämtliche Prüfpunkte.
 - **"Alle" / "Keine"** je Kategorie — wirkt nur auf die Prüfpunkte der
@@ -1734,11 +1749,14 @@ PLC_1 > Zertifikate > <Zertifikats-ID>
   innerhalb der Restlaufzeit ab → **Warnung**, sonst → **OK**. Die
   Einstellung `severity` in der Konfiguration hat für diesen Prüfpunkt
   also keine Wirkung — nur `min_restlaufzeit_monate` ist relevant.
-- Dieser Prüfpunkt ist außerdem der einzige im gesamten Programm, der auch
-  für gültige, unauffällige Zertifikate ausdrücklich einen eigenen
-  **OK-Befund** erzeugt. Bei allen anderen Prüfpunkten führt "kein
-  Verstoß gefunden" schlicht dazu, dass für das jeweilige Objekt gar kein
-  Eintrag in der Befundliste entsteht.
+- Dieser Prüfpunkt ist außerdem der einzige im gesamten Programm, der für
+  einzelne, gültige, unauffällige Zertifikate ausdrücklich einen eigenen
+  OK-Befund **pro Zertifikat** erzeugt. Bei allen anderen Prüfpunkten führt
+  "kein Verstoß gefunden" dazu, dass für das jeweilige Objekt gar kein
+  Eintrag in der Befundliste entsteht — läuft ein solcher Prüfpunkt aber
+  komplett ohne Fehler/Warnung durch, erzeugt er (anders als 18c) nur einen
+  einzigen zusammenfassenden OK-Befund für sich als Ganzes, nicht pro
+  Objekt (siehe [Abschnitt 4.4](#44-wie-ein-befund-bewertet-wird)).
 
 **Empfehlung zur Behebung**
 Zertifikat einspielen bzw. rechtzeitig vor Ablauf erneuern.
@@ -2627,3 +2645,4 @@ zu der Übersicht, die bereits am Anfang der Markdown-Datei steht.
 | 0.18 | 18.07.2026 | Besonderheiten von Prüfpunkt 1 in Abschnitt 10.1 klargestellt: die UDT-Erkennung schützt die Items einer UDT-typisierten Variable auch dann, wenn die Variable selbst über `ausnahme_prefixe`/`ausnahme_variables` ausgenommen ist (Programmänderung: vorher wurde eine so ausgenommene, aber UDT-typisierte Variable nie als UDT erkannt, wodurch ihre Items fälschlich einzeln geprüft wurden). |
 | 0.19 | 18.07.2026 | Neuen Prüfpunkt 1c ("FB-Interface-Member ohne Kommentar") in Abschnitt 10.1 ergänzt — schließt die Lücke, die dadurch entsteht, dass Prüfpunkt 1 Items innerhalb einer Multi-Instanz-FB-Variable ab dieser Version ebenfalls bewusst nicht mehr einzeln prüft (analog zur UDT-Behandlung aus Prüfpunkt 1b). Prüfpunkt 1c prüft die Interface-Member (Input/Output/InOut/Static) direkt an der FB-Definition, nicht den FB-Kopfkommentar (bleibt Sache von Prüfpunkt 2). Technischer Hinweis ergänzt: die Openness-API liefert für FBs keine Interface-Member über die direkte Objektnavigation (anders als bei DBs/UDTs) — der Prüfpunkt liest sie stattdessen aus dem XML-Export. Querverweis bei Prüfpunkt 1 ergänzt, veralteten `ausnahme_prefixe`-Standardwert bei Prüfpunkt 1b auf `["__"]` korrigiert, Abschlusshinweis am Ende von Kapitel 10 aktualisiert. |
 | 0.20 | 18.07.2026 | Redundanz zwischen Prüfpunkt 1 und 1c behoben (User-Brainstorming): Prüfpunkt 1 prüfte bislang zusätzlich jedes Instanz-DB-Member einzeln (mit Fallback auf den FB-Kommentar), was bei fehlendem FB-Kommentar zu doppelten Befunden führte. Prüfpunkt 1 überspringt Instanz-DBs jetzt komplett — Prüfpunkt 1c ist die alleinige Quelle für FB-Interface-Member-Kommentare, egal ob als Multi-Instanz oder als eigenständige Instanz-DB verwendet. Tradeoff dokumentiert: ein an einer einzelnen Instanz überschriebener, abweichender Kommentar wird dadurch nicht mehr erkannt. Besonderheiten bei Prüfpunkt 1 und 1c entsprechend ergänzt. |
+| 0.21 | 18.07.2026 | Zwei Programmänderungen dokumentiert: (1) Läuft ein Prüfpunkt komplett ohne Fehler/Warnung durch, meldet er jetzt genau einen zusammenfassenden OK-Befund statt gar keinen — Abschnitt 4.4 entsprechend überarbeitet, Besonderheiten von Prüfpunkt 18c klargestellt (bleibt einziger Prüfpunkt mit Befunden pro Einzelobjekt statt nur einem zusammenfassenden OK). (2) In der Eingabeseite steht jetzt links neben jedem Kontrollkästchen die zugehörige Prüfpunkt-Nummer aus diesem Handbuch — Abschnitt 6.2 entsprechend ergänzt. |

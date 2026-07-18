@@ -98,6 +98,7 @@ def build_check_definitions(config: AppConfig) -> list[CheckDefinition]:
                 severity=entry.severity,
                 description=meta.description,
                 recommendation=meta.recommendation,
+                nummer=meta.nummer,
                 params=params,
             )
         )

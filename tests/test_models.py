@@ -45,6 +45,7 @@ class TestCheckDefinition:
             severity=CheckSeverity.WARNING,
             description="...",
             recommendation="...",
+            nummer="1",
         )
         assert definition.params == {}
 
@@ -57,6 +58,7 @@ class TestCheckDefinition:
             severity=CheckSeverity.ERROR,
             description="...",
             recommendation="...",
+            nummer="5",
             params={"regex": "^DB_"},
         )
         assert definition.params == {"regex": "^DB_"}

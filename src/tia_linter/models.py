@@ -34,6 +34,7 @@ class CheckDefinition:
     severity: CheckSeverity
     description: str
     recommendation: str
+    nummer: str
     params: dict = field(default_factory=dict)
 
 

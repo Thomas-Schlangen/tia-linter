@@ -1067,3 +1067,65 @@ Code-Bausteine allgemein (FB und FC), nicht nur FB — bestätigt, dass
 `styleguide.static_zugriff_extern`/`styleguide.output_mehrfach_beschrieben` (die FC
 schon vorher vorsorglich wie FB behandelt hatten) von Anfang an richtig lagen. Keine
 Code-Änderung nötig.
+
+## Runde 22 — 1 OK bei sauberem Prüfpunkt, Prüfpunkt-Nummer vor jeder Checkbox
+
+**Ausgangspunkt:** User hatte den ersten Prüfpunkt fehlerfrei durchlaufen lassen und
+fragte, warum die Zusammenfassung trotzdem "0 Fehler | 0 Warnungen | 0 OK" anzeigt —
+erwartet hatte er bei "OK" einen anderen Wert als 0. Erklärt: der Linter meldet bisher
+grundsätzlich nur Verstöße; "OK" ist bis auf Prüfpunkt 18c (Zertifikate, meldet pro
+Objekt einen OK-Befund) faktisch ungenutzt. Zwei daraus resultierende Aufträge:
+(1) Läuft ein Prüfpunkt komplett ohne Fehler/Warnung durch, soll er genau 1
+zusammenfassenden OK-Befund melden. (2) In der GUI soll links vor jeder
+Prüfpunkt-Checkbox die zugehörige Prüfpunkt-Nummer stehen (bei Checkboxen, hinter denen
+zwei Prüfpunkte stecken, beide Nummern) — dafür links von den Checkboxen genug Platz
+einplanen.
+
+**Umsetzung Teil 1 (`src/tia_linter/runner.py`):** Neue Hilfsfunktion `_ok_result()`
+direkt nach `_instantiate_check()` — baut ein `CheckResult` mit `CheckStatus.OK`,
+`path=<Projektname>` und der Beschreibung "Keine Verstöße gegen '<Name>' gefunden.".
+In `run_lint()` wird nach `check.run(project)` geprüft: liefert der Check eine leere
+Liste, wird sie durch `[_ok_result(definition, resolved_project_name)]` ersetzt, bevor
+sie an `results` angehängt wird. `simulate_lint_run()` bewusst unverändert gelassen
+(reiner Testmodus ohne echte Prüfergebnisse).
+
+**Umsetzung Teil 2 (Prüfpunkt-Nummer in der GUI):** Neues Feld `nummer: str` von
+`CheckMeta` (`registry.py`) über `CheckDefinition` (`models.py`) bis zu `config.py`
+durchgereicht (String statt int/Tupel wegen Buchstaben-Suffixen wie "18c" und weil
+später auch mehrere Nummern an einer Stelle stehen könnten). Alle 44
+`CheckMeta`-Einträge in `registry.py` um `nummer="..."` ergänzt (z. B. "1", "1b", "1c",
+"18c", "35"). In `gui.py::rebuild_check_tree()` wird jede Checkbox jetzt in eine
+Zeilen-`Frame` gepackt: links ein rechtsbündiges `ttk.Label` fester Breite (`width=6`)
+mit der Nummer, rechts daneben die `ttk.Checkbutton`.
+
+**Testanpassung:** Zwei bestehende `CheckDefinition(...)`-Testkonstruktoren in
+`tests/test_models.py` um das neu erforderliche Feld `nummer` ergänzt (`"1"` bzw.
+`"5"`).
+
+**Verifiziert:**
+- `pytest`: weiterhin 38/38 grün, `py_compile` auf allen geänderten Dateien fehlerfrei.
+- Live gegen das echte Salzmaschine-Projekt über `run_lint()` mit zwei ausgewählten
+  Prüfpunkten (`hardware.hardware_vorhanden`, `kommentare.variablen_kommentar`):
+  Ausgabe "0 Fehler, 0 Warnungen, 2 OK", beide Ergebnisse mit Status `[ok]` und der
+  erwarteten Beschreibung. Dabei aufgefallen: `variablen_kommentar` lieferte 0 statt der
+  zuletzt in Runde 21 gemessenen 2 Befunde — per isoliertem Re-Check bestätigt, dass das
+  keine Regression ist, sondern der reale Projektzustand sich seitdem geändert hat
+  (User hat die verbleibenden 2 Fälle vermutlich selbst behoben).
+- GUI-Smoketest (`TiaLinterApp` ohne `mainloop`, Checkbox-Baum aufgebaut): Stichprobe
+  über 6 Prüfpunkt-IDs zeigt korrekte `nummer`-Werte (u. a. `"1"`, `"1b"`, `"1c"`,
+  `"18c"`, `"12b"`, `"35"`), kein Fehler beim Aufbau. Kein Screenshot-Tool verfügbar —
+  das tatsächliche visuelle Layout (Ausrichtung, Abstände) wurde dem User gegenüber
+  ausdrücklich als ungeprüft benannt, nur der fehlerfreie Aufbau und der Inhalt der
+  Labels wurden bestätigt.
+
+**Dokumentiert:** `docs/Handbuch.md` (Abschnitt 4.4 "Wie ein Befund bewertet wird"
+überarbeitet, Besonderheiten von Prüfpunkt 18c klargestellt, Abschnitt 6.2 um die neue
+Nummern-Spalte ergänzt, Version 0.21). `README.md` bewusst nicht geändert — reine
+Report-/GUI-Mechanik ohne eigenen README-Abschnitt zu Prüfergebnis-Status oder
+GUI-Layout-Details.
+
+Letzter Stand: "Prüfpunkte melden jetzt bei vollständig fehlerfreiem Durchlauf genau
+1 zusammenfassenden OK-Befund statt keinen; jede Prüfpunkt-Checkbox in der GUI zeigt
+links ihre Handbuch-Nummer(n). Beides live bzw. per Smoketest verifiziert, pytest
+38/38 grün. Visuelles GUI-Layout dem User gegenüber als ungeprüft (kein
+Screenshot-Tool) benannt."

@@ -107,6 +107,32 @@ def _instantiate_check(
     return check_class(definition, excluded_folders, excluded_blocks)
 
 
+def _ok_result(definition: CheckDefinition, project_name: str) -> CheckResult:
+    """Synthetischer OK-Befund für einen Prüfpunkt, der ohne einen einzigen
+    Fehler/Warnung durchgelaufen ist.
+
+    Checks melden nach dem etablierten Muster ausschließlich Verstöße — eine
+    leere Ergebnisliste bedeutet "keine Verstöße gefunden", nicht "nichts
+    geprüft". Ohne diesen expliziten OK-Eintrag stünde ein vollständig
+    sauberer Prüfpunkt im Report/GUI-Summary nirgends, weder als Fehler/
+    Warnung noch als OK — der `ok_count` in ``models.LintReport`` wäre dann
+    unabhängig vom tatsächlichen Prüfergebnis praktisch immer 0. Betrifft nur
+    Checks, die selbst nie eigene OK-Befunde liefern (also alle außer
+    ``hardware.zertifikat``, Prüfpunkt 18c — das liefert bereits pro
+    geprüftem Zertifikat einen granularen OK-Befund und gibt daher, sofern
+    es überhaupt ein zu prüfendes Objekt gab, nie eine leere Liste zurück;
+    dieser Fallback greift dort also gar nicht erst)."""
+    return CheckResult(
+        check_id=definition.check_id,
+        check_name=definition.name,
+        category=definition.category,
+        status=CheckStatus.OK,
+        path=project_name,
+        description=f"Keine Verstöße gegen '{definition.name}' gefunden.",
+        recommendation="Kein Handlungsbedarf.",
+    )
+
+
 def run_lint(
     dll_path: str,
     tia_version: int,
@@ -229,7 +255,10 @@ def run_lint(
                         done_check_ids.add(definition.check_id)
                     else:
                         try:
-                            results.extend(check.run(project))
+                            check_results = check.run(project)
+                            if not check_results:
+                                check_results = [_ok_result(definition, resolved_project_name)]
+                            results.extend(check_results)
                             done_check_ids.add(definition.check_id)
                         except disposed_exc_types:
                             # Session komplett gestorben — nicht als Fehler dieses

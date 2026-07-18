@@ -26,6 +26,13 @@ class CheckMeta:
     category: str
     description: str
     recommendation: str
+    # Prüfpunkt-Nummer(n) aus Pruefpunkte.md, z. B. "5" oder "17b" — als
+    # String statt int/tuple, da manche Nummern Buchstaben-Suffixe tragen
+    # (11b, 12b, 18b, 18c) und ein Eintrag im Prinzip auch mehrere Nummern
+    # abdecken könnte (bisher kein Fall, aber die GUI zeigt in dem Fall
+    # einfach beide, z. B. "6/7"). Wird in der GUI links neben jeder
+    # Prüfpunkt-Checkbox angezeigt (siehe gui.py, rebuild_check_tree).
+    nummer: str
 
 
 CHECK_REGISTRY: dict[str, CheckMeta] = {
@@ -35,6 +42,7 @@ CHECK_REGISTRY: dict[str, CheckMeta] = {
         category=KOMMENTARE,
         description="Prüfpunkt 1: PLC-Tags und DB-Variablen ohne Kommentar.",
         recommendation="Kommentar mit Beschreibung der Funktion/Bedeutung der Variable ergänzen.",
+        nummer="1",
     ),
     "kommentare.udt_kommentar": CheckMeta(
         name="UDT ohne Kommentar",
@@ -45,6 +53,7 @@ CHECK_REGISTRY: dict[str, CheckMeta] = {
             "UDT-typisierten Members bewusst nicht mehr einzeln erfasst."
         ),
         recommendation="Kommentar auf dem PLC-Datentyp bzw. dem betroffenen Item ergänzen.",
+        nummer="1b",
     ),
     "kommentare.fb_member_kommentar": CheckMeta(
         name="FB-Interface-Member ohne Kommentar",
@@ -56,6 +65,7 @@ CHECK_REGISTRY: dict[str, CheckMeta] = {
             "Multi-Instanz-FB-Variable bewusst nicht mehr einzeln erfasst."
         ),
         recommendation="Kommentar auf dem betroffenen FB-Interface-Member ergänzen.",
+        nummer="1c",
     ),
     "kommentare.baustein_beschreibung": CheckMeta(
         name="Bausteine ohne Kopfbeschreibung",
@@ -65,18 +75,21 @@ CHECK_REGISTRY: dict[str, CheckMeta] = {
             "— Mindestlänge konfigurierbar."
         ),
         recommendation="Kopfbeschreibung mit Zweck und Funktionsweise des Bausteins ergänzen.",
+        nummer="2",
     ),
     "kommentare.netzwerk_beschreibung": CheckMeta(
         name="Netzwerk ohne Beschreibung",
         category=KOMMENTARE,
         description="Prüfpunkt 3: Netzwerke ohne Titel/Kurzbeschreibung oder mit zu langer Beschreibung.",
         recommendation="Kurzen, prägnanten Netzwerktitel ergänzen (Länge siehe Konfiguration).",
+        nummer="3",
     ),
     "kommentare.aenderungshistorie": CheckMeta(
         name="Bausteinköpfe ohne Änderungshistorie",
         category=KOMMENTARE,
         description="Prüfpunkt 4: Bausteinkopf ohne Versionsinfo/Änderungshistorie (Autor, Version, Datum).",
         recommendation="Änderungshistorie im Bausteinkopf gemäß Siemens Standardisierungsleitfaden pflegen.",
+        nummer="4",
     ),
     # --- Namenskonventionen (Prüfpunkte 5-9) -------------------------------
     "namenskonventionen.db_format_global": CheckMeta(
@@ -87,6 +100,7 @@ CHECK_REGISTRY: dict[str, CheckMeta] = {
             "nicht dem konfigurierten Regex-Muster."
         ),
         recommendation="Global-/Array-Datenbaustein gemäß Namenskonvention umbenennen.",
+        nummer="5",
     ),
     "namenskonventionen.db_format_instance": CheckMeta(
         name="DB-Namensformat (Instanz-DB)",
@@ -96,42 +110,49 @@ CHECK_REGISTRY: dict[str, CheckMeta] = {
             "konfigurierten Regex-Muster."
         ),
         recommendation="Instanz-Datenbaustein gemäß Namenskonvention umbenennen.",
+        nummer="5",
     ),
     "namenskonventionen.plc_tag_eingaenge": CheckMeta(
         name="PLC-Tag Namenskonvention (Eingänge)",
         category=NAMENSKONVENTIONEN,
         description="Prüfpunkt 6: Eingangs-Tag entspricht nicht dem konfigurierten Muster.",
         recommendation="Tag gemäß Namenskonvention für Eingänge umbenennen (siehe Konfiguration).",
+        nummer="6",
     ),
     "namenskonventionen.plc_tag_ausgaenge": CheckMeta(
         name="PLC-Tag Namenskonvention (Ausgänge)",
         category=NAMENSKONVENTIONEN,
         description="Prüfpunkt 6: Ausgangs-Tag entspricht nicht dem konfigurierten Muster.",
         recommendation="Tag gemäß Namenskonvention für Ausgänge umbenennen (siehe Konfiguration).",
+        nummer="6",
     ),
     "namenskonventionen.fb_prefix": CheckMeta(
         name="Bausteinname Konvention (FB)",
         category=NAMENSKONVENTIONEN,
         description="Prüfpunkt 7: Funktionsbaustein entspricht nicht dem konfigurierten Regex.",
         recommendation="Funktionsbaustein gemäß Namenskonvention umbenennen (siehe Konfiguration).",
+        nummer="7",
     ),
     "namenskonventionen.fc_prefix": CheckMeta(
         name="Bausteinname Konvention (FC)",
         category=NAMENSKONVENTIONEN,
         description="Prüfpunkt 7: Funktion entspricht nicht dem konfigurierten Regex.",
         recommendation="Funktion gemäß Namenskonvention umbenennen (siehe Konfiguration).",
+        nummer="7",
     ),
     "namenskonventionen.konstanten_format": CheckMeta(
         name="Konstanten-Namensformat",
         category=NAMENSKONVENTIONEN,
         description="Prüfpunkt 8: Konstante entspricht nicht dem konfigurierten Regex (Standard: nur Großbuchstaben).",
         recommendation="Konstantenname gemäß Namenskonvention anpassen (siehe Konfiguration).",
+        nummer="8",
     ),
     "namenskonventionen.testvariablen": CheckMeta(
         name="Testvariablen vorhanden",
         category=NAMENSKONVENTIONEN,
         description="Prüfpunkt 9: Variable mit Test-/Debug-Präfix (aus Config) im Projekt gefunden.",
         recommendation="Prüfen ob Testvariable noch benötigt wird — sonst entfernen.",
+        nummer="9",
     ),
     # --- Programmstruktur (Prüfpunkte 10-16) -------------------------------
     "programmstruktur.leere_netzwerke": CheckMeta(
@@ -139,24 +160,28 @@ CHECK_REGISTRY: dict[str, CheckMeta] = {
         category=PROGRAMMSTRUKTUR,
         description="Prüfpunkt 10: Netzwerk ohne Inhalt (keine Kontakte, keine Bausteinaufrufe).",
         recommendation="Leeres Netzwerk mit Logik befüllen oder entfernen.",
+        nummer="10",
     ),
     "programmstruktur.unbenutzte_variablen": CheckMeta(
         name="Unbenutzte Variablen (Dead Code)",
         category=PROGRAMMSTRUKTUR,
         description="Prüfpunkt 11: PLC-Tag/DB-Variable wird im gesamten Programm nirgends referenziert.",
         recommendation="Unbenutzte Variable entfernen oder Verwendung ergänzen.",
+        nummer="11",
     ),
     "programmstruktur.unbenutzte_bausteine": CheckMeta(
         name="Unbenutzte Bausteine",
         category=PROGRAMMSTRUKTUR,
         description="Prüfpunkt 11b: FB/FC/DB wird von keiner Stelle im Projekt aufgerufen/referenziert.",
         recommendation="Unbenutzten Baustein entfernen oder Aufruf ergänzen.",
+        nummer="11b",
     ),
     "programmstruktur.eingaenge_gelesen": CheckMeta(
         name="Eingänge min. 1x gelesen",
         category=PROGRAMMSTRUKTUR,
         description="Prüfpunkt 12: Eingangs-Tag wird im Programm nie gelesen.",
         recommendation="Prüfen ob der Eingang tatsächlich benötigt wird, sonst Beschaltung/Tag entfernen.",
+        nummer="12",
     ),
     "programmstruktur.eingaenge_nicht_beschrieben": CheckMeta(
         name="Eingänge dürfen nicht beschrieben werden",
@@ -166,30 +191,35 @@ CHECK_REGISTRY: dict[str, CheckMeta] = {
             "Schreibzugriff auf den Eingang entfernen — Eingänge sind nur lesend zu verwenden. "
             "Falls ein veränderbarer Wert benötigt wird, eine separate Merker-/Hilfsvariable verwenden."
         ),
+        nummer="12b",
     ),
     "programmstruktur.ausgaenge_mehrfach_schreiben": CheckMeta(
         name="Ausgänge max. 1x geschrieben",
         category=PROGRAMMSTRUKTUR,
         description="Prüfpunkt 13: Ausgangs-Tag wird an mehreren Stellen im Programm beschrieben.",
         recommendation="Schreibzugriffe auf den Ausgang auf eine einzige Stelle konsolidieren.",
+        nummer="13",
     ),
     "programmstruktur.awl_code": CheckMeta(
         name="AWL-Code vorhanden",
         category=PROGRAMMSTRUKTUR,
         description="Prüfpunkt 14: Baustein bzw. Netzwerk ist in AWL/STL programmiert.",
         recommendation="Baustein nach KOP/FUP/SCL migrieren (AWL gilt als veraltet).",
+        nummer="14",
     ),
     "programmstruktur.gemischte_sprachen": CheckMeta(
         name="Gemischte Programmiersprachen",
         category=PROGRAMMSTRUKTUR,
         description="Prüfpunkt 15: Innerhalb eines Bausteins werden mehrere Sprachen gemischt (z. B. KOP und SCL).",
         recommendation="Baustein auf eine einheitliche Programmiersprache vereinheitlichen.",
+        nummer="15",
     ),
     "programmstruktur.max_netzwerk_elemente": CheckMeta(
         name="Zu komplexe Netzwerke",
         category=PROGRAMMSTRUKTUR,
         description="Prüfpunkt 16: Netzwerk mit mehr Elementen als der konfigurierte Schwellenwert.",
         recommendation="Netzwerk aufteilen oder in einen eigenen Baustein auslagern.",
+        nummer="16",
     ),
     # --- Hardware & Konfiguration (Prüfpunkte 17-18c) ----------------------
     "hardware.hardware_vorhanden": CheckMeta(
@@ -197,24 +227,28 @@ CHECK_REGISTRY: dict[str, CheckMeta] = {
         category=HARDWARE,
         description="Prüfpunkt 17: Für einen I/O-Tag ist kein passendes, aktives Hardware-Modul vorhanden.",
         recommendation="Hardware-Konfiguration prüfen — Modul projektieren/aktivieren oder Tag entfernen.",
+        nummer="17",
     ),
     "hardware.cpu_firmware_dokumentiert": CheckMeta(
         name="CPU-Typ und Firmware-Version dokumentiert",
         category=HARDWARE,
         description="Prüfpunkt 18: CPU-Typ oder Firmware-Version sind in den Projekteigenschaften nicht vermerkt.",
         recommendation="CPU-Typ und Firmware-Version in den Projekteigenschaften dokumentieren.",
+        nummer="18",
     ),
     "hardware.safety_passwort": CheckMeta(
         name="Passwortschutz bei Sicherheits-SPS",
         category=HARDWARE,
         description="Prüfpunkt 18b: F-CPU ohne gesetztes Safety-Offline-Passwort.",
         recommendation="F-Passwort für die Sicherheits-CPU vergeben (SafetyAdministration).",
+        nummer="18b",
     ),
     "hardware.zertifikat": CheckMeta(
         name="Kommunikationszertifikat",
         category=HARDWARE,
         description="Prüfpunkt 18c: Kein Kommunikationszertifikat vorhanden oder Restlaufzeit unter Schwellenwert.",
         recommendation="Zertifikat einspielen bzw. rechtzeitig vor Ablauf erneuern.",
+        nummer="18c",
     ),
     # --- Projektmetadaten (Prüfpunkte 19-22) -------------------------------
     "projektmetadaten.pflichtfelder": CheckMeta(
@@ -226,24 +260,28 @@ CHECK_REGISTRY: dict[str, CheckMeta] = {
             "enthalten, z. B. 'Author', nicht die deutsche GUI-Bezeichnung 'Autor'."
         ),
         recommendation="Pflichtfeld in den Projekteigenschaften ausfüllen.",
+        nummer="19",
     ),
     "projektmetadaten.max_sprachen": CheckMeta(
         name="Anzahl Sprachen",
         category=PROJEKTMETADATEN,
         description="Prüfpunkt 20: Mehr aktive Sprachen im Projekt als konfiguriertes Maximum (oft vergessene Testsprachen).",
         recommendation="Nicht mehr benötigte Sprachen aus den Projekteigenschaften entfernen.",
+        nummer="20",
     ),
     "projektmetadaten.kompilierfehler": CheckMeta(
         name="Kompilierfehler und Warnungen",
         category=PROJEKTMETADATEN,
         description="Prüfpunkt 21: Beim Übersetzen der PLC-Software sind Fehler oder Warnungen aufgetreten.",
         recommendation="Compiler-Meldung beheben und Baustein neu übersetzen.",
+        nummer="21",
     ),
     "projektmetadaten.projektversion": CheckMeta(
         name="Projektversion vorhanden",
         category=PROJEKTMETADATEN,
         description="Prüfpunkt 22: Projekt hat keine Versionsnummer hinterlegt.",
         recommendation="Versionsnummer (z. B. 1.2.3) in den Projekteigenschaften vergeben.",
+        nummer="22",
     ),
     # --- Bibliotheken & Typen (Prüfpunkte 23-24) ---------------------------
     "bibliotheken.veraltete_bibliotheken": CheckMeta(
@@ -251,12 +289,14 @@ CHECK_REGISTRY: dict[str, CheckMeta] = {
         category=BIBLIOTHEKEN,
         description="Prüfpunkt 23: Verwendeter Bibliothekstyp entspricht nicht der aktuellen Bibliotheksversion.",
         recommendation="Bibliothekstyp in der Projektbibliothek aktualisieren und Instanzen neu generieren.",
+        nummer="23",
     ),
     "bibliotheken.verwaiste_instanz_dbs": CheckMeta(
         name="Instanz-DBs ohne zugehörigen FB",
         category=BIBLIOTHEKEN,
         description="Prüfpunkt 24: Instanz-Datenbaustein, dessen Quell-FB nicht mehr im Projekt existiert.",
         recommendation="Verwaisten Instanz-DB entfernen oder zugehörigen FB wiederherstellen.",
+        nummer="24",
     ),
     # --- Siemens Styleguide & Best Practices (Prüfpunkte 25-35) ------------
     "styleguide.sprachen_konsistent": CheckMeta(
@@ -264,65 +304,76 @@ CHECK_REGISTRY: dict[str, CheckMeta] = {
         category=STYLEGUIDE,
         description="Prüfpunkt 25: Kommentare/Netzwerktitel weichen von der in Config erwarteten Sprache ab.",
         recommendation="Kommentare und Netzwerktitel einheitlich in der Projektsprache verfassen.",
+        nummer="25",
     ),
     "styleguide.static_zugriff_extern": CheckMeta(
         name="Direkter Zugriff auf Static-Tags von außen",
         category=STYLEGUIDE,
         description="Prüfpunkt 26: Static-Tag eines FB wird von außerhalb des FB direkt gelesen/beschrieben.",
         recommendation="Zugriff über Ein-/Ausgangsparameter des FB kapseln statt direkt auf den Instanz-DB zuzugreifen.",
+        nummer="26",
     ),
     "styleguide.output_mehrfach_beschrieben": CheckMeta(
         name="Output-Tag pro Zyklus nur einmal beschrieben",
         category=STYLEGUIDE,
         description="Prüfpunkt 27: VAR_OUTPUT-Parameter wird innerhalb eines Bausteins an mehreren Stellen beschrieben.",
         recommendation="Schreibzugriffe auf den Output-Parameter auf eine Stelle im Baustein konsolidieren.",
+        nummer="27",
     ),
     "styleguide.multi_instanzen": CheckMeta(
         name="Multi-Instanzen statt Einzel-Instanzen",
         category=STYLEGUIDE,
         description="Prüfpunkt 28: Timer/Zähler/FB-Aufruf verwendet einen Einzel-Instanz-DB statt einer Multi-Instanz.",
         recommendation="Aufruf auf Multi-Instanz umstellen (spart Bausteine und DBs).",
+        nummer="28",
     ),
     "styleguide.udt_wiederkehrende_strukturen": CheckMeta(
         name="UDT für wiederkehrende Strukturen",
         category=STYLEGUIDE,
         description="Prüfpunkt 29: Identische STRUCT-Definition kommt in mehreren DBs vor, ohne als UDT ausgelagert zu sein.",
         recommendation="Wiederkehrende Struktur als PLC-Datentyp (UDT) anlegen und referenzieren.",
+        nummer="29",
     ),
     "styleguide.ob1_komplexitaet": CheckMeta(
         name="OB1 (Main) Komplexität",
         category=STYLEGUIDE,
         description="Prüfpunkt 30: OB1 enthält mehr Netzwerke mit eigener Logik als der konfigurierte Schwellenwert.",
         recommendation="Logik aus OB1 in eigene Bausteine auslagern — OB1 sollte primär Bausteine aufrufen.",
+        nummer="30",
     ),
     "styleguide.know_how_schutz": CheckMeta(
         name="Know-How-Schutz dokumentiert",
         category=STYLEGUIDE,
         description="Prüfpunkt 31: Know-how-geschützter Baustein ist nicht als solcher dokumentiert.",
         recommendation="Know-how-Schutz im Bausteinkopf bzw. in der Projektdokumentation vermerken.",
+        nummer="31",
     ),
     "styleguide.tag_tabellen_nur_io": CheckMeta(
         name="Tag-Tabellen nur I/O-Tags",
         category=STYLEGUIDE,
         description="Prüfpunkt 32: Tag-Tabelle enthält Tags außerhalb des I-/Q-Adressbereichs.",
         recommendation="Nicht-I/O-Tags (Merker etc.) in eine eigene Tag-Tabelle verschieben.",
+        nummer="32",
     ),
     "styleguide.nicht_optimierte_bausteine": CheckMeta(
         name="Nicht-optimierte Bausteine",
         category=STYLEGUIDE,
         description="Prüfpunkt 33: Baustein ist mit Standard- statt optimiertem Bausteinzugriff projektiert.",
         recommendation="Bausteinzugriff auf 'Optimiert' umstellen, sofern kein technischer Grund dagegenspricht.",
+        nummer="33",
     ),
     "styleguide.bausteine_im_root": CheckMeta(
         name="Bausteine im Root ohne Ordnerstruktur",
         category=STYLEGUIDE,
         description="Prüfpunkt 34: Mehr Bausteine im Wurzelordner als der konfigurierte Schwellenwert.",
         recommendation="Bausteine in thematische Unterordner/Gruppen einsortieren.",
+        nummer="34",
     ),
     "styleguide.schreibschutz": CheckMeta(
         name="Schreibschutz von Bausteinen",
         category=STYLEGUIDE,
         description="Prüfpunkt 35 (neu in V21): Baustein hat Schreibschutz, der nicht dokumentiert ist.",
         recommendation="Schreibschutz im Bausteinkopf bzw. in der Projektdokumentation vermerken.",
+        nummer="35",
     ),
 }
