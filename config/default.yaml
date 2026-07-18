@@ -62,7 +62,26 @@ checks:
     variablen_kommentar:
       enabled: true
       severity: warning
-      ausnahme_prefixe: ["_"]
+      ausnahme_prefixe: ["__"]
+      # Einzelne Variablen, die unabhängig von ausnahme_prefixe von der
+      # Prüfung ausgenommen werden sollen — vollständiger Name, exakte
+      # Übereinstimmung (kein Präfix-/Teilstring-Abgleich). Gilt für
+      # PLC-Tags und DB-Member gleichermaßen; bei DB-Membern inkl. eines
+      # eventuellen Punktpfads, z. B. "Alm.Station_1".
+      ausnahme_variables: []
+      #   - "System_Byte"
+      #   - "Alm.Station_1"
+
+    # Prüfpunkt 1b — war in der ursprünglichen Liste kein eigener Punkt,
+    # ergänzt Prüfpunkt 1: Items innerhalb eines UDT-typisierten Members
+    # werden dort bewusst nicht mehr einzeln geprüft (analog zu Array-
+    # Elementen reicht ein Kommentar auf dem UDT-Member selbst) — stattdessen
+    # prüft dieser Punkt den PLC-Datentyp (UDT) direkt: sowohl seinen eigenen
+    # Kommentar als auch die Kommentare aller seiner Items.
+    udt_kommentar:
+      enabled: true
+      severity: warning
+      ausnahme_prefixe: ["__"]
 
     baustein_beschreibung:
       enabled: true

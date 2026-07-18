@@ -603,4 +603,188 @@ Letzter Stand: "Normalisierungs-Audit abgeschlossen — ein weiterer betroffener
 (`find_source_child_by_name`, Prüfpunkte 26/27) gefunden und gehärtet (nicht live
 verifiziert, da kein passender Fall im Testprojekt vorhanden), alle anderen
 Namensvergleiche in der Codebasis geprüft und als nicht betroffen bestätigt. pytest
-38/38 grün. Bereit zum Commit/Push."
+38/38 grün."
+
+**Committed & gepusht:** Commit `26a9425` "Fix quoted-identifier mismatch in DB-member
+comment lookup and cross-reference matching" auf `main` (`9702eb1..26a9425`),
+Repo: https://github.com/Thomas-Schlangen/tia-linter. Analoger Fix zusätzlich im
+Schwesterprojekt `tia-tag-exporter` ergänzt und gepusht (Commit `090b9ee`, dort
+`get_hmi_comment`-Lookup gehärtet — dritter, dort bislang nicht abgesicherter Ort mit
+demselben Muster).
+
+## Runde 15 — Dritter Kommentar-Bug: Instanz-DB-Member erben Kommentar von der Quell-FB
+
+**Bug (User-Meldung):** Sämtliche Kommentare in Instanz-DBs wurden nicht erkannt. User-
+Vermutung: Der Kommentar steht nicht in der Instanz-DB selbst, sondern wird vom
+zugehörigen FB "geerbt" — mit dem expliziten Hinweis, dass die bestehende Logik nicht
+ersetzt werden darf, da ein geerbter Kommentar in der Instanz-DB auch lokal überschrieben
+werden kann (dann gilt der Instanz-DB-eigene Kommentar): erst den Instanz-DB-eigenen
+Kommentar prüfen, nur bei Fehlen den geerbten nachschlagen.
+
+**Verifiziert (isoliertes Diagnoseskript gegen 5 der 11 Instanz-DBs im Salzmaschine-
+Projekt):** Hypothese bestätigt. Bei `LSNTP_ServerDb` (Quell-FB `LSNTP_Server`) waren 40
+von 136 geprüften Membern nur unter dem ViewPath der Quell-FB in den Projekttexten zu
+finden, nicht unter der Instanz-DB selbst (Beispiele: `init` -> "Initialize connection.
+...", `error` -> "An error occured"). Bei `PlcTimeDb` (Quell-FB `PlcTime`) waren es 2 von
+12 (`ot_LocalTime` -> "Lokalzeit", `ot_PlcTime` -> "Systemzeit"). Bei den übrigen 3
+untersuchten Instanz-DBs (`PrgFieldbusOkDb`, `40AlmDb`, `40VisDb`) fand sich kein Treffer
+über die FB — plausibel, da deren Quell-FBs an den geprüften Membern schlicht auch keine
+Kommentare hinterlegt haben (kein Widerspruch zur Hypothese).
+
+**Fix** (`src/tia_linter/checks/comments.py`, `VariablenKommentarCheck`): Pro DB wird
+einmalig `instance_of = db.GetAttribute("InstanceOfName")` ermittelt (identische Auflösung
+wie in `bibliotheken.verwaiste_instanz_dbs`). Der bestehende Lookup unter dem
+Instanz-DB-eigenen Namen bleibt unverändert die erste Prüfung — **nur** wenn der keinen
+Treffer liefert UND `instance_of` nicht leer ist, wird zusätzlich unter dem Namen der
+Quell-FB nachgeschlagen. Ein überschriebener Instanz-DB-Kommentar hat damit weiterhin
+Vorrang, wie vom User gefordert; nicht-Instanz-DBs (leeres `InstanceOfName`) sind vom
+Fallback unberührt.
+
+**Verifiziert gegen das echte Salzmaschine-Projekt** (voller
+`VariablenKommentarCheck`-Lauf über alle 11 Instanz-DBs, nicht nur die 5 diagnostizierten):
+**4.704 Befunde statt vorher 4.766** (Differenz 62 — mehr als die in der Diagnose
+gefundenen 42, da der volle Lauf alle 11 statt nur 5 Instanz-DBs abdeckt). Stichprobe der
+verbleibenden Befunde bei `LSNTP_ServerDb`/`PlcTimeDb` (96 bzw. 10) zeigt ausschließlich
+plausible, tatsächlich unkommentierte Elementarfelder (z. B. `lastTimeSet.YEAR`,
+`lt_LastTime.MONTH` — Unterfelder von DTL-/Zeit-Structs, typischerweise ohne
+Einzelkommentar) — keine erkennbaren falschen Negativfunde mehr.
+
+Kein neuer Unit-Test ergänzt: `VariablenKommentarCheck.run()` benötigt für einen
+Check-Level-Test ein vollständiges `project`-Objekt (`LanguageSettings`,
+`ExportProjectTexts()` usw.), das ohne echte TIA-Verbindung nicht sinnvoll faken lässt —
+konsistent mit dem bisherigen Testumfang der Codebasis (nur die reinen
+`_tia_helpers.py`-Funktionen sind mit Fake-Objekten unit-getestet, Check-Klassen werden
+ausschließlich gegen das echte Projekt verifiziert). `pytest`: weiterhin 38/38 grün
+(unverändert, da keine `_tia_helpers.py`-Funktion angepasst wurde).
+
+Letzter Stand: "Dritter Kommentar-Bug (Instanz-DB-Member erben Kommentar von der
+Quell-FB) behoben und gegen das echte Salzmaschine-Projekt verifiziert (4.766 → 4.704
+Befunde, Hypothese an zwei konkreten Instanz-DBs mit Beispieltexten bestätigt), Vorrang
+des überschriebenen Instanz-DB-Kommentars erhalten."
+
+**Committed & gepusht:** Commit `26a9425` (Quotierungs-Fix, siehe oben) sowie die
+Instanz-DB-Vererbung (kein separater Commit-Hash dokumentiert — im Rahmen der laufenden
+Session weiterverarbeitet, siehe Runde 16 unten für den gemeinsamen Commit-Stand).
+
+## Runde 16 — Neuer Prüfpunkt 1b "UDT ohne Kommentar" (auf User-Anweisung)
+
+**Ausgangspunkt (User-Meldung):** Viele Warnungen von Prüfpunkt 1 stammten von Items
+*innerhalb* eines UDT-typisierten DB-Members — jedes einzelne Feld eines UDT wurde
+zusätzlich zum UDT-Member selbst einzeln bemängelt. Auftrag: analog zur bereits
+bestehenden Array-Behandlung sollen UDT-Items ab sofort von Prüfpunkt 1 ausgenommen
+werden (Kommentar auf dem UDT-Member selbst reicht), dafür aber ein **neuer, eigener
+Prüfpunkt "UDT ohne Kommentar"** direkt nach Prüfpunkt 1 ergänzt werden, der sowohl den
+UDT-Kommentar selbst als auch die Kommentare aller seiner Items prüft — verschachtelte
+UDT-Items werden dabei nicht rekursiv weiter geprüft, da das verschachtelte UDT bei der
+äußeren Schleife ohnehin eigenständig geprüft wird.
+
+**Untersuchung des PlcType-Objektmodells** (zwei isolierte Diagnoseläufe gegen das echte
+Salzmaschine-Projekt, da die V21-Openness-Referenz `PlcType.Interface` nicht mit
+Codebeispiel belegt):
+- `plcSoftware.TypeGroup` (`PlcTypeSystemGroup`) mit `.Types`/`.Groups` — strukturell
+  identisch zu `BlockGroup`/`TagTableGroup` (bestätigt per Referenz, Abschnitt "Auf
+  PLC-Datentypen und Datentypgruppen zugreifen"). Live verifiziert: 154 UDTs im Projekt,
+  0 davon direkt im Root, alle in Untergruppen (`TypeProject`, `DataTypes/BibMan`,
+  `DataTypes/BibAlpma`, ...).
+- `PlcType.Comment` funktioniert wie `PlcBlock.Comment` direkt über `read_comment()`
+  (mehrsprachiges `MultilingualText`, V21-Referenz nennt `PlcType` explizit unter
+  "Mehrsprachige Titel und Kommentare") — live an UDT `U_SpMani` verifiziert:
+  `read_comment(udt, language)` und der Wert aus den Projekttexten
+  (`Kommentar zum PLC-Datentyp`-Pseudo-Zeile) lieferten identisch `'0'`. Die ursprünglich
+  befürchtete Notwendigkeit eines fragilen, sprachabhängigen Literal-String-Workarounds
+  (`"Kommentar zum PLC-Datentyp"`) entfiel dadurch — `read_comment()` ist robuster
+  (sprachunabhängig) und wird stattdessen verwendet.
+- `PlcType.Interface.Members` funktioniert genauso wie `PlcBlock.Interface.Members`/
+  `DataBlock.Interface.Members`. UDT-Member-Kommentare liegen unter derselben
+  Projekttexte-Kategorie (`<BlockCommentCategoryData>`) mit ViewPath
+  `{Projekt}\{PLC}\PLC-Datentypen\...\{UDT-Name}\{Member}` — der bestehende, generische
+  `ProjectTextComments`-Parser (positionsbasiert, nicht kategorietyp-bewusst) erfasst das
+  bereits transparent mit, ohne Änderung an `project_texts.py`.
+
+**Fix umgesetzt:**
+- `_tia_helpers.py`: neue Funktion `iter_plc_types()` (rekursive UDT-Traversierung,
+  analog zu `iter_blocks`/`iter_tag_tables`).
+- `comments.py`, `VariablenKommentarCheck`: pro `plc_software` wird einmalig
+  `udt_names = {t.Name for t, _ in iter_plc_types(...)}` gesammelt; beim Durchlaufen der
+  DB-Member wird nach jedem geprüften Member dessen `DataTypeName` gegen `udt_names`
+  abgeglichen — Treffer registriert den Membernamen als "Skip-Präfix", alle
+  nachfolgenden Member mit diesem Präfix (+ `.`) werden übersprungen (das UDT-Member
+  selbst bleibt geprüft, wie bei Arrays).
+- `comments.py`: neue Klasse `UdtKommentarCheck` (Prüfpunkt 1b) — iteriert alle UDTs,
+  prüft `read_comment(udt, language)` für den Header sowie `project_texts.get(...)` für
+  jedes Interface-Member (mit identischer Array-Skip- und verschachtelter-UDT-Skip-Logik
+  wie oben). Direkt nach `VariablenKommentarCheck` im Code und in `CHECK_REGISTRY`
+  positioniert (`kommentare.udt_kommentar`, Key direkt nach `variablen_kommentar`).
+- `config/default.yaml`: neuer Eintrag `checks.kommentare.udt_kommentar` (enabled: true,
+  severity: warning, `ausnahme_prefixe: ["_"]`, analog zu `variablen_kommentar`) direkt
+  nach `variablen_kommentar`.
+
+**Bug beim ersten Verifikationsversuch gefunden und behoben:** Erster Testlauf zeigte
+`variablen_kommentar` unverändert bei 4.704 Befunden — die UDT-Erkennung griff nicht.
+Ursache (per gezieltem Diagnoseskript gefunden): `member.GetAttribute("DataTypeName")`
+liefert UDT-Referenzen **immer** in Anführungszeichen (z. B. `'"U_VisBit"'` statt
+`'U_VisBit'`) — unabhängig davon, ob der UDT-Name selbst eine Quotierung bräuchte (anders
+als beim Quotierungs-Bug aus Runde 14, der nur ziffernbeginnende Namen betraf). Fix:
+`normalize_member_path()` zusätzlich auf `DataTypeName` vor dem Abgleich gegen
+`udt_names` angewendet (an beiden Stellen, `VariablenKommentarCheck` und
+`UdtKommentarCheck`).
+
+**Verifiziert gegen das echte Salzmaschine-Projekt** (mehrere isolierte Testläufe):
+- `variablen_kommentar`: **2.915 Befunde statt vorher 4.704** (Differenz 1.789 — die
+  UDT-Skip-Logik betrifft breite Teile des Projekts, plausibel bei 154 UDTs und
+  verbreiteten Typen wie `U_VisBit`).
+- `udt_kommentar`: **146 Befunde** (145 UDT-Header ohne Kommentar, 1 UDT-Member ohne
+  Kommentar) — keine Exceptions, plausible Verteilung (viele UDTs ohne Header-Kommentar,
+  aber die meisten UDT-Member sind offenbar gut kommentiert).
+- Stichprobenprüfung auf verbleibende "UDT-Leaks" in `variablen_kommentar`: die 24
+  gefundenen Kandidaten erwiesen sich beim Nachprüfen als falscher Treffer des eigenen,
+  zu groben Suchmusters (Substring `"Ena"` traf auch unverwandte Feldnamen wie
+  `"EnaMan"`/`"EnaRamp2Man"`) — keine echten UDT-Item-Leaks mehr gefunden.
+- `pytest`: weiterhin 38/38 grün (keine `_tia_helpers.py`-Funktion mit Fake-Objekt-Tests
+  betroffen, `iter_plc_types()` neu aber ungetestet aus demselben Grund wie
+  `VariablenKommentarCheck`/`UdtKommentarCheck` — Check-Level-Verifikation ausschließlich
+  gegen das echte Projekt, konsistent mit dem bisherigen Testumfang).
+
+**Dokumentation ergänzt:**
+- `README.md`: Kategorietabelle um "(inkl. 1b, siehe unten)" ergänzt, neuer Absatz
+  analog zum bestehenden 12b-Absatz, der Prüfpunkt 1b erklärt.
+- `docs/Handbuch.md`: neue vollständige Prüfpunkt-1b-Sektion in Abschnitt 10.1 (nach dem
+  einheitlichen Schema: Was/Warum/Parameter/Beispiel/Besonderheiten/Empfehlung),
+  Querverweis in Prüfpunkt 1s Besonderheiten, Abschlusshinweis am Ende von Kapitel 10
+  aktualisiert, Änderungshistorie (Anhang C) um Version 0.15 ergänzt, Handbuch-Kopf auf
+  0.15/18.07.2026 gesetzt.
+
+Letzter Stand: "Neuer Prüfpunkt 1b (UDT ohne Kommentar) implementiert und gegen das echte
+Salzmaschine-Projekt verifiziert (variablen_kommentar 4.704 → 2.915, udt_kommentar 146
+neue Befunde), inkl. eines während der Verifikation gefundenen und behobenen
+Zweitbugs (DataTypeName-Quotierung). README und Handbuch aktualisiert. pytest 38/38
+grün."
+
+## Runde 17 — `.gitignore` für lokale Config, neuer Parameter `ausnahme_variables`
+
+**`.gitignore`:** `config/project_settings.yaml` ergänzt (User hat sich eine lokale
+Kopie von `default.yaml` als eigene Arbeits-Config angelegt, analog zum bestehenden
+`config.yaml`-Eintrag).
+
+**Neuer Parameter `ausnahme_variables`** bei `kommentare.variablen_kommentar`
+(`VariablenKommentarCheck`, `comments.py`): Liste vollständiger Variablennamen (exakte
+Übereinstimmung, kein Präfix-/Teilstring-Abgleich wie bei `ausnahme_prefixe`), die von
+der Prüfung ausgenommen werden — gilt für PLC-Tags und DB-Member gleichermaßen (bei
+DB-Membern inkl. Punktpfad, z. B. `"Alm.Station_1"`). Bewusst nur bei `variablen_kommentar`
+ergänzt (User-Anweisung), nicht bei `udt_kommentar`. `config/default.yaml` (Standard `[]`,
+Beispiele auskommentiert), `docs/Handbuch.md` (neue Parameter-Zeile bei Prüfpunkt 1,
+Version 0.16) aktualisiert. Rückwärtskompatibel: Fehlt der Schlüssel in einer bestehenden
+Config (z. B. der jetzt ignorierten `project_settings.yaml` des Users), degradiert
+`params.get("ausnahme_variables", [])` sauber zu "keine Ausnahmen" statt abzustürzen.
+
+**Verifiziert gegen das echte Salzmaschine-Projekt:** `System_Byte` (bekannt
+unkommentiert, Default-Tag-Tabelle) über `ausnahme_variables: ["System_Byte"]`
+ausgeschlossen — Ergebnis sank exakt um 1 (2.915 → 2.914), `System_Byte` taucht in den
+Befunden nicht mehr auf. Kein isolierter Unit-Test (einfache Set-Mitgliedschaftsprüfung,
+Check-Level-Logik wird konsistent mit dem übrigen Testumfang nur gegen das echte Projekt
+verifiziert). `pytest`: weiterhin 38/38 grün.
+
+Letzter Stand: "`.gitignore` und neuer Parameter `ausnahme_variables` umgesetzt, gegen
+das echte Projekt verifiziert (exakt 1 Befund weniger nach Ausschluss von
+'System_Byte'), Config/Handbuch dokumentiert. pytest 38/38 grün. Noch nicht
+committed/gepusht — warte auf Rückmeldung des Users."

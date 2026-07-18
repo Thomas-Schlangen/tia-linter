@@ -137,6 +137,33 @@ def iter_tag_tables(plc_software: Any, excluded_folders: Iterable[str] = ()) -> 
     yield from _walk(plc_software.TagTableGroup)
 
 
+def iter_plc_types(
+    plc_software: Any, excluded_folders: Iterable[str] = ()
+) -> Iterator[tuple[Any, list[str]]]:
+    """Durchläuft rekursiv alle PLC-Datentypen (UDTs) einer PLC-Software und
+    liefert je UDT ein Tupel ``(plc_type, gruppenpfad)`` — analog zu
+    ``iter_blocks``/``iter_tag_tables``. ``excluded_folders`` wirkt wie dort.
+
+    Openness-Referenz (Manual 03/2026, "Auf PLC-Datentypen und
+    Datentypgruppen zugreifen"): ``plc_software.TypeGroup`` (``PlcTypeSystemGroup``)
+    mit ``.Types`` (``PlcTypeComposition``, UDTs auf dieser Ebene) und
+    ``.Groups`` (``PlcTypeUserGroupComposition``, Unterordner, rekursiv mit
+    denselben zwei Eigenschaften) — strukturell identisch zu
+    ``BlockGroup``/``TagTableGroup``.
+    """
+    excluded = _normalize_excluded(excluded_folders)
+
+    def _walk(type_group: Any, path: list[str]) -> Iterator[tuple[Any, list[str]]]:
+        for plc_type in type_group.Types:
+            yield plc_type, path
+        for subgroup in getattr(type_group, "Groups", []):
+            if subgroup.Name.casefold() in excluded:
+                continue
+            yield from _walk(subgroup, [*path, subgroup.Name])
+
+    yield from _walk(plc_software.TypeGroup, [])
+
+
 def tag_direction(tag: Any) -> str | None:
     """Liefert ``'I'``/``'Q'`` je nach logischer Adresse des Tags (z. B.
     ``%I0.0``/``%Q4.1``), oder ``None`` wenn das Tag keine feste Adresse hat

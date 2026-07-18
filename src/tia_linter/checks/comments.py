@@ -12,6 +12,7 @@ from tia_linter.checks._tia_helpers import (
     iter_compile_units,
     iter_data_blocks,
     iter_plc_software,
+    iter_plc_types,
     iter_tag_tables,
     normalize_member_path,
     read_comment,
@@ -60,11 +61,49 @@ class VariablenKommentarCheck(BaseCheck):
     ``normalize_member_path`` vor dem Lookup auf PLC-/DB-/Member-Namen
     anwenden (nur für den Lookup — der im Befund angezeigte Name bleibt
     unverändert die echte, ggf. quotierte TIA-Bezeichnung).
+
+    Dritter Bug (User-Meldung, live gegen das Salzmaschine-Projekt
+    verifiziert — z. B. Instanz-DB ``LSNTP_ServerDb``: 40 von 136 Membern
+    betroffen): Ein Interface-Member einer Instanz-DB ohne eigenen,
+    überschriebenen Kommentar erbt seinen Kommentar vom entsprechenden
+    Member der Quell-FB (TIA-GUI-Verhalten: der geerbte Kommentar wird in
+    der Instanz-DB angezeigt, bis er dort explizit überschrieben wird — dann
+    gilt der Instanz-DB-eigene Kommentar). In den Projekttexten liegt der
+    geerbte Kommentar unter dem ``ViewPath`` der **Quell-FB**, nicht der
+    Instanz-DB — ein reiner Lookup unter dem Instanz-DB-Namen findet ihn
+    daher nie. Fix: Schlägt der Lookup unter dem Instanz-DB-Namen fehl,
+    wird zusätzlich unter dem Namen der Quell-FB nachgeschlagen
+    (``db.GetAttribute("InstanceOfName")``, dieselbe Auflösung wie in
+    ``bibliotheken.verwaiste_instanz_dbs``) — bewusst nur als Fallback
+    *nach* dem eigenen Lookup, damit ein tatsächlich überschriebener
+    Instanz-DB-Kommentar weiterhin Vorrang hat.
+
+    Vierter Bug (User-Meldung): Viele Warnungen stammten von Membern, deren
+    Datentyp selbst ein PLC-Datentyp (UDT) ist — jedes einzelne Item *im*
+    UDT wurde hier zusätzlich zum UDT-Member selbst einzeln bemängelt.
+    Analog zum bereits gelösten Array-Fall (s. o.): Ein Kommentar auf dem
+    UDT-Member selbst reicht aus, die enthaltenen Items werden ab Version
+    dieses Fixes von diesem Prüfpunkt nicht mehr einzeln erfasst — sie
+    werden stattdessen vom neuen Prüfpunkt 1b (``kommentare.udt_kommentar``,
+    siehe ``UdtKommentarCheck``) geprüft, der gezielt für PLC-Datentypen
+    zuständig ist. Erkennung: Für jedes Member wird dessen ``DataTypeName``
+    gegen die Namen aller UDTs der PLC-Software abgeglichen (``iter_plc_types``)
+    — trifft das zu, werden alle nachfolgenden Member, deren Name mit
+    ``"<dieser Membername>."`` beginnt, übersprungen (das UDT-Member selbst
+    bleibt geprüft). Verschachtelte, aber nicht UDT-typisierte Structs
+    (anonyme ``Struct``) bleiben wie bisher einzeln geprüft.
+
+    Zusätzlich zu ``ausnahme_prefixe`` (Präfix-Abgleich) erlaubt
+    ``ausnahme_variables`` das gezielte Ausnehmen einzelner Variablen anhand
+    ihres vollständigen Namens (exakte Übereinstimmung, keine Teilstring-
+    oder Präfix-Logik) — sowohl für PLC-Tags als auch für DB-Member (dort
+    inkl. eines eventuellen Punktpfads, z. B. ``"Alm.Station_1"``).
     """
 
     def run(self, project: Any) -> list[CheckResult]:
         results: list[CheckResult] = []
         exception_prefixes = tuple(self.definition.params.get("ausnahme_prefixe", []))
+        exception_variables = frozenset(self.definition.params.get("ausnahme_variables", []))
         language = reference_language(project)
 
         for plc_software in iter_plc_software(project):
@@ -74,6 +113,8 @@ class VariablenKommentarCheck(BaseCheck):
                 for tag in tag_table.Tags:
                     tag_name = tag.Name
                     if tag_name.startswith(exception_prefixes):
+                        continue
+                    if tag_name in exception_variables:
                         continue
                     comment = read_comment(tag, language)
                     if not comment:
@@ -88,19 +129,39 @@ class VariablenKommentarCheck(BaseCheck):
                         )
 
             project_texts = ProjectTextComments.load(project)
+            udt_names = {t.Name for t, _ in iter_plc_types(plc_software, self.excluded_folders)}
+
             for db, group_path in iter_data_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
                 db_name = db.Name
+                instance_of = str(get_attribute(db, "InstanceOfName", "") or "")
+                skip_prefixes: list[str] = []
                 for member in getattr(getattr(db, "Interface", None), "Members", []):
                     member_name = member.Name
                     if "[" in member_name:
                         continue  # Array-Element (auch verschachtelt darunter) — Array selbst reicht
+                    if any(
+                        member_name == prefix or member_name.startswith(prefix + ".")
+                        for prefix in skip_prefixes
+                    ):
+                        continue  # Item innerhalb eines UDT-Members — wird von Prüfpunkt 1b geprüft
                     if member_name.startswith(exception_prefixes):
                         continue
+                    if member_name in exception_variables:
+                        continue
+                    norm_member = normalize_member_path(member_name)
                     comment = project_texts.get(
                         normalize_member_path(plc_name),
                         normalize_member_path(db_name),
-                        normalize_member_path(member_name),
+                        norm_member,
                     )
+                    if not comment and instance_of:
+                        # Instanz-DB-Member ohne eigenen Kommentar erbt ihn von der
+                        # Quell-FB — siehe Klassen-Docstring, "Dritter Bug".
+                        comment = project_texts.get(
+                            normalize_member_path(plc_name),
+                            normalize_member_path(instance_of),
+                            norm_member,
+                        )
                     if not comment:
                         results.append(
                             self._make_result(
@@ -111,6 +172,109 @@ class VariablenKommentarCheck(BaseCheck):
                                 value=member_name,
                             )
                         )
+
+                    # DataTypeName quotet UDT-Referenzen unabhängig davon, ob der
+                    # Name selbst eine Quotierung bräuchte (z. B. '"U_VisBit"' statt
+                    # 'U_VisBit', live verifiziert) — normalize_member_path() vor
+                    # dem Abgleich gegen udt_names anwenden.
+                    data_type_name = normalize_member_path(str(get_attribute(member, "DataTypeName", "") or ""))
+                    if data_type_name in udt_names:
+                        skip_prefixes.append(member_name)
+        return results
+
+
+class UdtKommentarCheck(BaseCheck):
+    """Prüfpunkt 1b: PLC-Datentypen (UDTs) ohne Kommentar.
+
+    War in der ursprünglichen Liste der Prüfpunkte kein eigener Punkt —
+    ergänzt Prüfpunkt 1 um genau die Items, die dort seit dem "Vierter Bug"
+    genannten Fix bewusst nicht mehr geprüft werden (Items *innerhalb* eines
+    UDT-typisierten Members). Geprüft werden zwei unabhängige Dinge:
+
+    1. Der Kommentar des UDT selbst (``PlcType.Comment``) — genau wie
+       ``PlcBlock.Comment`` ein mehrsprachiges ``MultilingualText``-Objekt
+       (V21-Openness-Referenz nennt ``PlcType`` explizit unter "Mehrsprachige
+       Titel und Kommentare"), gelesen über ``read_comment`` — live gegen
+       das Salzmaschine-Projekt verifiziert (UDT ``U_SpMani``: identischer
+       Text über ``read_comment`` und über die Projekttexte gefunden).
+    2. Die Kommentare aller Items *innerhalb* des UDT (``PlcType.Interface.Members``)
+       — wie bei DB-Membern hat ``Interface.Member`` kein eigenes
+       ``Comment``-Attribut, der Kommentar kommt über dieselbe zentrale
+       Projekttexte-Verwaltung (``project_texts.py``) wie bei DB-Membern;
+       der generische ViewPath-Parser dort (``{Projekt}\\{PLC}\\...\\{Baustein}\\{Member}``)
+       erfasst UDT-Member-Kommentare bereits transparent mit, unabhängig
+       davon, ob "Baustein" ein DB oder eine UDT ist — live verifiziert
+       (``PLC-Datentypen\\DataTypes\\BibAlpma\\U_VisBit\\Ena`` landet mit
+       demselben Mechanismus im selben Lookup-Dict wie ein DB-Member).
+
+    Ist ein Item selbst wieder ein UDT-typisiertes Member, wird ab dort
+    bewusst nicht weiter in die Tiefe geprüft — dieses verschachtelte UDT
+    wird unabhängig davon geprüft, wenn die äußere Schleife bei ihm
+    ankommt (jede UDT wird einmal für sich betrachtet, nicht rekursiv über
+    ihre Verwendungsstellen). Array-Elemente (``[...]``) werden wie bei
+    Prüfpunkt 1 übersprungen — ein Kommentar auf dem Array selbst reicht.
+    """
+
+    def run(self, project: Any) -> list[CheckResult]:
+        results: list[CheckResult] = []
+        exception_prefixes = tuple(self.definition.params.get("ausnahme_prefixe", []))
+        language = reference_language(project)
+
+        for plc_software in iter_plc_software(project):
+            plc_name = plc_software.Name
+            project_texts = ProjectTextComments.load(project)
+            udt_names = {t.Name for t, _ in iter_plc_types(plc_software, self.excluded_folders)}
+
+            for udt, group_path in iter_plc_types(plc_software, self.excluded_folders):
+                udt_name = udt.Name
+                if not udt_name.startswith(exception_prefixes):
+                    comment = read_comment(udt, language)
+                    if not comment:
+                        results.append(
+                            self._make_result(
+                                path=format_path(plc_name, "PLC-Datentypen", *group_path, udt_name),
+                                description=f"PLC-Datentyp '{udt_name}' hat keinen Kommentar.",
+                                value=udt_name,
+                            )
+                        )
+
+                skip_prefixes: list[str] = []
+                for member in getattr(getattr(udt, "Interface", None), "Members", []):
+                    member_name = member.Name
+                    if "[" in member_name:
+                        continue  # Array-Element (auch verschachtelt darunter) — Array selbst reicht
+                    if any(
+                        member_name == prefix or member_name.startswith(prefix + ".")
+                        for prefix in skip_prefixes
+                    ):
+                        continue  # Item innerhalb eines verschachtelten UDT-Members — eigener Durchlauf
+                    if member_name.startswith(exception_prefixes):
+                        continue
+
+                    norm_member = normalize_member_path(member_name)
+                    comment = project_texts.get(
+                        normalize_member_path(plc_name),
+                        normalize_member_path(udt_name),
+                        norm_member,
+                    )
+                    if not comment:
+                        results.append(
+                            self._make_result(
+                                path=format_path(
+                                    plc_name, "PLC-Datentypen", *group_path, udt_name, "Member", member_name
+                                ),
+                                description=f"UDT-Variable '{member_name}' hat keinen Kommentar.",
+                                value=member_name,
+                            )
+                        )
+
+                    # DataTypeName quotet UDT-Referenzen unabhängig davon, ob der
+                    # Name selbst eine Quotierung bräuchte (z. B. '"U_VisBit"' statt
+                    # 'U_VisBit', live verifiziert) — normalize_member_path() vor
+                    # dem Abgleich gegen udt_names anwenden.
+                    data_type_name = normalize_member_path(str(get_attribute(member, "DataTypeName", "") or ""))
+                    if data_type_name in udt_names:
+                        skip_prefixes.append(member_name)
         return results
 
 
@@ -208,6 +372,7 @@ class AenderungshistorieCheck(BaseCheck):
 
 CHECK_CLASSES = {
     "kommentare.variablen_kommentar": VariablenKommentarCheck,
+    "kommentare.udt_kommentar": UdtKommentarCheck,
     "kommentare.baustein_beschreibung": BausteinBeschreibungCheck,
     "kommentare.netzwerk_beschreibung": NetzwerkBeschreibungCheck,
     "kommentare.aenderungshistorie": AenderungshistorieCheck,

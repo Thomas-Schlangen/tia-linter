@@ -133,7 +133,7 @@ erfolgt headless über `TiaPortalMode.WithoutUserInterface`.
 
 | Kategorie | Prüfpunkte |
 |---|---|
-| Kommentare & Beschreibungen | 1–4 |
+| Kommentare & Beschreibungen | 1–4 (inkl. 1b, siehe unten) |
 | Namenskonventionen | 5–9 |
 | Programmstruktur | 10–16 (inkl. 12b, siehe unten) |
 | Hardware & Konfiguration | 17–18c |
@@ -143,6 +143,17 @@ erfolgt headless über `TiaPortalMode.WithoutUserInterface`.
 
 Details zu allen Prüfpunkten: siehe `config/default.yaml`
 (`description`/`recommendation` je Prüfpunkt).
+
+**Prüfpunkt 1b — UDT ohne Kommentar** (`kommentare.udt_kommentar`, Standard-
+Schweregrad Warnung): war in der ursprünglichen Liste der 35 Prüfpunkte kein
+eigener Punkt, ergänzt aber Prüfpunkt 1 um PLC-Datentypen (UDTs). Prüfpunkt 1
+prüft Items *innerhalb* eines UDT-typisierten DB-Members bewusst nicht mehr
+einzeln (analog zu Array-Elementen genügt ein Kommentar auf dem UDT-Member
+selbst) — Prüfpunkt 1b schließt die dadurch entstehende Lücke, indem er
+sowohl den Kommentar des UDT selbst als auch die Kommentare aller seiner
+Items direkt an der UDT-Definition prüft. Ist ein Item selbst wieder ein UDT,
+wird ab dort nicht weiter in die Tiefe geprüft — dieses UDT wird eigenständig
+geprüft, wenn die Prüfung bei ihm ankommt.
 
 **Prüfpunkt 12b — Eingänge dürfen nicht beschrieben werden** (`programmstruktur.eingaenge_nicht_beschrieben`,
 Standard-Schweregrad Fehler): war in der ursprünglichen Liste der 35

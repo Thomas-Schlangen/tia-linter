@@ -1,7 +1,7 @@
 # TIA Linter — Benutzerhandbuch
 
-**Version dieses Handbuchs:** 0.14 (Entwurf)
-**Stand:** 17.07.2026
+**Version dieses Handbuchs:** 0.16 (Entwurf)
+**Stand:** 18.07.2026
 **Programmversion:** 0.1.0
 
 > **Hinweis zum Bearbeitungsstand:** Dieses Handbuch ist inhaltlich
@@ -627,6 +627,7 @@ Programmcode oder aus dem Anlagenplan rekonstruiert werden.
 | Parameter | Standardwert | Bedeutung |
 |---|---|---|
 | `ausnahme_prefixe` | `["_"]` | Variablen, deren Name mit einem dieser Präfixe beginnt, werden von der Prüfung ausgenommen. |
+| `ausnahme_variables` | `[]` | Einzelne Variablen, die unabhängig von `ausnahme_prefixe` von der Prüfung ausgenommen werden sollen — vollständiger Name, exakte Übereinstimmung (kein Präfix-/Teilstring-Abgleich). Gilt für PLC-Tags und DB-Member gleichermaßen; bei DB-Membern inkl. eines eventuellen Punktpfads (z. B. `"Alm.Station_1"`). |
 
 **Beispiel**
 
@@ -642,11 +643,76 @@ PLC_1 > Variablentabellen > Tags_Eingaenge > I_Sensor_01
   `Rezepte[3]`) werden nicht zusätzlich einzeln bemängelt. Verschachtelte
   **Strukturen** (z. B. `Motor.Drehzahl`) gelten dagegen als eigenständige,
   einzeln zu kommentierende Variablen.
+- Ist eine Datenbaustein-Variable vom Typ eines **PLC-Datentyps (UDT)**,
+  gilt dieselbe Logik wie bei Arrays: Ein Kommentar auf der Variable
+  selbst genügt, die einzelnen Items *innerhalb* des UDT werden hier
+  nicht zusätzlich einzeln geprüft. Deren Kommentare (sowohl der des UDT
+  selbst als auch die seiner Items) prüft stattdessen der separate
+  [Prüfpunkt 1b](#prüfpunkt-1b-udt-ohne-kommentar).
 
 **Empfehlung zur Behebung**
 Kommentar mit Beschreibung der Funktion bzw. Bedeutung der Variable
 ergänzen — z. B. welcher Anlagenteil betroffen ist oder was ein Grenzwert
 bedeutet.
+
+#### Prüfpunkt 1b — UDT ohne Kommentar
+
+| | |
+|---|---|
+| **Kategorie** | Kommentare & Beschreibungen |
+| **Standard-Schweregrad** | Warnung |
+| **Config-Schlüssel** | `checks.kommentare.udt_kommentar` |
+
+**Was wird geprüft?**
+Für jeden PLC-Datentyp (UDT) im Projekt wird geprüft, ob er selbst einen
+Kommentar hat, und zusätzlich für jedes seiner Items (Interface-Member),
+ob dieses einen Kommentar hat. Fehlt einer der beiden, wird je ein
+eigener Befund erzeugt.
+
+**Warum ist das wichtig?**
+Prüfpunkt 1 prüft Items *innerhalb* eines UDT-typisierten
+Datenbaustein-Members bewusst nicht mehr einzeln (siehe dortige
+Besonderheiten) — ein Kommentar auf der Variable selbst genügt dort,
+analog zu Array-Elementen. Ohne diesen eigenen Prüfpunkt blieben die
+Items eines UDT damit vollständig ungeprüft, egal wie oft und an wie
+vielen Stellen der UDT im Projekt verwendet wird. Da ein UDT häufig an
+vielen Stellen eingesetzt wird, lohnt sich die Kommentierung an der
+UDT-Definition selbst ohnehin mehr als an jeder einzelnen
+Verwendungsstelle.
+
+**Parameter**
+
+| Parameter | Standardwert | Bedeutung |
+|---|---|---|
+| `ausnahme_prefixe` | `["_"]` | UDTs bzw. Items, deren Name mit einem dieser Präfixe beginnt, werden von der Prüfung ausgenommen. |
+
+**Beispiel**
+
+```
+PLC_1 > PLC-Datentypen > U_Motor
+→ PLC-Datentyp 'U_Motor' hat keinen Kommentar.
+
+PLC_1 > PLC-Datentypen > U_Motor > Member > Drehzahl
+→ UDT-Variable 'Drehzahl' hat keinen Kommentar.
+```
+
+**Besonderheiten**
+
+- War in der ursprünglichen Liste der 35 Prüfpunkte kein eigener Punkt —
+  ergänzt Prüfpunkt 1 um eine Lücke, die erst durch dessen eigene
+  UDT-Sonderbehandlung entstanden ist (siehe dort).
+- Ist ein Item selbst wieder vom Typ eines (anderen oder desselben) UDT,
+  wird ab dort **nicht** weiter in die Tiefe geprüft — dieses
+  verschachtelte UDT wird eigenständig geprüft, sobald die Prüfung bei
+  ihm ankommt. Jeder UDT wird also genau einmal an seiner Definition
+  geprüft, unabhängig davon, wie oft und wo er im Projekt verwendet wird.
+- Wie bei Prüfpunkt 1 genügt bei UDT-Items, die Arrays sind, ein
+  Kommentar auf dem Array selbst.
+
+**Empfehlung zur Behebung**
+Kommentar auf dem PLC-Datentyp bzw. dem betroffenen Item ergänzen —
+da ein UDT oft mehrfach verwendet wird, wirkt sich ein einmal ergänzter
+Kommentar an der Definition überall dort aus, wo der Typ eingesetzt wird.
 
 #### Prüfpunkt 2 — Bausteine ohne Kopfbeschreibung
 
@@ -2323,11 +2389,12 @@ Schreibschutz im Bausteinkopf bzw. in der Projektdokumentation vermerken.
 
 > **Kapitel 10 ist damit vollständig:** Alle 35 ursprünglichen Prüfpunkte
 > (inkl. der Unterpunkte 11b, 18b und 18c) sind ausgearbeitet — ergänzt um
-> Prüfpunkt 12b (Eingänge dürfen nicht beschrieben werden), der nachträglich
-> als sinnvolle Ergänzung hinzugekommen ist (siehe Änderungshistorie in
-> Anhang C). Rückmeldungen und Korrekturen sind jederzeit willkommen —
-> dieses Handbuch bleibt bis zu einer ersten Durchsicht als Entwurf
-> gekennzeichnet (siehe Kopf des Dokuments).
+> Prüfpunkt 1b (UDT ohne Kommentar) und Prüfpunkt 12b (Eingänge dürfen nicht
+> beschrieben werden), die beide nachträglich als sinnvolle Ergänzung
+> hinzugekommen sind (siehe Änderungshistorie in Anhang C). Rückmeldungen
+> und Korrekturen sind jederzeit willkommen — dieses Handbuch bleibt bis zu
+> einer ersten Durchsicht als Entwurf gekennzeichnet (siehe Kopf des
+> Dokuments).
 
 ---
 
@@ -2458,3 +2525,5 @@ zu der Übersicht, die bereits am Anfang der Markdown-Datei steht.
 | 0.12 | 17.07.2026 | Prüfpunkt 5 (DB-Namensformat) in Abschnitt 10.2 an die Programmerweiterung angepasst: jetzt als zwei unabhängig konfigurierbare Einträge für Global-/Array-DB und Instanz-DB beschrieben (analog zu Prüfpunkt 6/7), inkl. Hinweis zur Einordnung von Array-DBs. |
 | 0.13 | 17.07.2026 | Abschnitt 5.2 um die neue Programmerweiterung `ausgeschlossene_bausteine` ergänzt (einzelne Bausteine per Name komplett von jedem Prüfpunkt ausnehmen, unabhängig vom Ordner — Ergänzung zu `ausgeschlossene_ordner`). |
 | 0.14 | 17.07.2026 | Neuen Prüfpunkt 12b ("Eingänge dürfen nicht beschrieben werden") in Abschnitt 10.3 ergänzt — schließt eine Lücke in der ursprünglichen Prüfpunkte-Liste, Standard-Schweregrad Fehler. Querverweis bei Prüfpunkt 12 ergänzt, Abschlusshinweis am Ende von Kapitel 10 aktualisiert. |
+| 0.15 | 18.07.2026 | Neuen Prüfpunkt 1b ("UDT ohne Kommentar") in Abschnitt 10.1 ergänzt — schließt die Lücke, die dadurch entsteht, dass Prüfpunkt 1 Items innerhalb eines UDT-typisierten DB-Members ab dieser Version bewusst nicht mehr einzeln prüft (analog zu Array-Elementen genügt dort ein Kommentar auf der Variable selbst). Prüfpunkt 1b prüft stattdessen sowohl den Kommentar des UDT selbst als auch die Kommentare aller seiner Items direkt an der UDT-Definition; verschachtelte UDT-Items werden dabei nicht rekursiv mitgeprüft, da das verschachtelte UDT eigenständig geprüft wird. Querverweis bei Prüfpunkt 1 ergänzt, Abschlusshinweis am Ende von Kapitel 10 aktualisiert. |
+| 0.16 | 18.07.2026 | Neuen Parameter `ausnahme_variables` bei Prüfpunkt 1 in Abschnitt 10.1 dokumentiert — erlaubt das Ausnehmen einzelner Variablen (PLC-Tags oder DB-Member) anhand des vollständigen Namens, exakte Übereinstimmung, unabhängig von `ausnahme_prefixe`. |

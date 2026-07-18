@@ -36,6 +36,16 @@ CHECK_REGISTRY: dict[str, CheckMeta] = {
         description="Prüfpunkt 1: PLC-Tags und DB-Variablen ohne Kommentar.",
         recommendation="Kommentar mit Beschreibung der Funktion/Bedeutung der Variable ergänzen.",
     ),
+    "kommentare.udt_kommentar": CheckMeta(
+        name="UDT ohne Kommentar",
+        category=KOMMENTARE,
+        description=(
+            "Prüfpunkt 1b: PLC-Datentyp (UDT) selbst oder eines seiner Items ohne Kommentar. "
+            "Ergänzt Prüfpunkt 1, dessen DB-Variablen-Prüfung Items innerhalb eines "
+            "UDT-typisierten Members bewusst nicht mehr einzeln erfasst."
+        ),
+        recommendation="Kommentar auf dem PLC-Datentyp bzw. dem betroffenen Item ergänzen.",
+    ),
     "kommentare.baustein_beschreibung": CheckMeta(
         name="Bausteine ohne Kopfbeschreibung",
         category=KOMMENTARE,
