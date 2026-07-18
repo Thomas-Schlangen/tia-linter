@@ -159,6 +159,27 @@ class VariablenKommentarCheck(BaseCheck):
                         for prefix in skip_prefixes
                     ):
                         continue  # Item innerhalb eines UDT-Members — wird von Prüfpunkt 1b geprüft
+
+                    # UDT-Erkennung MUSS vor den Ausnahme-Continues laufen (unten):
+                    # Sechster Bug (User-Meldung) — ein Member, das per
+                    # ausnahme_prefixe/ausnahme_variables von der eigenen
+                    # Kommentarprüfung ausgenommen wird, aber selbst UDT-typisiert
+                    # ist, wurde nie als Skip-Präfix registriert, weil der jeweilige
+                    # `continue` schon vorher griff — seine Items blieben dadurch
+                    # ungeschützt einzeln geprüft (live an
+                    # LSNTP_ServerDb > lastTimeSet, zusätzlich in ausnahme_variables
+                    # eingetragen, verifiziert). Die UDT-Erkennung entscheidet daher
+                    # jetzt unabhängig von diesen Ausnahmen, ob die Items eines
+                    # Members übersprungen werden — nur ob der Member *selbst* einen
+                    # Befund bekommt, hängt weiterhin von ausnahme_prefixe/
+                    # ausnahme_variables ab. DataTypeName quotet UDT-Referenzen
+                    # unabhängig davon, ob der Name selbst eine Quotierung bräuchte
+                    # (z. B. '"U_VisBit"' statt 'U_VisBit', live verifiziert) —
+                    # normalize_member_path() vor dem Abgleich anwenden.
+                    data_type_name = normalize_member_path(str(get_attribute(member, "DataTypeName", "") or ""))
+                    if data_type_name in udt_names or data_type_name in exception_udts:
+                        skip_prefixes.append(member_name)
+
                     if member_name.startswith(exception_prefixes):
                         continue
                     if member_name in exception_variables:
@@ -187,14 +208,6 @@ class VariablenKommentarCheck(BaseCheck):
                                 value=member_name,
                             )
                         )
-
-                    # DataTypeName quotet UDT-Referenzen unabhängig davon, ob der
-                    # Name selbst eine Quotierung bräuchte (z. B. '"U_VisBit"' statt
-                    # 'U_VisBit', live verifiziert) — normalize_member_path() vor
-                    # dem Abgleich gegen udt_names/exception_udts anwenden.
-                    data_type_name = normalize_member_path(str(get_attribute(member, "DataTypeName", "") or ""))
-                    if data_type_name in udt_names or data_type_name in exception_udts:
-                        skip_prefixes.append(member_name)
         return results
 
 
@@ -263,6 +276,20 @@ class UdtKommentarCheck(BaseCheck):
                         for prefix in skip_prefixes
                     ):
                         continue  # Item innerhalb eines verschachtelten UDT-Members — eigener Durchlauf
+
+                    # UDT-Erkennung vor dem exception_prefixe-Continue (analog zum
+                    # "Sechster Bug" in VariablenKommentarCheck) — sonst würden die
+                    # Items eines per Präfix ausgenommenen, aber selbst
+                    # UDT-typisierten Members fälschlich einzeln geprüft, statt als
+                    # zum verschachtelten UDT gehörig übersprungen zu werden.
+                    # DataTypeName quotet UDT-Referenzen unabhängig davon, ob der
+                    # Name selbst eine Quotierung bräuchte (z. B. '"U_VisBit"' statt
+                    # 'U_VisBit', live verifiziert) — normalize_member_path() vor
+                    # dem Abgleich gegen udt_names anwenden.
+                    data_type_name = normalize_member_path(str(get_attribute(member, "DataTypeName", "") or ""))
+                    if data_type_name in udt_names:
+                        skip_prefixes.append(member_name)
+
                     if member_name.startswith(exception_prefixes):
                         continue
 
@@ -282,14 +309,6 @@ class UdtKommentarCheck(BaseCheck):
                                 value=member_name,
                             )
                         )
-
-                    # DataTypeName quotet UDT-Referenzen unabhängig davon, ob der
-                    # Name selbst eine Quotierung bräuchte (z. B. '"U_VisBit"' statt
-                    # 'U_VisBit', live verifiziert) — normalize_member_path() vor
-                    # dem Abgleich gegen udt_names anwenden.
-                    data_type_name = normalize_member_path(str(get_attribute(member, "DataTypeName", "") or ""))
-                    if data_type_name in udt_names:
-                        skip_prefixes.append(member_name)
         return results
 
 

@@ -837,5 +837,69 @@ gegen das echte Projekt).
 Letzter Stand: "Neuer Parameter `ausnahme_udts` umgesetzt, dokumentiert und gegen das
 echte Projekt verifiziert (Mechanismus bestätigt, 1.340 Befunde weniger mit Testwert
 'Struct'; echte Kandidaten für den beschriebenen Anwendungsfall identifiziert:
-TON_TIME/TOF_TIME/HW_ANY/HW_IOSYSTEM/CONN_OUC/DNN). pytest 38/38 grün. Noch nicht
-committed/gepusht — warte auf Rückmeldung des Users."
+TON_TIME/TOF_TIME/HW_ANY/HW_IOSYSTEM/CONN_OUC/DNN). pytest 38/38 grün."
+
+**Committed & gepusht:** Commit `76e497b` auf `main` (`a49ee62..76e497b`),
+Repo: https://github.com/Thomas-Schlangen/tia-linter.
+
+## Runde 19 — Sechster Kommentar-Bug: UDT-Erkennung griff nicht bei zusätzlich ausgenommenen Membern
+
+**Bug (User-Meldung nach eigenem Testlauf):** `ausnahme_udts` mit `"DTL"` sollte
+`LSNTP_ServerDb > lastTimeSet` (und seine Items `lastTimeSet.YEAR` usw.) von der
+Prüfung ausnehmen — die Items wurden aber weiterhin einzeln als "kein Kommentar"
+gemeldet.
+
+**Erste Fehlsuche ergebnislos:** Isolierter Test von `LSNTP_ServerDb` mit
+`config/default.yaml` zeigte 0 Treffer für `lastTimeSet` — Mechanismus schien
+korrekt. Erst ein Test mit der tatsächlichen `config/project_settings.yaml` des
+Users reproduzierte den Bug (8 verbleibende Kind-Befunde). Unterschied gefunden:
+`ausnahme_variables` enthielt zusätzlich `"lastTimeSet"` (vermutlich ein eigener
+Workaround-Versuch des Users, weil `ausnahme_udts` nicht griff).
+
+**Ursache:** In `VariablenKommentarCheck`/`UdtKommentarCheck` kam der
+`continue`-Zweig für `ausnahme_prefixe`/`ausnahme_variables` **vor** der
+UDT-Erkennung (`data_type_name in udt_names or data_type_name in exception_udts` →
+`skip_prefixes.append(member_name)`). Ein Member, das per Präfix oder
+`ausnahme_variables` von der eigenen Kommentarprüfung ausgenommen wurde, sprang also
+direkt zum nächsten Member, **bevor** sein `DataTypeName` überhaupt geprüft und als
+Skip-Präfix registriert werden konnte — seine Items blieben dadurch ungeschützt.
+Trat nur auf, wenn eine UDT-typisierte Variable *zusätzlich* über
+`ausnahme_prefixe`/`ausnahme_variables` ausgenommen war (der isolierte Test ohne
+diese Zusatz-Ausnahme hatte den Bug deshalb nicht gezeigt).
+
+**Nebenbefund während der Fehlersuche:** Das lokale `.venv` enthielt zwischenzeitlich
+nur noch `pip` — alle Abhängigkeiten (inkl. `pydantic`, `pytest`) fehlten. Ursache
+nicht ermittelt (vermutlich versehentlich durch den User beim eigenen Testen
+geleert). Mit `pip install -e .` + `pip install pytest` neu aufgesetzt, kein
+Zusammenhang mit dem eigentlichen Bug.
+
+**Fix** (`src/tia_linter/checks/comments.py`, beide Klassen): Die UDT-Erkennung
+(`data_type_name`-Abgleich + `skip_prefixes.append(...)`) wurde vor die
+`ausnahme_prefixe`/`ausnahme_variables`-Continues verschoben — sie läuft jetzt für
+jedes Member unabhängig davon, ob das Member selbst später einen eigenen Befund
+bekommt. Nur ob das Member *selbst* geprüft/gemeldet wird, hängt weiterhin von den
+Ausnahme-Parametern ab; ob seine Items übersprungen werden, hängt ausschließlich vom
+`DataTypeName` ab. Derselbe Strukturfehler wurde vorsorglich auch in
+`UdtKommentarCheck` behoben (dort mit `ausnahme_prefixe` allein reproduzierbar,
+sofern ein UDT-Item selbst wieder UDT-typisiert **und** präfix-ausgenommen ist) —
+nicht separat vom User gemeldet, aber dieselbe Fehlerklasse.
+
+**Verifiziert gegen das echte Salzmaschine-Projekt** (mit der echten
+`project_settings.yaml` des Users, `ausnahme_variables` inkl. `"lastTimeSet"`
+weiterhin gesetzt): beide DTL-typisierten Member im Projekt (`LSNTP_ServerDb.lastTimeSet`,
+`PlcTimeDb.lt_LastTime`) liefern jetzt 0 verbleibende Kind-Befunde; eine generische
+Suche nach allen klassischen DTL-Feldnamen (`.YEAR`, `.MONTH`, `.DAY`, `.WEEKDAY`,
+`.HOUR`, `.MINUTE`, `.SECOND`, `.NANOSECOND`) über sämtliche 2.814 Befunde findet
+keinen einzigen Treffer mehr.
+
+`docs/Handbuch.md` (Besonderheiten von Prüfpunkt 1, Version 0.18) klargestellt, dass
+die UDT-Erkennung unabhängig von `ausnahme_prefixe`/`ausnahme_variables` wirkt.
+`pytest`: weiterhin 38/38 grün (kein isolierter Unit-Test für dieses spezifische
+Zusammenspiel — wie bei den anderen Ausnahme-Parametern nur Check-Level-Verifikation
+gegen das echte Projekt).
+
+Letzter Stand: "Sechster Kommentar-Bug (UDT-Erkennung griff nicht bei zusätzlich per
+ausnahme_prefixe/ausnahme_variables ausgenommenen Membern) behoben, mit der echten
+Config des Users gegen das Salzmaschine-Projekt verifiziert (0 verbleibende
+DTL-Kind-Befunde, projektweite Generic-Suche negativ), Handbuch aktualisiert. pytest
+38/38 grün. Noch nicht committed/gepusht — warte auf Rückmeldung des Users."

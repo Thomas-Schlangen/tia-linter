@@ -1,6 +1,6 @@
 # TIA Linter — Benutzerhandbuch
 
-**Version dieses Handbuchs:** 0.17 (Entwurf)
+**Version dieses Handbuchs:** 0.18 (Entwurf)
 **Stand:** 18.07.2026
 **Programmversion:** 0.1.0
 
@@ -649,7 +649,11 @@ PLC_1 > Variablentabellen > Tags_Eingaenge > I_Sensor_01
   selbst genügt, die einzelnen Items *innerhalb* des UDT werden hier
   nicht zusätzlich einzeln geprüft. Deren Kommentare (sowohl der des UDT
   selbst als auch die seiner Items) prüft stattdessen der separate
-  [Prüfpunkt 1b](#prüfpunkt-1b-udt-ohne-kommentar).
+  [Prüfpunkt 1b](#prüfpunkt-1b-udt-ohne-kommentar). Diese UDT-Erkennung
+  wirkt unabhängig davon, ob die Variable selbst über `ausnahme_prefixe`
+  oder `ausnahme_variables` von der eigenen Kommentarprüfung ausgenommen
+  ist — eine ausgenommene, aber UDT-typisierte Variable schützt ihre
+  Items trotzdem vor Einzelprüfung.
 
 **Empfehlung zur Behebung**
 Kommentar mit Beschreibung der Funktion bzw. Bedeutung der Variable
@@ -2529,3 +2533,4 @@ zu der Übersicht, die bereits am Anfang der Markdown-Datei steht.
 | 0.15 | 18.07.2026 | Neuen Prüfpunkt 1b ("UDT ohne Kommentar") in Abschnitt 10.1 ergänzt — schließt die Lücke, die dadurch entsteht, dass Prüfpunkt 1 Items innerhalb eines UDT-typisierten DB-Members ab dieser Version bewusst nicht mehr einzeln prüft (analog zu Array-Elementen genügt dort ein Kommentar auf der Variable selbst). Prüfpunkt 1b prüft stattdessen sowohl den Kommentar des UDT selbst als auch die Kommentare aller seiner Items direkt an der UDT-Definition; verschachtelte UDT-Items werden dabei nicht rekursiv mitgeprüft, da das verschachtelte UDT eigenständig geprüft wird. Querverweis bei Prüfpunkt 1 ergänzt, Abschlusshinweis am Ende von Kapitel 10 aktualisiert. |
 | 0.16 | 18.07.2026 | Neuen Parameter `ausnahme_variables` bei Prüfpunkt 1 in Abschnitt 10.1 dokumentiert — erlaubt das Ausnehmen einzelner Variablen (PLC-Tags oder DB-Member) anhand des vollständigen Namens, exakte Übereinstimmung, unabhängig von `ausnahme_prefixe`. |
 | 0.17 | 18.07.2026 | Neuen Parameter `ausnahme_udts` bei Prüfpunkt 1 in Abschnitt 10.1 dokumentiert — erlaubt das manuelle Ausnehmen von Datentypnamen (UDTs), deren Items nicht geprüft werden sollen, gedacht vor allem für System-/Bibliotheksdatentypen ohne sichtbare Definition in TIA Portal. Standardwert von `ausnahme_prefixe` in der Parameter-Tabelle auf `["__"]` korrigiert (Programmänderung: einfacher Unterstrich als Präfix in der Praxis oft ungeeignet). |
+| 0.18 | 18.07.2026 | Besonderheiten von Prüfpunkt 1 in Abschnitt 10.1 klargestellt: die UDT-Erkennung schützt die Items einer UDT-typisierten Variable auch dann, wenn die Variable selbst über `ausnahme_prefixe`/`ausnahme_variables` ausgenommen ist (Programmänderung: vorher wurde eine so ausgenommene, aber UDT-typisierte Variable nie als UDT erkannt, wodurch ihre Items fälschlich einzeln geprüft wurden). |

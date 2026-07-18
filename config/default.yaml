@@ -83,7 +83,7 @@ checks:
       # ebenso, um eigene, sichtbare UDTs aus anderen Gründen auszunehmen.
       # Nur das UDT-typisierte Member selbst bleibt geprüft, seine Items
       # werden übersprungen.
-      ausnahme_udts: []
+      ausnahme_udts: ["DNN", "DTL", "CONN_OUC", "HW_ANY", "TCON", "TURCV", "TUSEND", "TDISCON"]
       #   - "TON"
       #   - "IEC_TIMER"
 
