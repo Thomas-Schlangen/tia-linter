@@ -13,6 +13,7 @@ from tia_linter.checks._tia_helpers import (
     iter_data_blocks,
     iter_plc_software,
     iter_tag_tables,
+    normalize_member_path,
     read_comment,
     reference_language,
 )
@@ -47,6 +48,18 @@ class VariablenKommentarCheck(BaseCheck):
     weiterhin einzeln geprüft. Daher wird hier nur übersprungen, was
     irgendwo im Namen einen Array-Index (``[...]``) enthält — reine
     Punkt-Notation ohne Klammer (Struct-Verschachtelung) bleibt geprüft.
+
+    Zweiter, davon unabhängiger Bug (User-Meldung, live an
+    ``_Org > DDb > Fieldbus > Alm.4805_15A1`` verifiziert): TIA quotet
+    Namenssegmente, die keine gültigen "einfachen" Bezeichner sind (z. B.
+    weil sie mit einer Ziffer beginnen) — ``member.Name`` liefert dann z. B.
+    ``Alm."4805_15A1"`` statt ``Alm.4805_15A1``. Die ``ViewPath``-Segmente
+    aus den Projekttexten sind dagegen unquotiert, wodurch der Lookup nie
+    traf, obwohl ein Kommentar hinterlegt war — identisches, bereits im
+    Schwesterprojekt ``tia-tag-exporter`` gelöstes Problem. Fix:
+    ``normalize_member_path`` vor dem Lookup auf PLC-/DB-/Member-Namen
+    anwenden (nur für den Lookup — der im Befund angezeigte Name bleibt
+    unverändert die echte, ggf. quotierte TIA-Bezeichnung).
     """
 
     def run(self, project: Any) -> list[CheckResult]:
@@ -83,7 +96,11 @@ class VariablenKommentarCheck(BaseCheck):
                         continue  # Array-Element (auch verschachtelt darunter) — Array selbst reicht
                     if member_name.startswith(exception_prefixes):
                         continue
-                    comment = project_texts.get(plc_name, db_name, member_name)
+                    comment = project_texts.get(
+                        normalize_member_path(plc_name),
+                        normalize_member_path(db_name),
+                        normalize_member_path(member_name),
+                    )
                     if not comment:
                         results.append(
                             self._make_result(

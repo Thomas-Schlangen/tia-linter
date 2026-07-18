@@ -222,6 +222,28 @@ def read_comment(obj: Any, language: Any) -> str:
     return multilingual_text(comment, language)
 
 
+def normalize_member_path(name: str) -> str:
+    """Entfernt Anführungszeichen, die TIA um Namenssegmente setzt, die keine
+    gültigen "einfachen" Bezeichner sind (z. B. weil sie mit einer Ziffer
+    beginnen — ``member.Name`` liefert dann z. B. ``Alm."4805_15A1"`` statt
+    ``Alm.4805_15A1``, live an einem verschachtelten Struct-Member im
+    Salzmaschine-Projekt verifiziert).
+
+    Jedes Punkt-getrennte Segment eines Member-Pfads wird unabhängig
+    behandelt, da bei verschachtelten Struct-Membern immer nur einzelne
+    Segmente betroffen sein können. Die ``ViewPath``-Segmente aus
+    ``Project.ExportProjectTexts()`` (siehe ``project_texts.py``) sind dagegen
+    immer unquotiert — ohne diese Normalisierung matcht ein quotiertes
+    Namenssegment nie einen Kommentar aus den Projekttexten, obwohl einer
+    hinterlegt ist. Identisches, bereits im Schwesterprojekt
+    ``tia-tag-exporter`` gelöstes Problem (dort
+    ``extractor.py::_normalize_member_path``), hier zusätzlich auf PLC-/
+    DB-Namen anwendbar (nicht nur auf Member-Pfade), da dieselbe
+    Quotierungsregel für jeden nicht "einfachen" Bezeichner gilt.
+    """
+    return ".".join(segment.strip('"') for segment in name.split("."))
+
+
 def _local_name(tag: str) -> str:
     """Elementname ohne XML-Namespace-Präfix (``{ns}Tag`` -> ``Tag``)."""
     return tag.rsplit("}", 1)[-1]
@@ -333,9 +355,22 @@ def find_source_child_by_name(source_object: Any, name: str) -> Any | None:
     Name/Address/TypeName/Path bleiben aber als Textinformation verfügbar.
     Damit lässt sich ein einzelnes Interface-Mitglied im Kreuzreferenzbaum
     seines Bausteins/DBs anhand des Namens wiederfinden.
+
+    ``name`` kommt aus ``interface_section_members()`` (XML-Export der
+    Interface-Section, unquotierte Namen) — ``child.Name`` aus dem
+    Kreuzreferenzbaum kann dagegen für Namen, die keine gültigen "einfachen"
+    Bezeichner sind (z. B. Ziffernbeginn), quotiert sein (``"4805_15A1"``
+    statt ``4805_15A1`` — dasselbe, live an DB-Membern verifizierte Verhalten
+    wie bei ``ProjectTextComments``, siehe ``normalize_member_path``). Ohne
+    den Normalisierungs-Fallback würde ein solches Mitglied hier nie
+    gefunden, obwohl es existiert — betrifft Prüfpunkt 26
+    (``static_zugriff_extern``) und 27 (``output_mehrfach_beschrieben``).
     """
     for child in getattr(source_object, "Children", []) or []:
-        if getattr(child, "Name", None) == name:
+        child_name = getattr(child, "Name", None)
+        if child_name == name or (
+            child_name is not None and normalize_member_path(child_name) == name
+        ):
             return child
         found = find_source_child_by_name(child, name)
         if found is not None:

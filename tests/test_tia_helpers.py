@@ -10,7 +10,14 @@ from __future__ import annotations
 
 import pytest
 
-from tia_linter.checks._tia_helpers import iter_blocks, iter_tag_tables, multilingual_text, read_comment
+from tia_linter.checks._tia_helpers import (
+    find_source_child_by_name,
+    iter_blocks,
+    iter_tag_tables,
+    multilingual_text,
+    normalize_member_path,
+    read_comment,
+)
 
 
 class FakeBlock:
@@ -256,6 +263,65 @@ class TestReadComment:
 
     def test_object_with_none_comment_returns_empty_string(self) -> None:
         assert read_comment(FakeCommentedObject(None), DE) == ""
+
+
+class TestNormalizeMemberPath:
+    """Deckt den zweiten, unabhängigen Bug ab (User-Meldung, live an
+    ``_Org > DDb > Fieldbus > Alm.4805_15A1`` im Salzmaschine-Projekt
+    verifiziert): TIA quotet Namenssegmente, die keine gültigen "einfachen"
+    Bezeichner sind (z. B. Ziffernbeginn), z. B. ``Alm."4805_15A1"`` statt
+    ``Alm.4805_15A1`` -- ohne Normalisierung matcht das nie einen Eintrag aus
+    den (immer unquotierten) Projekttexten."""
+
+    def test_strips_quotes_from_single_segment(self) -> None:
+        assert normalize_member_path('"4805_15A1"') == "4805_15A1"
+
+    def test_strips_quotes_from_nested_segment_only(self) -> None:
+        assert normalize_member_path('Alm."4805_15A1"') == "Alm.4805_15A1"
+
+    def test_leaves_unquoted_segments_unchanged(self) -> None:
+        assert normalize_member_path("Alm.Station_1") == "Alm.Station_1"
+
+    def test_leaves_plain_name_unchanged(self) -> None:
+        assert normalize_member_path("Fieldbus") == "Fieldbus"
+
+    def test_strips_quotes_from_multiple_segments(self) -> None:
+        assert normalize_member_path('"1Foo"."2Bar"') == "1Foo.2Bar"
+
+
+class FakeSourceObject:
+    def __init__(self, name: str, children: list["FakeSourceObject"] | None = None) -> None:
+        self.Name = name
+        self.Children = children or []
+
+
+class TestFindSourceChildByName:
+    """Prüfpunkte 26/27 (``static_zugriff_extern``/``output_mehrfach_beschrieben``)
+    suchen Interface-Member im Kreuzreferenzbaum anhand eines aus dem
+    XML-Export gewonnenen (unquotierten) Namens -- ``child.Name`` kann für
+    Namen mit Ziffernbeginn quotiert sein, analog zum DB-Member-Kommentar-Bug."""
+
+    def test_finds_direct_child_by_exact_name(self) -> None:
+        root = FakeSourceObject("root", [FakeSourceObject("Foo")])
+        found = find_source_child_by_name(root, "Foo")
+        assert found is not None
+        assert found.Name == "Foo"
+
+    def test_finds_child_with_quoted_digit_prefixed_name(self) -> None:
+        root = FakeSourceObject("root", [FakeSourceObject('"4805_15A1"')])
+        found = find_source_child_by_name(root, "4805_15A1")
+        assert found is not None
+        assert found.Name == '"4805_15A1"'
+
+    def test_finds_nested_child_with_quoted_name(self) -> None:
+        nested = FakeSourceObject('"4805_15A1"')
+        root = FakeSourceObject("root", [FakeSourceObject("Alm", [nested])])
+        found = find_source_child_by_name(root, "4805_15A1")
+        assert found is nested
+
+    def test_returns_none_when_not_found(self) -> None:
+        root = FakeSourceObject("root", [FakeSourceObject("Foo")])
+        assert find_source_child_by_name(root, "Bar") is None
 
 
 if __name__ == "__main__":

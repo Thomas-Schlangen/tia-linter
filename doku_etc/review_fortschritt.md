@@ -513,3 +513,94 @@ Letzter Stand: "Mehrsprachigkeits-Bug (PlcTag/PlcBlock.Comment = MultilingualTex
 String) an allen 4 betroffenen Stellen behoben, gegen das echte Salzmaschine-Projekt
 verifiziert (Low-Level- und volle Check-Klassen-Ebene), 9 neue Unit-Tests, pytest 29/29
 grün. Noch nicht committed/gepusht — warte auf Rückmeldung des Users."
+
+**Nachtrag — committed & gepusht:** Commit `9702eb1` "Fix multilingual Comment attribute
+bug (PlcTag/PlcBlock.Comment is MultilingualText, not string)" auf `main`
+(`3389a44..9702eb1`), Repo: https://github.com/Thomas-Schlangen/tia-linter.
+
+## Runde 14 — Zweiter, unabhängiger Kommentar-Bug: quotierte Namenssegmente bei DB-Membern
+
+**Bug (User-Meldung, während eigenem Testlauf nach Runde 13):** DB-Member
+`_Org > DDb > Fieldbus > Alm.4805_15A1` wurde weiterhin als "kein Kommentar" gemeldet,
+obwohl im Projekt (deutsche Referenzsprache) ein Kommentar hinterlegt ist. User-Vermutung:
+"versteckt sich ähnlich wie der Kommentar bei den Variablen" — zu Recht, aber ein
+anderer Mechanismus als der Runde-13-Bug.
+
+**Ursache (per isoliertem Diagnoseskript gegen das echte Salzmaschine-Projekt
+bestätigt):** TIA quotet Namenssegmente, die keine gültigen "einfachen" Bezeichner sind
+(z. B. weil sie mit einer Ziffer beginnen) — `member.Name` liefert für dieses Member
+`'Alm."4805_15A1"'` statt `'Alm.4805_15A1'`. Die `ViewPath`-Segmente aus
+`Project.ExportProjectTexts()` sind dagegen immer unquotiert (`Alm.4805_15A1`) — dadurch
+matchte der Lookup in `ProjectTextComments.get()` nie, obwohl der Eintrag
+(`('pn4805-15a1', 'Fieldbus', 'Alm.4805_15A1') -> 'Profinet-Station 0 CPU - ...'`)
+nachweislich im geladenen Dict vorhanden war. **Exakt dasselbe, bereits im
+Schwesterprojekt `tia-tag-exporter` gelöste Problem**
+(`extractor.py::_normalize_member_path`, dort schon vor dieser Session vorhanden) — dort
+aber nie auf `tia-linter` übertragen worden, obwohl beide Projekte dieselbe
+Openness-Basis und denselben `ProjectTextComments`-Mechanismus nutzen.
+
+Betroffen ist ausschließlich `kommentare.variablen_kommentar` (DB-Member-Zweig,
+`VariablenKommentarCheck` in `comments.py`) — PLC-Tags (Runde 13) sind syntaktisch
+einfache Namen ohne Punktnotation und daher von dieser speziellen Quotierungsregel nicht
+betroffen.
+
+**Fix** (`src/tia_linter/checks/_tia_helpers.py`): neue Funktion
+`normalize_member_path(name)` — entfernt Anführungszeichen pro Punkt-getrenntem Segment
+(``".".join(segment.strip('"') for segment in name.split("."))``), identisch zur
+tia-tag-exporter-Referenzimplementierung, hier zusätzlich auf PLC-/DB-Namen anwendbar
+(nicht nur Member-Pfade), da dieselbe Quotierungsregel für jeden nicht "einfachen"
+Bezeichner gilt. In `comments.py::VariablenKommentarCheck` wird sie auf `plc_name`,
+`db_name` und `member_name` angewendet, aber **nur für den Projekttexte-Lookup** — der im
+Befund angezeigte Name/Pfad bleibt unverändert die echte (ggf. quotierte) TIA-Bezeichnung.
+
+**Verifiziert gegen das echte Salzmaschine-Projekt** (3 isolierte Diagnoseläufe zur
+Eingrenzung + 1 Verifikationslauf, TIA Portal V21 lokal — jeweils verwaiste
+`Siemens.Automation.Object`-Prozesse aus der eigenen vorherigen Session vor dem nächsten
+Connect beendet und die TIA-seitige 2-Minuten-Sperrfrist abgewartet):
+- Alle 8 zuvor identifizierten quotierten Member in DB `Fieldbus` (`Alm."4805_15A1"`,
+  `Alm."4805_27A11"`, `Alm."4805_27A21"`, `Alm."4805_27A31"`, `Alm."4805_27A41"`,
+  `Alm."4805_30A1"`, `Alm."4805_33A1"`, `Alm."4805_15A8"`) werden nach dem Fix korrekt
+  nicht mehr als "kein Kommentar" gemeldet — die Projekttexte-Lookups liefern jetzt die
+  hinterlegten Kommentare (z. B. "Profinet-Station 0 CPU - Bedienschrank =4805-6A1").
+- Voller `VariablenKommentarCheck`-Lauf: **4.766 Befunde statt vorher 4.925** (Differenz
+  159 — der Bug betraf projektweit mehr Stellen als die eine ursprünglich gemeldete,
+  u. a. auch DBs `V01St`/`V40St` mit ähnlich benannten quotierten Segmenten wie
+  `"4805_27M11".M.AlmFieldbus`).
+- 5 neue Unit-Tests in `tests/test_tia_helpers.py` (`TestNormalizeMemberPath`, keine
+  TIA-Verbindung nötig) — u. a. einzelnes quotiertes Segment, quotiertes Segment nur in
+  einer Ebene eines Punktpfads, unquotierte Segmente bleiben unverändert, mehrere
+  quotierte Segmente. `pytest`: 34/34 grün (vorher 29/29).
+
+Letzter Stand: "Zweiter Kommentar-Bug (quotierte Namenssegmente bei DB-Membern,
+`Alm.4805_15A1`-Fall) behoben und gegen das echte Salzmaschine-Projekt verifiziert
+(4.925 → 4.766 Befunde, 8/8 ursprünglich identifizierte Fälle bestätigt behoben), 5 neue
+Unit-Tests, pytest 34/34 grün."
+
+**Nachtrag — Audit "alle möglichen Fälle" (auf User-Anweisung):** Codebasis nach weiteren
+Stellen durchsucht, an denen dieselbe Quotierungsregel (Ziffernbeginn -> quotiert) zu
+einem False-Negative führen könnte. Ergebnis:
+- **Namenskonventions-Checks** (`naming.py`, Regex/Präfix gegen `db.Name`/`tag.Name`/
+  `block.Name`/`constant.Name`): nicht betroffen — Top-Level-Objektnamen (DBs, Bausteine,
+  Tags) werden von TIA laut Beobachtung im Salzmaschine-Projekt (`01AlmDb`, `40AlmDb` —
+  beide mit Ziffer beginnend) **nicht** quotiert, nur zusammengesetzte Interface-Member-
+  Pfade (`Interface.Member.Name`, das eine gültige IEC-Zugriffs-Notation abbildet).
+- **`libraries.py::VerwaisteInstanzDbsCheck`** (`InstanceOfName` gegen FB-Namen-Set):
+  nicht betroffen — vergleicht zwei Top-Level-Bausteinnamen, kein Member-Pfad.
+- **`_tia_helpers.py::find_source_child_by_name`** (genutzt von Prüfpunkt 26
+  `static_zugriff_extern` und 27 `output_mehrfach_beschrieben`): **betroffen, gehärtet.**
+  Vergleicht einen aus dem XML-Export gewonnenen (unquotierten) Membernamen gegen
+  `child.Name` aus dem Kreuzreferenzbaum — Letzteres kann für Interface-Member mit
+  Ziffernbeginn ebenfalls quotiert sein (derselbe Mechanismus wie bei
+  `Interface.Member.Name`, da beide dieselbe IEC-Zugriffs-Notation abbilden). Fix: Fällt
+  auf einen Vergleich über `normalize_member_path(child.Name) == name` zurück, wenn der
+  direkte Vergleich nicht trifft. **Nicht live gegen einen tatsächlich betroffenen Fall
+  verifiziert** (im Salzmaschine-Projekt kein bekannter Static-/Output-Member mit
+  Ziffernbeginn gefunden) — defensiv nach demselben, zweimal bestätigten Muster
+  umgesetzt.
+- 4 neue Unit-Tests (`TestFindSourceChildByName`), `pytest`: 38/38 grün.
+
+Letzter Stand: "Normalisierungs-Audit abgeschlossen — ein weiterer betroffener Ort
+(`find_source_child_by_name`, Prüfpunkte 26/27) gefunden und gehärtet (nicht live
+verifiziert, da kein passender Fall im Testprojekt vorhanden), alle anderen
+Namensvergleiche in der Codebasis geprüft und als nicht betroffen bestätigt. pytest
+38/38 grün. Bereit zum Commit/Push."
