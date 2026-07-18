@@ -68,9 +68,24 @@ checks:
       # Übereinstimmung (kein Präfix-/Teilstring-Abgleich). Gilt für
       # PLC-Tags und DB-Member gleichermaßen; bei DB-Membern inkl. eines
       # eventuellen Punktpfads, z. B. "Alm.Station_1".
-      ausnahme_variables: []
+      ausnahme_variables: ["System_Byte"]
       #   - "System_Byte"
       #   - "Alm.Station_1"
+
+      # Datentypnamen (UDTs), deren Items von dieser Prüfung ausgenommen
+      # werden sollen — wirkt wie ein manueller Zusatzeintrag zu den
+      # automatisch erkannten UDTs (siehe Prüfpunkt 1b). Gedacht in erster
+      # Linie für System-/Bibliotheksdatentypen, die in TIA Portal selbst
+      # nirgends als PLC-Datentyp sichtbar definiert sind — für solche Typen
+      # gibt es keine Möglichkeit, ihr Inneres zu prüfen (auch nicht über
+      # Prüfpunkt 1b, das nur im Projekt sichtbare UDTs findet). Bewusst
+      # nicht "ausnahme_system_udts" genannt: der Parameter eignet sich
+      # ebenso, um eigene, sichtbare UDTs aus anderen Gründen auszunehmen.
+      # Nur das UDT-typisierte Member selbst bleibt geprüft, seine Items
+      # werden übersprungen.
+      ausnahme_udts: []
+      #   - "TON"
+      #   - "IEC_TIMER"
 
     # Prüfpunkt 1b — war in der ursprünglichen Liste kein eigener Punkt,
     # ergänzt Prüfpunkt 1: Items innerhalb eines UDT-typisierten Members

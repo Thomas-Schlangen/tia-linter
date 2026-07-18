@@ -786,5 +786,56 @@ verifiziert). `pytest`: weiterhin 38/38 grün.
 
 Letzter Stand: "`.gitignore` und neuer Parameter `ausnahme_variables` umgesetzt, gegen
 das echte Projekt verifiziert (exakt 1 Befund weniger nach Ausschluss von
-'System_Byte'), Config/Handbuch dokumentiert. pytest 38/38 grün. Noch nicht
+'System_Byte'), Config/Handbuch dokumentiert. pytest 38/38 grün."
+
+**Committed & gepusht:** Commit `a49ee62` (zusammen mit Runde 16, UDT-Check) auf `main`
+(`26a9425..a49ee62`), Repo: https://github.com/Thomas-Schlangen/tia-linter. User hat
+danach in `config/default.yaml` selbst `ausnahme_prefixe` von `["_"]` auf `["__"]`
+geändert (einfacher Unterstrich in der Praxis als Präfix oft ungeeignet, da häufig
+verwendet, um Ziffernbeginn bei Variablennamen zu vermeiden) — im selben Commit
+enthalten.
+
+## Runde 18 — Neuer Parameter `ausnahme_udts`
+
+**Auftrag (User-Meldung):** Manche UDTs bzw. System-Datentypen sind in TIA Portal
+nirgends sichtbar definiert — ihr Inneres kann daher grundsätzlich nicht geprüft werden
+(auch nicht über Prüfpunkt 1b, das nur im Projekt sichtbare UDTs findet). Solche
+Datentypen sollen ebenfalls von der inneren Prüfung ausgenommen werden können. Bewusst
+nicht `ausnahme_system_udts` genannt, damit Anwender später auch eigene, sichtbare UDTs
+aus anderen Gründen darüber ausnehmen können.
+
+**Fix** (`src/tia_linter/checks/comments.py`, `VariablenKommentarCheck`, ausschließlich
+dort — nicht bei `UdtKommentarCheck`, wie vom User vorgegeben): neuer Parameter
+`ausnahme_udts` (Liste von Datentypnamen). Die bestehende UDT-Erkennung
+(`data_type_name in udt_names`) wurde zu `data_type_name in udt_names or data_type_name
+in exception_udts` erweitert — ein manuell eingetragener Typname wirkt damit exakt wie
+ein automatisch erkannter UDT (Member selbst bleibt geprüft, seine Items werden
+übersprungen), unabhängig davon, ob der Typ tatsächlich in `iter_plc_types()` auffindbar
+ist oder nicht.
+
+**Konfiguration & Doku:** `config/default.yaml` (`ausnahme_udts: []`, auskommentierte
+Beispiele `"TON"`/`"IEC_TIMER"`), `docs/Handbuch.md` (neue Parameter-Zeile bei
+Prüfpunkt 1, Version 0.17 — dabei auch den dort noch veralteten Standardwert von
+`ausnahme_prefixe` auf `["__"]` korrigiert).
+
+**Verifiziert gegen das echte Salzmaschine-Projekt:** Diagnoselauf fand mehrere
+DataTypeName-Werte, die nicht in `udt_names` auftauchen (also aktuell nicht automatisch
+übersprungen werden) und keine Elementartypen sind — darunter plausible echte
+Kandidaten für den beschriebenen Anwendungsfall (Systemtypen ohne sichtbare Definition):
+`TON_TIME` (16x), `TOF_TIME` (12x), `HW_ANY`, `HW_IOSYSTEM`, `CONN_OUC`, `DNN`. Als
+Test mit dem größten Effekt gewählt: `"Struct"` (anonyme Structs, 30x als Top-Level-
+Membertyp) — mit `ausnahme_udts: ["Struct"]` sank `variablen_kommentar` von 2.914 auf
+1.574 Befunde (1.340 weniger), Mechanismus bestätigt funktionsfähig für beliebige
+`DataTypeName`-Werte. (Hinweis: `"Struct"` selbst ist kein empfohlener Standard-Eintrag
+— anonyme Structs sollen laut bisheriger Konvention weiterhin einzeln geprüft werden;
+diente hier nur als Testwert mit hohem Trefferaufkommen.)
+
+`pytest`: weiterhin 38/38 grün (kein isolierter Unit-Test, gleiches Argument wie bei
+`ausnahme_variables` — einfache Set-Erweiterung, Check-Level-Verifikation ausschließlich
+gegen das echte Projekt).
+
+Letzter Stand: "Neuer Parameter `ausnahme_udts` umgesetzt, dokumentiert und gegen das
+echte Projekt verifiziert (Mechanismus bestätigt, 1.340 Befunde weniger mit Testwert
+'Struct'; echte Kandidaten für den beschriebenen Anwendungsfall identifiziert:
+TON_TIME/TOF_TIME/HW_ANY/HW_IOSYSTEM/CONN_OUC/DNN). pytest 38/38 grün. Noch nicht
 committed/gepusht — warte auf Rückmeldung des Users."

@@ -98,12 +98,27 @@ class VariablenKommentarCheck(BaseCheck):
     ihres vollständigen Namens (exakte Übereinstimmung, keine Teilstring-
     oder Präfix-Logik) — sowohl für PLC-Tags als auch für DB-Member (dort
     inkl. eines eventuellen Punktpfads, z. B. ``"Alm.Station_1"``).
+
+    Fünfter Bug (User-Meldung): Manche System-Datentypen (u. a. bestimmte
+    Siemens-Bibliothekstypen) sind in TIA Portal selbst nirgends sichtbar
+    als PLC-Datentyp definiert — sie tauchen also nie in ``iter_plc_types()``
+    auf und werden daher nicht automatisch als "UDT-Skip" erkannt (siehe
+    "Vierter Bug"). Da es für solche Typen keine Möglichkeit gibt, ihr
+    Inneres zu prüfen (weder hier noch über Prüfpunkt 1b, das ebenfalls nur
+    im Projekt sichtbare UDTs findet), erlaubt ``ausnahme_udts`` das manuelle
+    Ergänzen solcher Datentypnamen — bewusst nicht ``ausnahme_system_udts``
+    genannt, damit Anwender darüber später auch eigene, sichtbare UDTs aus
+    anderen Gründen ausnehmen können. Wirkt wie ein zusätzlicher, manuell
+    gepflegter Eintrag in ``udt_names`` (siehe unten) — nur das UDT-typisierte
+    Member selbst bleibt geprüft, seine (in TIA ohnehin nicht einsehbaren)
+    Items werden übersprungen.
     """
 
     def run(self, project: Any) -> list[CheckResult]:
         results: list[CheckResult] = []
         exception_prefixes = tuple(self.definition.params.get("ausnahme_prefixe", []))
         exception_variables = frozenset(self.definition.params.get("ausnahme_variables", []))
+        exception_udts = frozenset(self.definition.params.get("ausnahme_udts", []))
         language = reference_language(project)
 
         for plc_software in iter_plc_software(project):
@@ -176,9 +191,9 @@ class VariablenKommentarCheck(BaseCheck):
                     # DataTypeName quotet UDT-Referenzen unabhängig davon, ob der
                     # Name selbst eine Quotierung bräuchte (z. B. '"U_VisBit"' statt
                     # 'U_VisBit', live verifiziert) — normalize_member_path() vor
-                    # dem Abgleich gegen udt_names anwenden.
+                    # dem Abgleich gegen udt_names/exception_udts anwenden.
                     data_type_name = normalize_member_path(str(get_attribute(member, "DataTypeName", "") or ""))
-                    if data_type_name in udt_names:
+                    if data_type_name in udt_names or data_type_name in exception_udts:
                         skip_prefixes.append(member_name)
         return results
 
