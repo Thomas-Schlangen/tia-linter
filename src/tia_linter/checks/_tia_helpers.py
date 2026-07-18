@@ -158,6 +158,70 @@ def get_attribute(obj: Any, name: str, default: Any = None) -> Any:
     return default if value is None else value
 
 
+def reference_language(project: Any) -> Any:
+    """Liefert die Referenzsprache des Projekts (``Siemens.Engineering.Language``).
+
+    Dieselbe Sprache, die bereits an anderer Stelle als "die maßgebliche
+    Projektsprache" verwendet wird (Prüfpunkt 25 ``SprachenKonsistentCheck``,
+    Projekttexte-Export in ``project_texts.py``) — hier als ``Language``-Objekt
+    statt nur dessen ``Culture``, weil ``MultilingualTextItemComposition.Find``
+    (siehe ``multilingual_text``) ein ``Language``-Objekt erwartet, keine
+    ``CultureInfo``."""
+    return project.LanguageSettings.ReferenceLanguage
+
+
+def multilingual_text(value: Any, language: Any) -> str:
+    """Liest den Text eines ``Siemens.Engineering.MultilingualText``-Objekts
+    für eine bestimmte Sprache.
+
+    TIA Portal ist grundsätzlich mehrsprachig: viele ``Comment``-/``Title``-
+    Attribute (u. a. ``PlcTag.Comment``, ``PlcBlock.Comment``/``.Title`` — laut
+    V21-Openness-Referenz, Abschnitt "Umgang mit mehrsprachigen Texten",
+    explizit als Beispiele genannt) liefern kein ``System.String``, sondern ein
+    ``MultilingualText``-Objekt mit einem ``MultilingualTextItem`` pro Sprache.
+    Der Text für eine bestimmte Sprache ist nur über
+    ``multilingualText.Items.Find(<Language>).Text`` erreichbar — ein
+    ``GetAttribute("Comment")``- oder naiver ``str(...)``-Zugriff auf das
+    ``MultilingualText``-Objekt selbst liefert **nicht** den Text der
+    gewünschten Sprache (das war der ursprüngliche Bug: jede Variable wurde
+    als unkommentiert gemeldet, weil so nie ein echter Text gefunden wurde —
+    identisch zu einem bereits im Schwesterprojekt ``tia-tag-exporter``
+    gelösten Problem).
+
+    Kein ``MultilingualTextItem`` für ``language`` vorhanden (oder das
+    ``MultilingualText``-Objekt selbst ist ``None``) -> ``""``, der Kommentar
+    fehlt für diese Sprache dann wirklich, statt dass die Prüfung abstürzt.
+    """
+    if value is None:
+        return ""
+    items = getattr(value, "Items", None)
+    if items is None:
+        return ""
+    try:
+        item = items.Find(language)
+    except Exception:  # noqa: BLE001 — .NET-Exception, z. B. Sprache nicht im Projekt
+        return ""
+    if item is None:
+        return ""
+    text = getattr(item, "Text", None)
+    return str(text).strip() if text else ""
+
+
+def read_comment(obj: Any, language: Any) -> str:
+    """Liest das (mehrsprachige) ``Comment``-Attribut eines Openness-Objekts
+    für ``language`` (siehe ``multilingual_text``/``reference_language``).
+
+    ``Comment`` wird als typisierte .NET-Property gelesen (nicht über
+    ``GetAttribute`` — das liefert für ``MultilingualText``-Properties nicht
+    zuverlässig den erwarteten Wert, siehe ``multilingual_text``). Objekte
+    ohne ``Comment``-Attribut liefern ``""`` statt einer Exception."""
+    try:
+        comment = obj.Comment
+    except Exception:  # noqa: BLE001 — Objekttyp hat evtl. kein Comment-Attribut
+        return ""
+    return multilingual_text(comment, language)
+
+
 def _local_name(tag: str) -> str:
     """Elementname ohne XML-Namespace-Präfix (``{ns}Tag`` -> ``Tag``)."""
     return tag.rsplit("}", 1)[-1]

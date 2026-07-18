@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from tia_linter.checks._tia_helpers import iter_blocks, iter_tag_tables
+from tia_linter.checks._tia_helpers import iter_blocks, iter_tag_tables, multilingual_text, read_comment
 
 
 class FakeBlock:
@@ -156,6 +156,106 @@ class TestIterTagTablesExcludedFolders:
         plc = self._sample_tree()
         names = {t.Name for t in iter_tag_tables(plc, excluded_folders=["LIB"])}
         assert names == {"Tags_Root"}
+
+
+class FakeLanguage:
+    """Simuliert ``Siemens.Engineering.Language`` — Gleichheit über den Namen,
+    wie ``Language.Equals`` es für ``MultilingualTextItemComposition.Find``
+    bräuchte."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, FakeLanguage) and other.name == self.name
+
+    def __hash__(self) -> int:
+        return hash(self.name)
+
+
+class FakeMultilingualTextItem:
+    def __init__(self, language: FakeLanguage, text: str) -> None:
+        self.Language = language
+        self.Text = text
+
+
+class FakeMultilingualTextItemComposition:
+    def __init__(self, items: list[FakeMultilingualTextItem]) -> None:
+        self._items = items
+
+    def Find(self, language: FakeLanguage) -> FakeMultilingualTextItem | None:
+        return next((item for item in self._items if item.Language == language), None)
+
+
+class FakeMultilingualText:
+    def __init__(self, items: list[FakeMultilingualTextItem]) -> None:
+        self.Items = FakeMultilingualTextItemComposition(items)
+
+
+class FakeCommentedObject:
+    """Simuliert ein Openness-Objekt mit typisierter ``Comment``-Property
+    (z. B. ``PlcTag``/``PlcBlock``) — ``Comment`` liefert ein
+    ``MultilingualText``-Objekt, keinen einfachen String."""
+
+    def __init__(self, comment: FakeMultilingualText | None) -> None:
+        self.Comment = comment
+
+
+class FakeObjectWithoutComment:
+    """Simuliert einen Openness-Objekttyp ganz ohne ``Comment``-Attribut."""
+
+
+DE = FakeLanguage("de-DE")
+EN = FakeLanguage("en-US")
+
+
+class TestMultilingualText:
+    def test_returns_text_for_matching_language(self) -> None:
+        text = FakeMultilingualText(
+            [FakeMultilingualTextItem(DE, "Hallo"), FakeMultilingualTextItem(EN, "Hello")]
+        )
+        assert multilingual_text(text, DE) == "Hallo"
+        assert multilingual_text(text, EN) == "Hello"
+
+    def test_returns_empty_string_when_language_missing(self) -> None:
+        text = FakeMultilingualText([FakeMultilingualTextItem(EN, "Hello")])
+        assert multilingual_text(text, DE) == ""
+
+    def test_returns_empty_string_when_item_text_is_blank(self) -> None:
+        text = FakeMultilingualText([FakeMultilingualTextItem(DE, "   ")])
+        assert multilingual_text(text, DE) == ""
+
+    def test_returns_empty_string_for_none_value(self) -> None:
+        assert multilingual_text(None, DE) == ""
+
+    def test_returns_empty_string_when_items_attribute_missing(self) -> None:
+        class NoItems:
+            pass
+
+        assert multilingual_text(NoItems(), DE) == ""
+
+
+class TestReadComment:
+    """Deckt den ursprünglichen Bug ab: ``PlcTag.Comment``/``PlcBlock.Comment``
+    sind mehrsprachig (``MultilingualText``) — ein naiver ``GetAttribute``-
+    oder ``str(...)``-Zugriff darauf fand nie den Text der gewünschten
+    Sprache, wodurch jede Variable fälschlich als unkommentiert galt."""
+
+    def test_reads_comment_for_reference_language(self) -> None:
+        obj = FakeCommentedObject(FakeMultilingualText([FakeMultilingualTextItem(DE, "Motorstart")]))
+        assert read_comment(obj, DE) == "Motorstart"
+
+    def test_comment_only_in_other_language_counts_as_missing(self) -> None:
+        # Kommentar existiert nur auf Englisch, geprüft wird Deutsch (Referenzsprache)
+        # -- das entspricht "Kommentar fehlt wirklich fuer diese Sprache", nicht einem Fehler.
+        obj = FakeCommentedObject(FakeMultilingualText([FakeMultilingualTextItem(EN, "Motor start")]))
+        assert read_comment(obj, DE) == ""
+
+    def test_object_without_comment_attribute_returns_empty_string(self) -> None:
+        assert read_comment(FakeObjectWithoutComment(), DE) == ""
+
+    def test_object_with_none_comment_returns_empty_string(self) -> None:
+        assert read_comment(FakeCommentedObject(None), DE) == ""
 
 
 if __name__ == "__main__":

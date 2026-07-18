@@ -435,3 +435,81 @@ SPS-Programmierer, GitHub-Link, Community-Frage am Ende und Hashtags.
 Letzter Stand: "Obsidian-Implementierungsstatus aktualisiert (77 Checkboxen → erledigt,
 17b korrekt als Ausnahme belassen) und LinkedIn-Post-Entwurf erstellt. Beide Dateien
 liegen im Obsidian-Vault, nicht im Code-Repo — kein Commit/Push nötig."
+
+## Runde 13 — Mehrsprachigkeits-Bug bei Comment-Attributen behoben (auf User-Anweisung)
+
+**Bug (User-Meldung):** Prüfpunkt 1 (`kommentare.variablen_kommentar`) meldete *jede*
+PLC-Variable als unkommentiert, unabhängig davon, ob tatsächlich ein Kommentar hinterlegt
+war. Vom User bereits aus dem Schwesterprojekt `tia-tag-exporter` bekanntes Problem, dort
+schon gelöst.
+
+**Ursache:** `PlcTag.Comment` (und ebenso `PlcBlock.Comment`) sind laut V21-Openness-
+Referenz (Abschnitt "Umgang mit mehrsprachigen Texten", nennt `PlcTag.Comment` explizit
+als Beispiel) keine einfachen Strings, sondern `Siemens.Engineering.MultilingualText`-
+Objekte — TIA Portal ist grundsätzlich mehrsprachig, der Text existiert pro Sprache separat
+als `MultilingualTextItem`, erreichbar nur über `Comment.Items.Find(<Language>).Text`. Der
+bisherige Code las stattdessen `GetAttribute("Comment")` (in `checks/comments.py`,
+`VariablenKommentarCheck`) bzw. `get_attribute(block, "Comment", "")` (an 3 weiteren
+Stellen, siehe unten) — das lieferte nie den tatsächlichen Text der Referenzsprache,
+sondern faktisch immer einen leeren/falschen Wert.
+
+**Betroffen waren 4 Stellen** (alle nutzten dasselbe kaputte Muster):
+1. `kommentare.variablen_kommentar` (`VariablenKommentarCheck`, PLC-Tag-Kommentare) —
+   die vom User gemeldete Stelle.
+2. `kommentare.baustein_beschreibung` (`BausteinBeschreibungCheck`, Bausteinkopf-Kommentar)
+3. `styleguide.know_how_schutz` (`KnowHowSchutzCheck`, sucht "know-how" im Kommentar)
+4. `styleguide.schreibschutz` (`SchreibschutzCheck`, sucht "schreibschutz" im Kommentar)
+
+DB-Interface-Member (`Interface.Members`) waren **nicht** betroffen — die haben laut
+Openness-Referenz von vornherein gar kein `Comment`-Attribut und werden bereits korrekt
+über die zentrale Projekttexte-Verwaltung gelesen (`project_texts.py`, unverändert).
+
+**Fix** (`src/tia_linter/checks/_tia_helpers.py`): zwei neue Hilfsfunktionen, analog zur
+bereits im Schwesterprojekt `tia-tag-exporter` gelösten Variante
+(`extractor.py::_read_comment`), hier aber gezielt für die Referenzsprache statt für die
+erste nicht-leere Sprache (siehe `reference_language()` — dieselbe Sprache, die
+`SprachenKonsistentCheck` und `project_texts.py` bereits als "maßgebliche Projektsprache"
+verwenden):
+- `reference_language(project)` — liefert `project.LanguageSettings.ReferenceLanguage`
+  als `Language`-Objekt (nicht nur dessen `Culture` — `MultilingualTextItemComposition.Find`
+  erwartet ein `Language`-Objekt).
+- `multilingual_text(value, language)` — liest `value.Items.Find(language).Text`, robust
+  gegen `None`-Werte, fehlende Sprache, fehlendes `Items`-Attribut.
+- `read_comment(obj, language)` — liest `obj.Comment` als typisierte Property (nicht über
+  `GetAttribute`) und reicht es an `multilingual_text()` weiter; Objekte ohne
+  `Comment`-Attribut liefern `""` statt einer Exception.
+
+Alle 4 betroffenen Checks auf `read_comment(obj, language)` umgestellt
+(`comments.py`, `libraries.py`), `language = reference_language(project)` je einmal zu
+Beginn von `run()`.
+
+**Verifiziert gegen das echte Salzmaschine-Projekt** (zwei isolierte Testskripte, TIA
+Portal V21 lokal verbunden — TIA-Prozesse aus einer vorherigen Session blockierten das
+Projekt zunächst mit einem Lock, nach User-Bestätigung als verwaist beendet und die von
+TIA angekündigte 2-Minuten-Sperrfrist abgewartet):
+- Low-Level-Vergleich alt/neu direkt auf `PlcTag`/`PlcBlock`-Ebene: PLC-Tags 42/42 (alt) →
+  1/42 (neu) als unkommentiert erkannt — das eine verbleibende (`System_Byte`) hat
+  tatsächlich keinen Kommentar. Reale Kommentare wie "System Bit erster Zyklus",
+  "Taktmerker 0,1 s" werden jetzt korrekt gefunden (Default-Tag-Tabelle, TIA-eigene
+  System-/Taktmerker-Kommentare). Bausteine: 288/288 (alt) → 155/288 (neu).
+- Volle Check-Klassen end-to-end (`VariablenKommentarCheck`, `BausteinBeschreibungCheck`,
+  `KnowHowSchutzCheck`, `SchreibschutzCheck`) über dieselbe Config-/CheckDefinition-
+  Konstruktion wie `runner.py`: `variablen_kommentar` liefert jetzt 4.925 Befunde (vorher,
+  Runde 10: 4.966 — Differenz von 41 entspricht exakt den nicht mehr fälschlich
+  markierten, tatsächlich kommentierten Tags von 42), `baustein_beschreibung` 155 Befunde
+  (deckungsgleich mit dem Low-Level-Test), `know_how_schutz`/`schreibschutz` je 0 Befunde
+  (kein know-how-geschützter/schreibgeschützter Baustein im Projekt — plausibel, keine
+  Exceptions). Kein Absturz, keine Fehlerbefunde.
+- 9 neue Unit-Tests in `tests/test_tia_helpers.py` (Fake-`MultilingualText`/-`Item`/
+  -`Language`-Objekte, kein TIA/pythonnet nötig) für `multilingual_text()`/`read_comment()`
+  — u. a. Sprachabgleich, fehlende Sprache, fehlendes `Comment`-Attribut, `None`-Comment.
+  `pytest`: 29/29 grün (vorher 20/20).
+- Nebenbefund: Nach dem Testlauf blieb ein `Siemens.Automation.Object`-Prozess (Console-
+  Session) trotz `with connector:`/`Dispose()` noch einige Sekunden aktiv, bevor er beendet
+  werden konnte — kein neuer Bug, entspricht dem in Runde 5 bereits dokumentierten
+  Lifetime-Contract-Verhalten von TIA Portal Openness-Sessions.
+
+Letzter Stand: "Mehrsprachigkeits-Bug (PlcTag/PlcBlock.Comment = MultilingualText statt
+String) an allen 4 betroffenen Stellen behoben, gegen das echte Salzmaschine-Projekt
+verifiziert (Low-Level- und volle Check-Klassen-Ebene), 9 neue Unit-Tests, pytest 29/29
+grün. Noch nicht committed/gepusht — warte auf Rückmeldung des Users."

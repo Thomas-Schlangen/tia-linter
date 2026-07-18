@@ -13,6 +13,8 @@ from tia_linter.checks._tia_helpers import (
     iter_data_blocks,
     iter_plc_software,
     iter_tag_tables,
+    read_comment,
+    reference_language,
 )
 from tia_linter.checks.base import BaseCheck
 from tia_linter.models import CheckResult
@@ -22,8 +24,19 @@ from tia_linter.project_texts import ProjectTextComments
 class VariablenKommentarCheck(BaseCheck):
     """Prüfpunkt 1: PLC-Tags und DB-Variablen ohne Kommentar.
 
-    Beim ersten Testlauf gegen ein echtes Projekt hat sich gezeigt, dass
-    ``db.Interface.Members`` nicht nur die deklarierten Top-Level-Variablen
+    ``PlcTag.Comment`` ist wie im Schwesterprojekt ``tia-tag-exporter``
+    (dort bereits gelöst, siehe dessen ``extractor.py::_read_comment``) ein
+    mehrsprachiges ``MultilingualText``-Objekt statt eines einfachen Strings
+    — TIA Portal ist grundsätzlich mehrsprachig (V21-Openness-Referenz,
+    Abschnitt "Umgang mit mehrsprachigen Texten", nennt ``PlcTag.Comment``
+    explizit als Beispiel). Ein ``GetAttribute("Comment")``-Zugriff darauf
+    lieferte nie den tatsächlichen Text, wodurch **jede** Variable als
+    unkommentiert gemeldet wurde. Fix: ``read_comment`` liest den Text
+    gezielt für die Referenzsprache des Projekts über
+    ``Comment.Items.Find(<Language>).Text`` (siehe ``_tia_helpers.py``).
+
+    Beim ersten Testlauf gegen ein echtes Projekt hat sich außerdem gezeigt,
+    dass ``db.Interface.Members`` nicht nur die deklarierten Top-Level-Variablen
     liefert, sondern rekursiv jedes einzelne verschachtelte Array-/
     Struct-Element als eigenes Member mit Punkt-/Klammer-Notation im Namen
     (z. B. ``GlobalMan``, ``GlobalMan.GlobalMan[0]``,
@@ -39,6 +52,7 @@ class VariablenKommentarCheck(BaseCheck):
     def run(self, project: Any) -> list[CheckResult]:
         results: list[CheckResult] = []
         exception_prefixes = tuple(self.definition.params.get("ausnahme_prefixe", []))
+        language = reference_language(project)
 
         for plc_software in iter_plc_software(project):
             plc_name = plc_software.Name
@@ -48,8 +62,8 @@ class VariablenKommentarCheck(BaseCheck):
                     tag_name = tag.Name
                     if tag_name.startswith(exception_prefixes):
                         continue
-                    comment = get_attribute(tag, "Comment", "")
-                    if not str(comment or "").strip():
+                    comment = read_comment(tag, language)
+                    if not comment:
                         results.append(
                             self._make_result(
                                 path=format_path(
@@ -84,17 +98,24 @@ class VariablenKommentarCheck(BaseCheck):
 
 
 class BausteinBeschreibungCheck(BaseCheck):
-    """Prüfpunkt 2: Bausteine ohne (aussagekräftige) Kopfbeschreibung."""
+    """Prüfpunkt 2: Bausteine ohne (aussagekräftige) Kopfbeschreibung.
+
+    ``PlcBlock.Comment`` ist wie ``PlcTag.Comment`` (siehe
+    ``VariablenKommentarCheck``) ein mehrsprachiges ``MultilingualText``-
+    Objekt (V21-Openness-Referenz nennt ``PlcBlock`` explizit unter "Mehrsprachige
+    Titel und Kommentare") — Lesen über ``read_comment`` statt ``GetAttribute``.
+    """
 
     def run(self, project: Any) -> list[CheckResult]:
         from tia_linter.checks._tia_helpers import iter_blocks
 
         results: list[CheckResult] = []
         min_length = int(self.definition.params.get("min_laenge", 20))
+        language = reference_language(project)
 
         for plc_software in iter_plc_software(project):
             for block, group_path in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
-                comment = str(get_attribute(block, "Comment", "") or "").strip()
+                comment = read_comment(block, language)
                 if len(comment) < min_length:
                     results.append(
                         self._make_result(

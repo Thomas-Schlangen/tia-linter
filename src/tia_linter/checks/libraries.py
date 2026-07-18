@@ -28,6 +28,8 @@ from tia_linter.checks._tia_helpers import (
     iter_data_blocks,
     iter_plc_software,
     iter_tag_tables,
+    read_comment,
+    reference_language,
     tag_direction,
 )
 from tia_linter.checks.base import BaseCheck
@@ -366,15 +368,21 @@ class Ob1KomplexitaetCheck(BaseCheck):
 
 
 class KnowHowSchutzCheck(BaseCheck):
-    """Prüfpunkt 31: Know-how-geschützte Bausteine ohne entsprechenden Vermerk."""
+    """Prüfpunkt 31: Know-how-geschützte Bausteine ohne entsprechenden Vermerk.
+
+    ``PlcBlock.Comment`` ist mehrsprachig (``MultilingualText``, siehe
+    ``comments.py::VariablenKommentarCheck``) — Lesen über ``read_comment``
+    statt ``GetAttribute``.
+    """
 
     def run(self, project: Any) -> list[CheckResult]:
         results: list[CheckResult] = []
+        language = reference_language(project)
         for plc_software in iter_plc_software(project):
             for block, group_path in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
                 if not bool(get_attribute(block, "IsKnowHowProtected", False)):
                     continue
-                comment = str(get_attribute(block, "Comment", "") or "").lower()
+                comment = read_comment(block, language).lower()
                 if "know-how" not in comment and "knowhow" not in comment:
                     results.append(
                         self._make_result(
@@ -473,15 +481,20 @@ class SchreibschutzCheck(BaseCheck):
     einrichten") — dieser bietet aber keine dokumentierte Eigenschaft zum
     reinen Auslesen des aktuellen Schutzstatus, daher wird hier weiterhin
     das lesbare ``IsWriteProtected``-Attribut verwendet.
+
+    ``PlcBlock.Comment`` ist mehrsprachig (``MultilingualText``, siehe
+    ``comments.py::VariablenKommentarCheck``) — Lesen über ``read_comment``
+    statt ``GetAttribute``.
     """
 
     def run(self, project: Any) -> list[CheckResult]:
         results: list[CheckResult] = []
+        language = reference_language(project)
         for plc_software in iter_plc_software(project):
             for block, group_path in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
                 if not bool(get_attribute(block, "IsWriteProtected", False)):
                     continue
-                comment = str(get_attribute(block, "Comment", "") or "").lower()
+                comment = read_comment(block, language).lower()
                 if "schreibschutz" not in comment and "write-protect" not in comment:
                     results.append(
                         self._make_result(
