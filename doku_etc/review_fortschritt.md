@@ -1053,5 +1053,17 @@ separat vom User als "muss definitiv noch getestet werden" vermerkt.
 Letzter Stand: "Redundanz zwischen Prüfpunkt 1 und 1c behoben (Instanz-DBs werden bei
 Prüfpunkt 1 komplett übersprungen, Runde-15-Fallback entfernt), gegen das echte Projekt
 verifiziert (variablen_kommentar 117 → 2, fb_member_kommentar unverändert bei 1.816),
-Tradeoff in Handbuch/README dokumentiert. pytest 38/38 grün. Noch nicht
-committed/gepusht — warte auf Rückmeldung des Users. Offen: FC-Interface.Members-Test."
+Tradeoff in Handbuch/README dokumentiert. pytest 38/38 grün. Offen: FC-Interface.Members-Test."
+
+**Committed & gepusht:** Commit `122e5d0` auf `main` (`33136db..122e5d0`),
+Repo: https://github.com/Thomas-Schlangen/tia-linter. Danach `config/project_settings.yaml`
+(lokale, gitignorte Config des Users) manuell um den `fb_member_kommentar`-Eintrag ergänzt.
+
+**Offene Frage geklärt (kein Code-Fix, nur Verifikation):** `fc.Interface.Members`
+liefert live ebenfalls immer eine leere Liste — an allen 124 FCs des Salzmaschine-Projekts
+bestätigt (kein Know-how-Schutz). Der XML-Export-Umweg funktioniert dagegen überall
+(z. B. `LGF_SearchMinMax`: 38 Member laut Export). Die Einschränkung betrifft also
+Code-Bausteine allgemein (FB und FC), nicht nur FB — bestätigt, dass
+`styleguide.static_zugriff_extern`/`styleguide.output_mehrfach_beschrieben` (die FC
+schon vorher vorsorglich wie FB behandelt hatten) von Anfang an richtig lagen. Keine
+Code-Änderung nötig.
