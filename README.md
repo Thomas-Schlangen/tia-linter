@@ -133,7 +133,7 @@ erfolgt headless über `TiaPortalMode.WithoutUserInterface`.
 
 | Kategorie | Prüfpunkte |
 |---|---|
-| Kommentare & Beschreibungen | 1–4 (inkl. 1b, siehe unten) |
+| Kommentare & Beschreibungen | 1–4 (inkl. 1b/1c, siehe unten) |
 | Namenskonventionen | 5–9 |
 | Programmstruktur | 10–16 (inkl. 12b, siehe unten) |
 | Hardware & Konfiguration | 17–18c |
@@ -154,6 +154,28 @@ sowohl den Kommentar des UDT selbst als auch die Kommentare aller seiner
 Items direkt an der UDT-Definition prüft. Ist ein Item selbst wieder ein UDT,
 wird ab dort nicht weiter in die Tiefe geprüft — dieses UDT wird eigenständig
 geprüft, wenn die Prüfung bei ihm ankommt.
+
+**Prüfpunkt 1c — FB-Interface-Member ohne Kommentar** (`kommentare.fb_member_kommentar`,
+Standard-Schweregrad Warnung): analog zu Prüfpunkt 1b, aber für
+Funktionsbausteine (FBs) statt PLC-Datentypen — Prüfpunkt 1 prüft Items
+*innerhalb* einer Multi-Instanz-FB-Variable **und** sämtliche Member von
+Instanz-DBs bewusst nicht mehr einzeln. Prüfpunkt 1c ist damit die alleinige
+Quelle für Kommentar-Befunde zu FB-Interface-Membern im gesamten Projekt —
+egal ob der FB als verschachtelte Multi-Instanz oder als eigenständige
+Instanz-DB verwendet wird; er prüft die Interface-Member
+(Input/Output/InOut/Static) direkt an der FB-Definition, der FB-Kopfkommentar
+selbst bleibt Sache von Prüfpunkt 2. **Tradeoff:** TIA erlaubt es, den von
+der FB geerbten Kommentar an einer einzelnen Instanz-DB zu überschreiben —
+ein solcher instanzspezifischer, abweichender Kommentar wird dadurch nicht
+mehr erkannt, nur der Kommentar an der FB-Definition zählt für die Prüfung.
+Bewusst in Kauf genommen, da eine Prüfung pro Instanz bei mehrfach
+instanziierten FBs zu redundanten Befunden für dasselbe Grundproblem führen
+würde. Technischer Hinweis: Die Openness-API liefert für FBs — anders als
+für DBs und UDTs — keine Interface-Member über die direkte Objektnavigation
+(`Interface.Members` liefert dort verlässlich eine leere Liste, live an
+allen 127 FBs des Salzmaschine-Projekts verifiziert); der Prüfpunkt liest
+die Member daher aus dem XML-Export desselben Bausteins (wie auch die
+netzwerkbezogenen Prüfpunkte, z. B. Prüfpunkt 3).
 
 **Prüfpunkt 12b — Eingänge dürfen nicht beschrieben werden** (`programmstruktur.eingaenge_nicht_beschrieben`,
 Standard-Schweregrad Fehler): war in der ursprünglichen Liste der 35

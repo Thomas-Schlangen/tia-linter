@@ -46,6 +46,17 @@ CHECK_REGISTRY: dict[str, CheckMeta] = {
         ),
         recommendation="Kommentar auf dem PLC-Datentyp bzw. dem betroffenen Item ergänzen.",
     ),
+    "kommentare.fb_member_kommentar": CheckMeta(
+        name="FB-Interface-Member ohne Kommentar",
+        category=KOMMENTARE,
+        description=(
+            "Prüfpunkt 1c: Interface-Member eines Funktionsbausteins (FB) ohne Kommentar "
+            "(nur die Member selbst, nicht der FB-Kopfkommentar — siehe Prüfpunkt 2). "
+            "Ergänzt Prüfpunkt 1, dessen DB-Variablen-Prüfung Items innerhalb einer "
+            "Multi-Instanz-FB-Variable bewusst nicht mehr einzeln erfasst."
+        ),
+        recommendation="Kommentar auf dem betroffenen FB-Interface-Member ergänzen.",
+    ),
     "kommentare.baustein_beschreibung": CheckMeta(
         name="Bausteine ohne Kopfbeschreibung",
         category=KOMMENTARE,

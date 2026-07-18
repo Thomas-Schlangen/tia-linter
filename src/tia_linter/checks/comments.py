@@ -9,6 +9,8 @@ from tia_linter.checks._tia_helpers import (
     export_block_xml,
     format_path,
     get_attribute,
+    interface_section_members,
+    iter_blocks,
     iter_compile_units,
     iter_data_blocks,
     iter_plc_software,
@@ -62,21 +64,27 @@ class VariablenKommentarCheck(BaseCheck):
     anwenden (nur für den Lookup — der im Befund angezeigte Name bleibt
     unverändert die echte, ggf. quotierte TIA-Bezeichnung).
 
-    Dritter Bug (User-Meldung, live gegen das Salzmaschine-Projekt
-    verifiziert — z. B. Instanz-DB ``LSNTP_ServerDb``: 40 von 136 Membern
-    betroffen): Ein Interface-Member einer Instanz-DB ohne eigenen,
-    überschriebenen Kommentar erbt seinen Kommentar vom entsprechenden
-    Member der Quell-FB (TIA-GUI-Verhalten: der geerbte Kommentar wird in
-    der Instanz-DB angezeigt, bis er dort explizit überschrieben wird — dann
-    gilt der Instanz-DB-eigene Kommentar). In den Projekttexten liegt der
-    geerbte Kommentar unter dem ``ViewPath`` der **Quell-FB**, nicht der
-    Instanz-DB — ein reiner Lookup unter dem Instanz-DB-Namen findet ihn
-    daher nie. Fix: Schlägt der Lookup unter dem Instanz-DB-Namen fehl,
-    wird zusätzlich unter dem Namen der Quell-FB nachgeschlagen
-    (``db.GetAttribute("InstanceOfName")``, dieselbe Auflösung wie in
-    ``bibliotheken.verwaiste_instanz_dbs``) — bewusst nur als Fallback
-    *nach* dem eigenen Lookup, damit ein tatsächlich überschriebener
-    Instanz-DB-Kommentar weiterhin Vorrang hat.
+    Dritter Bug, mittlerweile durch eine grundsätzlichere Lösung ersetzt
+    (siehe "Achter Bug" unten): Ursprünglich wurde hier versucht, den
+    geerbten FB-Kommentar eines Instanz-DB-Members per Fallback-Lookup unter
+    dem Namen der Quell-FB nachzuschlagen, wenn die Instanz-DB selbst keinen
+    eigenen Kommentar hatte. Diese Lösung ist entfallen, siehe unten.
+
+    Achter Bug/Design-Entscheidung (User-Brainstorming): Mit der Einführung
+    von Prüfpunkt 1c (siehe "Siebter Bug") entstand echte Redundanz —
+    Instanz-DB-Member wurden weiterhin hier geprüft (mit dem oben genannten
+    FB-Fallback), *und* an der FB-Definition über Prüfpunkt 1c. Fehlte ein
+    FB-Member-Kommentar komplett, entstanden zwei Befunde für dasselbe
+    Grundproblem, bei mehrfach instanziierten FBs sogar mehrfach. Ein
+    Kommentar auf einem FB-Interface-Member "gehört" konzeptionell zur
+    FB-Definition, nicht zur einzelnen Instanz. Fix: Instanz-DBs
+    (``db.GetAttribute("InstanceOfName")`` nicht leer) werden hier komplett
+    übersprungen — ihre Member werden ausschließlich von Prüfpunkt 1c
+    geprüft, der Fallback-Lookup entfällt vollständig. **Tradeoff:** TIA
+    erlaubt es, den geerbten FB-Kommentar an einer einzelnen Instanz zu
+    überschreiben — ein solcher instanzspezifischer Kommentar wird dadurch
+    nicht mehr erkannt, nur der Kommentar an der FB-Definition zählt noch.
+    Bewusst in Kauf genommen zugunsten von weniger Redundanz/Rauschen.
 
     Vierter Bug (User-Meldung): Viele Warnungen stammten von Membern, deren
     Datentyp selbst ein PLC-Datentyp (UDT) ist — jedes einzelne Item *im*
@@ -112,9 +120,28 @@ class VariablenKommentarCheck(BaseCheck):
     gepflegter Eintrag in ``udt_names`` (siehe unten) — nur das UDT-typisierte
     Member selbst bleibt geprüft, seine (in TIA ohnehin nicht einsehbaren)
     Items werden übersprungen.
+
+    Siebter Bug (User-Meldung, live an ``4805PrgManDb > Man4805_27M11``
+    verifiziert): Nicht jede verschachtelte Interface-Struktur ist ein UDT
+    — ``Man4805_27M11`` hat den ``DataTypeName`` ``"ManStFcPump"``, aber das
+    ist der Name eines **Funktionsbausteins (FB)**, keiner PLC-Datentyp.
+    ``Man4805_27M11`` ist eine **Multi-Instanz** dieses FB (dieselbe
+    ``Interface.Members``-Flachklopfung mit Punktpfaden wie bei DBs/UDTs,
+    aber ein technisch anderer Mechanismus) — die UDT-Erkennung fand
+    ``"ManStFcPump"`` daher zu Recht nicht in ``udt_names``, wodurch alle
+    Items der Multi-Instanz einzeln geprüft wurden. Fix: ``fb_names``
+    (analog zu ``udt_names``, aus allen FBs der PLC-Software) wird
+    zusätzlich in die Skip-Erkennung einbezogen — ein FB-typisiertes Member
+    wird jetzt genauso behandelt wie ein UDT-typisiertes. Die Kommentare der
+    FB-Interface-Member selbst (an der FB-Definition, nicht pro
+    Verwendungsstelle) prüft der neue Prüfpunkt 1c
+    (``kommentare.fb_member_kommentar``, siehe ``FbMemberKommentarCheck``) —
+    der FB-Kopfkommentar selbst bleibt weiterhin Sache von Prüfpunkt 2.
     """
 
     def run(self, project: Any) -> list[CheckResult]:
+        from Siemens.Engineering.SW.Blocks import FB
+
         results: list[CheckResult] = []
         exception_prefixes = tuple(self.definition.params.get("ausnahme_prefixe", []))
         exception_variables = frozenset(self.definition.params.get("ausnahme_variables", []))
@@ -145,10 +172,19 @@ class VariablenKommentarCheck(BaseCheck):
 
             project_texts = ProjectTextComments.load(project)
             udt_names = {t.Name for t, _ in iter_plc_types(plc_software, self.excluded_folders)}
+            fb_names = {
+                block.Name
+                for block, _ in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks)
+                if isinstance(block, FB)
+            }
 
             for db, group_path in iter_data_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
                 db_name = db.Name
-                instance_of = str(get_attribute(db, "InstanceOfName", "") or "")
+                if get_attribute(db, "InstanceOfName", ""):
+                    # Instanz-DB: alle Member gehören zur Interface-Definition der
+                    # Quell-FB und werden ausschließlich von Prüfpunkt 1c geprüft —
+                    # siehe Klassen-Docstring, "Achter Bug/Design-Entscheidung".
+                    continue
                 skip_prefixes: list[str] = []
                 for member in getattr(getattr(db, "Interface", None), "Members", []):
                     member_name = member.Name
@@ -176,8 +212,11 @@ class VariablenKommentarCheck(BaseCheck):
                     # unabhängig davon, ob der Name selbst eine Quotierung bräuchte
                     # (z. B. '"U_VisBit"' statt 'U_VisBit', live verifiziert) —
                     # normalize_member_path() vor dem Abgleich anwenden.
+                    # fb_names deckt Multi-Instanz-FB-Aufrufe ab (Member-Typ ist
+                    # der Name eines Funktionsbausteins, nicht eines PLC-Datentyps
+                    # — siehe "Siebter Bug").
                     data_type_name = normalize_member_path(str(get_attribute(member, "DataTypeName", "") or ""))
-                    if data_type_name in udt_names or data_type_name in exception_udts:
+                    if data_type_name in udt_names or data_type_name in exception_udts or data_type_name in fb_names:
                         skip_prefixes.append(member_name)
 
                     if member_name.startswith(exception_prefixes):
@@ -190,14 +229,6 @@ class VariablenKommentarCheck(BaseCheck):
                         normalize_member_path(db_name),
                         norm_member,
                     )
-                    if not comment and instance_of:
-                        # Instanz-DB-Member ohne eigenen Kommentar erbt ihn von der
-                        # Quell-FB — siehe Klassen-Docstring, "Dritter Bug".
-                        comment = project_texts.get(
-                            normalize_member_path(plc_name),
-                            normalize_member_path(instance_of),
-                            norm_member,
-                        )
                     if not comment:
                         results.append(
                             self._make_result(
@@ -312,6 +343,98 @@ class UdtKommentarCheck(BaseCheck):
         return results
 
 
+class FbMemberKommentarCheck(BaseCheck):
+    """Prüfpunkt 1c: Interface-Member von Funktionsbausteinen (FBs) ohne Kommentar.
+
+    War in der ursprünglichen Liste der Prüfpunkte kein eigener Punkt — ergänzt
+    Prüfpunkt 1 um die Lücke, die durch dessen "Siebter Bug"-Fix entstanden ist
+    (siehe ``VariablenKommentarCheck``): Multi-Instanz-FB-Aufrufe (z. B.
+    ``Man4805_27M11`` vom Typ ``ManStFcPump``) werden dort seitdem wie
+    UDT-typisierte Member behandelt — ihre Items werden nicht mehr einzeln
+    geprüft. Anders als bei UDTs gab es dafür aber keinen eigenen Prüfpunkt,
+    der diese Items stattdessen erfasst; dieser Prüfpunkt schließt die Lücke.
+
+    Deckt seit dem "Achter Bug/Design-Entscheidung" in ``VariablenKommentarCheck``
+    zusätzlich **alle Instanz-DB-Member** ab, nicht nur verschachtelte
+    Multi-Instanzen innerhalb einer DB: Prüfpunkt 1 prüfte dort ursprünglich
+    jedes Instanz-DB-Member einzeln (mit Fallback auf den FB-Kommentar), was
+    zu doppelten Befunden für dasselbe Grundproblem führte (einer an der
+    Instanz, einer an der FB-Definition). Instanz-DBs werden bei Prüfpunkt 1
+    daher komplett übersprungen — dieser Prüfpunkt ist jetzt die alleinige
+    Quelle für Kommentar-Befunde zu FB-Interface-Membern, unabhängig davon,
+    ob der FB als eigenständige Instanz-DB oder als verschachtelte
+    Multi-Instanz verwendet wird. **Tradeoff:** ein an einer einzelnen
+    Instanz-DB überschriebener, abweichender Kommentar wird dadurch nicht
+    mehr erkannt — nur der Kommentar an der FB-Definition zählt.
+
+    Geprüft werden **nur** die Kommentare der Interface-Member eines FB (an
+    der FB-Definition selbst, nicht pro Verwendungsstelle/Instanz) — der
+    Kopfkommentar des FB als Ganzes ist bereits Sache von Prüfpunkt 2
+    (``kommentare.baustein_beschreibung``) und wird hier nicht erneut geprüft.
+
+    **Live-Befund während der Implementierung:** Anders als bei
+    ``DataBlock.Interface.Members`` (Prüfpunkt 1) und ``PlcType.Interface.Members``
+    (Prüfpunkt 1b) liefert ``PlcBlock.Interface.Members`` direkt auf einem FB
+    **immer eine leere Liste** — verifiziert an allen 127 FBs des
+    Salzmaschine-Projekts, unabhängig von Know-how-Schutz (keiner der FBs war
+    geschützt). Dieselbe Einschränkung, die bereits ``styleguide.static_zugriff_extern``/
+    ``styleguide.output_mehrfach_beschrieben`` dazu gezwungen hat, Interface-
+    Member-Namen stattdessen aus dem XML-Export zu lesen (siehe
+    ``interface_section_members`` in ``_tia_helpers.py``, Abschnitte "Static"
+    bzw. "Output" der Interface-Sections). Dieser Prüfpunkt verwendet denselben
+    Mechanismus für alle vier "echten" Interface-Sections eines FB (``Input``,
+    ``Output``, ``InOut``, ``Static`` — ``Temp`` bewusst ausgenommen, da
+    Temp-Variablen zwischen Aufrufen nicht persistieren und in der Praxis nicht
+    einzeln kommentiert werden). Da der XML-Export nur die direkt deklarierten
+    Member einer Section liefert (keine rekursive Auflösung verschachtelter
+    Struct-/UDT-/Array-Felder wie bei ``Interface.Members``), ist hier — anders
+    als bei den Prüfpunkten 1/1b — keine Array-/UDT-Skip-Logik nötig: jedes
+    Ergebnis ist bereits ein einzelnes, direkt deklariertes Interface-Member.
+    """
+
+    _INTERFACE_SECTIONS = ("Input", "Output", "InOut", "Static")
+
+    def run(self, project: Any) -> list[CheckResult]:
+        from Siemens.Engineering.SW.Blocks import FB
+
+        results: list[CheckResult] = []
+        exception_prefixes = tuple(self.definition.params.get("ausnahme_prefixe", []))
+
+        for plc_software in iter_plc_software(project):
+            plc_name = plc_software.Name
+            project_texts = ProjectTextComments.load(project)
+
+            for block, group_path in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
+                if not isinstance(block, FB):
+                    continue
+                fb_name = block.Name
+
+                xml_root = export_block_xml(block)
+                member_names: set[str] = set()
+                for section_name in self._INTERFACE_SECTIONS:
+                    member_names |= interface_section_members(xml_root, section_name)
+
+                for member_name in sorted(member_names):
+                    if member_name.startswith(exception_prefixes):
+                        continue
+                    comment = project_texts.get(
+                        normalize_member_path(plc_name),
+                        normalize_member_path(fb_name),
+                        normalize_member_path(member_name),
+                    )
+                    if not comment:
+                        results.append(
+                            self._make_result(
+                                path=format_path(
+                                    plc_name, "Programmbausteine", *group_path, fb_name, "Member", member_name
+                                ),
+                                description=f"FB-Variable '{member_name}' hat keinen Kommentar.",
+                                value=member_name,
+                            )
+                        )
+        return results
+
+
 class BausteinBeschreibungCheck(BaseCheck):
     """Prüfpunkt 2: Bausteine ohne (aussagekräftige) Kopfbeschreibung.
 
@@ -407,6 +530,7 @@ class AenderungshistorieCheck(BaseCheck):
 CHECK_CLASSES = {
     "kommentare.variablen_kommentar": VariablenKommentarCheck,
     "kommentare.udt_kommentar": UdtKommentarCheck,
+    "kommentare.fb_member_kommentar": FbMemberKommentarCheck,
     "kommentare.baustein_beschreibung": BausteinBeschreibungCheck,
     "kommentare.netzwerk_beschreibung": NetzwerkBeschreibungCheck,
     "kommentare.aenderungshistorie": AenderungshistorieCheck,

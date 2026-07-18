@@ -98,6 +98,17 @@ checks:
       severity: warning
       ausnahme_prefixe: ["__"]
 
+    # Prüfpunkt 1c — war in der ursprünglichen Liste kein eigener Punkt,
+    # ergänzt Prüfpunkt 1b: Multi-Instanz-FB-Aufrufe (Membertyp ist der Name
+    # eines Funktionsbausteins, keines PLC-Datentyps) werden bei Prüfpunkt 1
+    # ebenfalls bewusst nicht mehr in die Tiefe geprüft — dieser Punkt prüft
+    # stattdessen die Kommentare der FB-Interface-Member direkt an der
+    # FB-Definition (nicht der FB-Kopfkommentar selbst, siehe baustein_beschreibung).
+    fb_member_kommentar:
+      enabled: true
+      severity: warning
+      ausnahme_prefixe: ["__"]
+
     baustein_beschreibung:
       enabled: true
       severity: warning

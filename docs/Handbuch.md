@@ -1,6 +1,6 @@
 # TIA Linter — Benutzerhandbuch
 
-**Version dieses Handbuchs:** 0.18 (Entwurf)
+**Version dieses Handbuchs:** 0.20 (Entwurf)
 **Stand:** 18.07.2026
 **Programmversion:** 0.1.0
 
@@ -654,6 +654,23 @@ PLC_1 > Variablentabellen > Tags_Eingaenge > I_Sensor_01
   oder `ausnahme_variables` von der eigenen Kommentarprüfung ausgenommen
   ist — eine ausgenommene, aber UDT-typisierte Variable schützt ihre
   Items trotzdem vor Einzelprüfung.
+- Dieselbe Logik gilt auch für **Multi-Instanz-Aufrufe von
+  Funktionsbausteinen (FBs)** — z. B. eine Variable vom Typ eines FB
+  innerhalb eines Datenbausteins. Deren Interface-Member werden hier
+  ebenfalls nicht einzeln geprüft, sondern vom separaten
+  [Prüfpunkt 1c](#prüfpunkt-1c-fb-interface-member-ohne-kommentar).
+- **Instanz-Datenbausteine** (Instanzen eines FB) werden hier komplett
+  übersprungen — nicht nur verschachtelte Multi-Instanzen innerhalb einer
+  DB, sondern auch eine Instanz-DB als eigenständiger Baustein. Alle ihre
+  Member gehören zur Interface-Definition der zugehörigen FB und werden
+  ausschließlich von [Prüfpunkt 1c](#prüfpunkt-1c-fb-interface-member-ohne-kommentar)
+  geprüft — ein Kommentar "gehört" konzeptionell zur FB-Definition, nicht
+  zur einzelnen Instanz, und soll dort genau einmal gepflegt werden statt
+  redundant an jeder Verwendungsstelle. **Tradeoff:** TIA erlaubt es
+  grundsätzlich, den von der FB geerbten Kommentar an einer einzelnen
+  Instanz zu überschreiben — ein solcher instanzspezifischer, abweichender
+  Kommentar wird durch diese Vereinfachung nicht mehr erkannt, nur der
+  Kommentar an der FB-Definition zählt für die Prüfung.
 
 **Empfehlung zur Behebung**
 Kommentar mit Beschreibung der Funktion bzw. Bedeutung der Variable
@@ -689,7 +706,7 @@ Verwendungsstelle.
 
 | Parameter | Standardwert | Bedeutung |
 |---|---|---|
-| `ausnahme_prefixe` | `["_"]` | UDTs bzw. Items, deren Name mit einem dieser Präfixe beginnt, werden von der Prüfung ausgenommen. |
+| `ausnahme_prefixe` | `["__"]` | UDTs bzw. Items, deren Name mit einem dieser Präfixe beginnt, werden von der Prüfung ausgenommen. |
 
 **Beispiel**
 
@@ -718,6 +735,80 @@ PLC_1 > PLC-Datentypen > U_Motor > Member > Drehzahl
 Kommentar auf dem PLC-Datentyp bzw. dem betroffenen Item ergänzen —
 da ein UDT oft mehrfach verwendet wird, wirkt sich ein einmal ergänzter
 Kommentar an der Definition überall dort aus, wo der Typ eingesetzt wird.
+
+#### Prüfpunkt 1c — FB-Interface-Member ohne Kommentar
+
+| | |
+|---|---|
+| **Kategorie** | Kommentare & Beschreibungen |
+| **Standard-Schweregrad** | Warnung |
+| **Config-Schlüssel** | `checks.kommentare.fb_member_kommentar` |
+
+**Was wird geprüft?**
+Für jeden Funktionsbaustein (FB) im Projekt wird für jedes seiner
+Interface-Member (Input, Output, InOut, Static) geprüft, ob ein
+Kommentar hinterlegt ist. Geprüft wird ausschließlich die FB-Definition
+selbst, nicht einzelne Verwendungsstellen — weder als Multi-Instanz
+innerhalb einer DB noch als eigenständige Instanz-DB. Dieser Prüfpunkt
+ist damit die **alleinige Quelle** für Kommentar-Befunde zu
+FB-Interface-Membern im gesamten Projekt. Der Kopfkommentar des FB als
+Ganzes wird hier **nicht** geprüft — das übernimmt bereits
+[Prüfpunkt 2](#prüfpunkt-2-bausteine-ohne-kopfbeschreibung).
+
+**Warum ist das wichtig?**
+Prüfpunkt 1 prüft Items *innerhalb* einer Multi-Instanz-FB-Variable sowie
+sämtliche Member von Instanz-DBs bewusst nicht mehr einzeln (siehe
+dortige Besonderheiten) — ein Kommentar auf einem FB-Interface-Member
+"gehört" konzeptionell zur FB-Definition, nicht zur einzelnen
+Verwendungsstelle, und ein FB wird oft mehrfach instanziiert. Ohne diesen
+eigenen Prüfpunkt blieben die Interface-Member eines FB damit
+vollständig ungeprüft, egal wie oft und an wie vielen Stellen der FB
+verwendet wird — analog zur Begründung bei
+[Prüfpunkt 1b](#prüfpunkt-1b-udt-ohne-kommentar) für UDTs. Die
+Alternative (Kommentare an jeder einzelnen Instanz-DB prüfen) hätte bei
+mehrfach instanziierten FBs zu redundanten Befunden für dasselbe
+Grundproblem geführt.
+
+**Parameter**
+
+| Parameter | Standardwert | Bedeutung |
+|---|---|---|
+| `ausnahme_prefixe` | `["__"]` | Interface-Member, deren Name mit einem dieser Präfixe beginnt, werden von der Prüfung ausgenommen. |
+
+**Beispiel**
+
+```
+PLC_1 > Programmbausteine > FB_Motor > Member > Drehzahl
+→ FB-Variable 'Drehzahl' hat keinen Kommentar.
+```
+
+**Besonderheiten**
+
+- War in der ursprünglichen Liste der 35 Prüfpunkte kein eigener Punkt —
+  ergänzt Prüfpunkt 1 um eine Lücke, die erst durch dessen eigene
+  Multi-Instanz-Sonderbehandlung entstanden ist (siehe dort).
+- Technischer Sonderfall: Anders als bei Datenbausteinen und
+  PLC-Datentypen liefert die Openness-API für Funktionsbausteine über die
+  direkte Objektnavigation keine Interface-Member — dieser Prüfpunkt
+  liest sie stattdessen aus demselben XML-Export, den auch die
+  Netzwerk-bezogenen Prüfpunkte (z. B. Prüfpunkt 3) verwenden. Praktisch
+  wirkt sich das nicht aus, außer dass verschachtelte Struct-/UDT-/
+  Multi-Instanz-Felder innerhalb eines Interface-Members hier nicht
+  gesondert aufgelöst werden (das jeweils zugehörige UDT bzw. der FB wird
+  wie gewohnt eigenständig geprüft).
+- Temp-Variablen werden bewusst nicht geprüft — sie persistieren
+  zwischen Aufrufen nicht und werden in der Praxis nicht einzeln
+  kommentiert.
+- Deckt auch Instanz-DBs ab, die als eigenständige Bausteine im Projekt
+  angelegt sind (nicht nur verschachtelte Multi-Instanzen innerhalb einer
+  DB) — siehe die Besonderheiten und den dortigen Tradeoff bei
+  [Prüfpunkt 1](#prüfpunkt-1-variablen-ohne-kommentar).
+
+**Empfehlung zur Behebung**
+Kommentar auf dem betroffenen FB-Interface-Member ergänzen — da ein FB
+oft mehrfach als Multi-Instanz verwendet wird, wirkt sich ein einmal
+ergänzter Kommentar an der Definition überall dort aus, wo der FB
+eingesetzt wird.
 
 #### Prüfpunkt 2 — Bausteine ohne Kopfbeschreibung
 
@@ -2394,12 +2485,12 @@ Schreibschutz im Bausteinkopf bzw. in der Projektdokumentation vermerken.
 
 > **Kapitel 10 ist damit vollständig:** Alle 35 ursprünglichen Prüfpunkte
 > (inkl. der Unterpunkte 11b, 18b und 18c) sind ausgearbeitet — ergänzt um
-> Prüfpunkt 1b (UDT ohne Kommentar) und Prüfpunkt 12b (Eingänge dürfen nicht
-> beschrieben werden), die beide nachträglich als sinnvolle Ergänzung
-> hinzugekommen sind (siehe Änderungshistorie in Anhang C). Rückmeldungen
-> und Korrekturen sind jederzeit willkommen — dieses Handbuch bleibt bis zu
-> einer ersten Durchsicht als Entwurf gekennzeichnet (siehe Kopf des
-> Dokuments).
+> Prüfpunkt 1b (UDT ohne Kommentar), Prüfpunkt 1c (FB-Interface-Member ohne
+> Kommentar) und Prüfpunkt 12b (Eingänge dürfen nicht beschrieben werden),
+> die alle drei nachträglich als sinnvolle Ergänzung hinzugekommen sind
+> (siehe Änderungshistorie in Anhang C). Rückmeldungen und Korrekturen sind
+> jederzeit willkommen — dieses Handbuch bleibt bis zu einer ersten
+> Durchsicht als Entwurf gekennzeichnet (siehe Kopf des Dokuments).
 
 ---
 
@@ -2534,3 +2625,5 @@ zu der Übersicht, die bereits am Anfang der Markdown-Datei steht.
 | 0.16 | 18.07.2026 | Neuen Parameter `ausnahme_variables` bei Prüfpunkt 1 in Abschnitt 10.1 dokumentiert — erlaubt das Ausnehmen einzelner Variablen (PLC-Tags oder DB-Member) anhand des vollständigen Namens, exakte Übereinstimmung, unabhängig von `ausnahme_prefixe`. |
 | 0.17 | 18.07.2026 | Neuen Parameter `ausnahme_udts` bei Prüfpunkt 1 in Abschnitt 10.1 dokumentiert — erlaubt das manuelle Ausnehmen von Datentypnamen (UDTs), deren Items nicht geprüft werden sollen, gedacht vor allem für System-/Bibliotheksdatentypen ohne sichtbare Definition in TIA Portal. Standardwert von `ausnahme_prefixe` in der Parameter-Tabelle auf `["__"]` korrigiert (Programmänderung: einfacher Unterstrich als Präfix in der Praxis oft ungeeignet). |
 | 0.18 | 18.07.2026 | Besonderheiten von Prüfpunkt 1 in Abschnitt 10.1 klargestellt: die UDT-Erkennung schützt die Items einer UDT-typisierten Variable auch dann, wenn die Variable selbst über `ausnahme_prefixe`/`ausnahme_variables` ausgenommen ist (Programmänderung: vorher wurde eine so ausgenommene, aber UDT-typisierte Variable nie als UDT erkannt, wodurch ihre Items fälschlich einzeln geprüft wurden). |
+| 0.19 | 18.07.2026 | Neuen Prüfpunkt 1c ("FB-Interface-Member ohne Kommentar") in Abschnitt 10.1 ergänzt — schließt die Lücke, die dadurch entsteht, dass Prüfpunkt 1 Items innerhalb einer Multi-Instanz-FB-Variable ab dieser Version ebenfalls bewusst nicht mehr einzeln prüft (analog zur UDT-Behandlung aus Prüfpunkt 1b). Prüfpunkt 1c prüft die Interface-Member (Input/Output/InOut/Static) direkt an der FB-Definition, nicht den FB-Kopfkommentar (bleibt Sache von Prüfpunkt 2). Technischer Hinweis ergänzt: die Openness-API liefert für FBs keine Interface-Member über die direkte Objektnavigation (anders als bei DBs/UDTs) — der Prüfpunkt liest sie stattdessen aus dem XML-Export. Querverweis bei Prüfpunkt 1 ergänzt, veralteten `ausnahme_prefixe`-Standardwert bei Prüfpunkt 1b auf `["__"]` korrigiert, Abschlusshinweis am Ende von Kapitel 10 aktualisiert. |
+| 0.20 | 18.07.2026 | Redundanz zwischen Prüfpunkt 1 und 1c behoben (User-Brainstorming): Prüfpunkt 1 prüfte bislang zusätzlich jedes Instanz-DB-Member einzeln (mit Fallback auf den FB-Kommentar), was bei fehlendem FB-Kommentar zu doppelten Befunden führte. Prüfpunkt 1 überspringt Instanz-DBs jetzt komplett — Prüfpunkt 1c ist die alleinige Quelle für FB-Interface-Member-Kommentare, egal ob als Multi-Instanz oder als eigenständige Instanz-DB verwendet. Tradeoff dokumentiert: ein an einer einzelnen Instanz überschriebener, abweichender Kommentar wird dadurch nicht mehr erkannt. Besonderheiten bei Prüfpunkt 1 und 1c entsprechend ergänzt. |

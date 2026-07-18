@@ -902,4 +902,156 @@ Letzter Stand: "Sechster Kommentar-Bug (UDT-Erkennung griff nicht bei zusätzlic
 ausnahme_prefixe/ausnahme_variables ausgenommenen Membern) behoben, mit der echten
 Config des Users gegen das Salzmaschine-Projekt verifiziert (0 verbleibende
 DTL-Kind-Befunde, projektweite Generic-Suche negativ), Handbuch aktualisiert. pytest
-38/38 grün. Noch nicht committed/gepusht — warte auf Rückmeldung des Users."
+38/38 grün."
+
+**Committed & gepusht:** Commit `33136db` auf `main` (`76e497b..33136db`),
+Repo: https://github.com/Thomas-Schlangen/tia-linter.
+
+## Runde 20 — Siebter Kommentar-Bug: Multi-Instanz-FB-Aufrufe wie UDT-Member behandelt, neuer Prüfpunkt 1c
+
+**Bug (User-Meldung):** "Keine Prüfung in die Items eines UDTs, wenn die Variable vom
+UDT-Typ ist" (Grundprinzip aus Runde 16) griff bei `4805PrgManDb > Man4805_27M11.ix_BoxIdOk`
+nicht — `Man4805_27M11` ist laut User "eine Instanzvariable vom UDT-Typ ManStFcPump".
+Tritt laut User sehr häufig auf.
+
+**Ursache (live verifiziert):** `ManStFcPump` ist **kein PLC-Datentyp (UDT)**, sondern
+ein **Funktionsbaustein (FB)** — `Man4805_27M11` ist eine **Multi-Instanz** dieses FB
+innerhalb der Instanz-DB `4805PrgManDb`. Architektonisch dieselbe
+`Interface.Members`-Flachklopfung mit Punktpfaden wie bei UDTs, aber ein technisch
+anderer Mechanismus, den `iter_plc_types()` (nur echte PLC-Datentypen) korrekterweise
+nicht erfasst. Bestätigt: `'ManStFcPump' in udt_names` → `False`,
+`'ManStFcPump' in fb_names` → `True`.
+
+**Rückfrage an den User** (echte Design-Entscheidung, kein reiner Bugfix): Sollen
+Multi-Instanz-FB-Member nur übersprungen werden (bewusste Lücke wie bei
+System-UDTs), oder zusätzlich ein neuer Prüfpunkt analog zu 1b ergänzt werden, der die
+FB-Interface-Member-Kommentare stattdessen prüft? User-Antwort: **beides** — überspringen
+UND neuer Prüfpunkt, damit keine Abdeckungslücke entsteht.
+
+**Fix Teil 1** (`VariablenKommentarCheck`): `fb_names` (analog zu `udt_names`, aus allen
+FBs der PLC-Software über `isinstance(block, FB)`) zusätzlich in die Skip-Erkennung
+einbezogen — ``data_type_name in udt_names or data_type_name in exception_udts or
+data_type_name in fb_names``.
+
+**Fix Teil 2 — neuer Prüfpunkt 1c** (`kommentare.fb_member_kommentar`,
+`FbMemberKommentarCheck`): prüft die Interface-Member-Kommentare eines FB direkt an der
+Definition (nicht der FB-Kopfkommentar, der bleibt Sache von Prüfpunkt 2).
+
+**Zweiter, unabhängiger Bug während der Implementierung gefunden:** Erste Fassung von
+`FbMemberKommentarCheck` (analog zu `UdtKommentarCheck`, über `fb.Interface.Members`)
+lieferte 0 Befunde projektweit. Live-Diagnose: **alle 127 FBs** des Salzmaschine-Projekts
+liefern über `Interface.Members` direkt auf dem FB-Objekt eine **leere Liste** — auch
+`ManStFcPump` selbst (0 Members), obwohl über die Instanz `Man4805_27M11` klar sichtbar
+~150 Member existieren. Kein Know-how-Schutz (`IsKnowHowProtected=False` bei allen 127
+FBs) — also keine Sicherheitsfunktion, sondern eine grundsätzliche Einschränkung der
+Openness-API: Anders als `DataBlock.Interface.Members` und `PlcType.Interface.Members`
+(beide bereits live bestätigt funktionsfähig) liefert `PlcBlock.Interface.Members` für
+FBs über die direkte Objektnavigation offenbar nie Ergebnisse. Dieselbe Einschränkung
+hatte bereits `styleguide.static_zugriff_extern`/`styleguide.output_mehrfach_beschrieben`
+dazu gezwungen, Interface-Member-Namen stattdessen aus dem XML-Export zu lesen (siehe
+``interface_section_members`` in ``_tia_helpers.py``) — bisher aber nirgends explizit als
+generelle FB-Einschränkung dokumentiert, nur implizit in diesen beiden Checks umgangen.
+
+**Fix:** `FbMemberKommentarCheck` komplett auf den XML-Export-Mechanismus umgestellt —
+`interface_section_members(export_block_xml(block), section_name)` für die vier Sections
+`Input`/`Output`/`InOut`/`Static` (bewusst ohne `Temp`, da Temp-Variablen zwischen
+Aufrufen nicht persistieren). Da der XML-Export nur direkt deklarierte Member liefert
+(keine rekursive Auflösung), ist hier keine Array-/UDT-Skip-Logik nötig — jedes Ergebnis
+ist bereits ein einzelnes Member.
+
+**Verifiziert gegen das echte Salzmaschine-Projekt** (mit der echten
+`project_settings.yaml` des Users, `fb_member_kommentar` dort noch nicht enthalten →
+für diesen Teil zusätzlich `config/default.yaml` herangezogen):
+- `variablen_kommentar`: **117 Befunde statt vorher 2.814** (Differenz 2.697 —
+  Multi-Instanz-FB-Verwendungen sind im Projekt sehr verbreitet, deckt sich mit der
+  User-Angabe "tritt sehr häufig auf"). 0 verbleibende `Man4805_27M11`-Treffer.
+- `fb_member_kommentar`: **1.816 Befunde**, davon 19 für `ManStFcPump` selbst
+  (u. a. `MinusPrev`, `NoLimitPrev`, `id_MaxPortNbr`, `iou_GlobalMan` — plausible,
+  echte Interface-Member-Namen, identisch zu den zuvor über die Instanz beobachteten).
+  Keine Exceptions.
+
+**Dokumentiert:** `README.md` (Kategorietabelle + Absatz analog zu 1b/12b, inkl. der
+FB-Interface.Members-Einschränkung), `docs/Handbuch.md` (neue Prüfpunkt-1c-Sektion,
+Querverweis bei Prüfpunkt 1, veralteten `ausnahme_prefixe`-Default bei 1b auf `["__"]`
+korrigiert, Version 0.19), `config/default.yaml` (`checks.kommentare.fb_member_kommentar`).
+
+**Hinweis für den User:** `config/project_settings.yaml` (lokale Kopie) enthält den
+neuen Eintrag `fb_member_kommentar` noch nicht — muss dort manuell ergänzt werden
+(siehe `config/default.yaml` als Vorlage), sonst bleibt der neue Prüfpunkt in der GUI
+unsichtbar/inaktiv, obwohl er im Code vorhanden ist.
+
+`pytest`: weiterhin 38/38 grün (kein isolierter Unit-Test — Check-Level-Verifikation
+ausschließlich gegen das echte Projekt, konsistent mit dem bisherigen Testumfang).
+
+Letzter Stand: "Siebter Kommentar-Bug (Multi-Instanz-FB-Aufrufe fälschlich einzeln
+geprüft) behoben, neuer Prüfpunkt 1c (FB-Interface-Member ohne Kommentar) ergänzt —
+inkl. eines während der Implementierung gefundenen Zweitbugs (FB.Interface.Members
+liefert grundsätzlich leer, XML-Export als Workaround). Gegen das echte
+Salzmaschine-Projekt verifiziert (variablen_kommentar 2.814 → 117, fb_member_kommentar
+1.816 neue Befunde). README/Handbuch/Config aktualisiert. User muss
+project_settings.yaml manuell um den neuen Check-Eintrag ergänzen."
+
+## Runde 21 — Redundanz zwischen Prüfpunkt 1 und 1c behoben (Brainstorming, Plan-Modus)
+
+**Ausgangspunkt:** User stellte im Anschluss an Runde 20 eigene Entscheidungen in Frage
+(Brainstorming über die Erklärung des XML-Export-Umwegs für FBs) und fragte gezielt:
+"Macht es Sinn, die Variablen eines FB zu prüfen, wenn wir sowieso die IDB checken?
+Oder umgekehrt?" — mit der Vermutung, dass nur eines von beiden sinnvoll ist.
+
+**Analyse:** Tatsächliche Redundanz bestätigt, aber nur für *eigenständige* Instanz-DBs
+(nicht für die bereits in Runde 20 übersprungenen verschachtelten Multi-Instanzen
+innerhalb einer DB): Prüfpunkt 1 prüfte weiterhin jedes Member einer Instanz-DB einzeln
+(mit dem Runde-15-Fallback auf den FB-Kommentar), während Prüfpunkt 1c dieselben Member
+zusätzlich direkt an der FB-Definition prüfte. Fehlte ein FB-Member-Kommentar komplett,
+entstanden zwei Befunde für dasselbe Grundproblem — bei mehrfach instanziierten FBs
+sogar mehrfach.
+
+**Empfehlung (in einem eigenen Plan-Modus-Durchlauf erarbeitet und vom User zu 100%
+bestätigt):** Nur Prüfpunkt 1c soll FB-Interface-Member-Kommentare prüfen. Prüfpunkt 1
+schließt Instanz-DBs komplett von der Member-Prüfung aus (nicht nur die verschachtelten
+Multi-Instanz-Fälle) — der Fallback-Mechanismus aus Runde 15 entfällt dadurch vollständig.
+Ausdrücklich **kein** Prüfpunkt wird dabei aus der Registry entfernt — 1, 1b und 1c
+bleiben alle bestehen und decken weiterhin unterschiedliche Variablen-Kategorien ab
+(PLC-Tags + Global-DB-Member bei 1, UDT-Member bei 1b, sämtliche FB-Member — jetzt
+inkl. der zuvor bei 1 geprüften Instanz-DB-Member — bei 1c). Entfernt wird nur ein
+Stück Logik *innerhalb* von Prüfpunkt 1.
+
+**Tradeoff (User-Anweisung: dokumentieren):** TIA erlaubt es, den geerbten FB-Kommentar
+an einer einzelnen Instanz zu überschreiben. Ein solcher instanzspezifischer Kommentar
+wird nach dieser Änderung nicht mehr erkannt — nur der Kommentar an der FB-Definition
+zählt für die Prüfung. Bewusst in Kauf genommen zugunsten von weniger Redundanz/Rauschen.
+
+**Fix** (`src/tia_linter/checks/comments.py`, `VariablenKommentarCheck`): Im DB-Loop
+wird direkt nach `db_name = db.Name` geprüft, ob `db.GetAttribute("InstanceOfName")`
+nicht leer ist — falls ja, wird die komplette Member-Schleife für diese DB übersprungen
+(`continue` auf DB-Ebene). Die bisherige Fallback-Lookup-Logik (Instanz-DB-Kommentar →
+bei Fehlen zusätzlich unter dem FB-Namen nachschlagen) wurde komplett entfernt.
+Docstring aktualisiert: "Dritter Bug" als historisch/ersetzt markiert, neuer Abschnitt
+"Achter Bug/Design-Entscheidung" beschreibt die Vereinheitlichung inkl. Tradeoff.
+`FbMemberKommentarCheck`-Docstring ergänzt: deckt jetzt explizit auch eigenständige
+Instanz-DBs ab, nicht nur verschachtelte Multi-Instanzen.
+
+**Verifiziert gegen das echte Salzmaschine-Projekt:**
+- `variablen_kommentar`: **2 Befunde statt vorher 117** — alle drei bekannten
+  Instanz-DB-Beispiele (`LSNTP_ServerDb`, `PlcTimeDb`, `4805PrgManDb`) liefern jetzt 0
+  Befunde, wie erwartet.
+- `fb_member_kommentar`: unverändert bei **1.816 Befunden** — bestätigt, dass diese
+  Änderung ausschließlich Prüfpunkt 1 betrifft, 1c war unabhängig davon schon vorher
+  korrekt und vollständig.
+- `pytest`: weiterhin 38/38 grün.
+
+**Dokumentiert:** `docs/Handbuch.md` (Besonderheiten bei Prüfpunkt 1 und 1c inkl.
+Tradeoff, Version 0.20), `README.md` (Prüfpunkt-1c-Absatz um Instanz-DB-Abdeckung und
+Tradeoff erweitert).
+
+**Offener Punkt aus dem Brainstorming, noch nicht bearbeitet:** Liefert
+`fc.Interface.Members` direkt Ergebnisse, oder braucht es wie bei FB den
+XML-Export-Umweg? Noch nicht live getestet (siehe `OutputMehrfachBeschriebenCheck`,
+das FC schon vorsorglich wie FB behandelt, ohne dass das für FC bestätigt ist) —
+separat vom User als "muss definitiv noch getestet werden" vermerkt.
+
+Letzter Stand: "Redundanz zwischen Prüfpunkt 1 und 1c behoben (Instanz-DBs werden bei
+Prüfpunkt 1 komplett übersprungen, Runde-15-Fallback entfernt), gegen das echte Projekt
+verifiziert (variablen_kommentar 117 → 2, fb_member_kommentar unverändert bei 1.816),
+Tradeoff in Handbuch/README dokumentiert. pytest 38/38 grün. Noch nicht
+committed/gepusht — warte auf Rückmeldung des Users. Offen: FC-Interface.Members-Test."
