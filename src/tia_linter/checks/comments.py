@@ -137,6 +137,19 @@ class VariablenKommentarCheck(BaseCheck):
     Verwendungsstelle) prüft der neue Prüfpunkt 1c
     (``kommentare.fb_member_kommentar``, siehe ``FbMemberKommentarCheck``) —
     der FB-Kopfkommentar selbst bleibt weiterhin Sache von Prüfpunkt 2.
+
+    Neunter Bug (User-Meldung, nachdem viele UDTs über ``ausgeschlossene_ordner``
+    von der Prüfung ausgenommen wurden — Ordner ``ProjektLib``): ``udt_names``/
+    ``fb_names`` wurden bislang mit ``self.excluded_folders`` gefiltert, genau wie
+    die eigentliche Iteration der zu prüfenden DBs/UDTs/FBs. Dadurch tauchte ein
+    UDT aus einem ausgeschlossenen Ordner nicht mehr in ``udt_names`` auf — ein
+    damit typisiertes DB-Member wurde daher nicht mehr als UDT erkannt, wodurch
+    entgegen der eigentlichen Absicht wieder in seine (in TIA gar nicht
+    einsehbaren) Items hinein geprüft wurde. ``ausgeschlossene_ordner`` soll aber
+    nur steuern, was selbst geprüft wird — nicht, welche Datentypen dem Linter
+    für die Klassifizierung ("ist das ein UDT/FB?") bekannt sind. Fix:
+    ``udt_names``/``fb_names`` werden jetzt unabhängig von ``excluded_folders``/
+    ``excluded_blocks`` aus **allen** UDTs/FBs der PLC-Software gebildet.
     """
 
     def run(self, project: Any) -> list[CheckResult]:
@@ -171,10 +184,20 @@ class VariablenKommentarCheck(BaseCheck):
                         )
 
             project_texts = ProjectTextComments.load(project)
-            udt_names = {t.Name for t, _ in iter_plc_types(plc_software, self.excluded_folders)}
+            # Neunter Bug (User-Meldung): udt_names/fb_names dienen hier nur der
+            # *Klassifizierung* eines Member-Datentyps (UDT oder FB?), nicht der
+            # Auswahl, was selbst geprüft wird — sie müssen daher unabhängig von
+            # ausgeschlossene_ordner/ausgeschlossene_bausteine ALLE UDTs/FBs der
+            # PLC-Software enthalten. Live verifiziert: ein UDT im ausgeschlossenen
+            # Ordner "ProjektLib" tauchte hier vorher nicht in udt_names auf, wodurch
+            # ein damit typisiertes DB-Member fälschlich als "kein UDT" behandelt und
+            # in seine (nicht einsehbaren) Items hinein geprüft wurde — obwohl das
+            # Ausnehmen des Ordners nur bedeutet, dass der UDT selbst nicht geprüft
+            # wird, nicht dass sein Typ unbekannt ist.
+            udt_names = {t.Name for t, _ in iter_plc_types(plc_software)}
             fb_names = {
                 block.Name
-                for block, _ in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks)
+                for block, _ in iter_blocks(plc_software)
                 if isinstance(block, FB)
             }
 
@@ -282,7 +305,12 @@ class UdtKommentarCheck(BaseCheck):
         for plc_software in iter_plc_software(project):
             plc_name = plc_software.Name
             project_texts = ProjectTextComments.load(project)
-            udt_names = {t.Name for t, _ in iter_plc_types(plc_software, self.excluded_folders)}
+            # udt_names dient hier nur der Klassifizierung verschachtelter Member
+            # (ist ein Item selbst wieder UDT-typisiert?), nicht der Auswahl, welche
+            # UDTs unten selbst geprüft werden — muss daher wie in
+            # VariablenKommentarCheck unabhängig von ausgeschlossene_ordner ALLE
+            # UDTs enthalten (siehe "Neunter Bug" dort).
+            udt_names = {t.Name for t, _ in iter_plc_types(plc_software)}
 
             for udt, group_path in iter_plc_types(plc_software, self.excluded_folders):
                 udt_name = udt.Name

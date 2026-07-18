@@ -1129,3 +1129,66 @@ Letzter Stand: "Prüfpunkte melden jetzt bei vollständig fehlerfreiem Durchlauf
 links ihre Handbuch-Nummer(n). Beides live bzw. per Smoketest verifiziert, pytest
 38/38 grün. Visuelles GUI-Layout dem User gegenüber als ungeprüft (kein
 Screenshot-Tool) benannt."
+
+## Runde 23 — Neunter Kommentar-Bug: UDT-/FB-Erkennung griff nicht mehr bei ausgeschlossenen Ordnern
+
+**Ausgangspunkt (User-Meldung):** "Der Prüfpunkt 1 läuft jetzt nicht mehr fehlerfrei
+durch, da ich sehr viele UDTs von der Prüfung ausgenommen habe (Ordner: ProjektLib).
+Daraufhin checkt unser Code beim Prüfen der Variablen wieder in den UDT hinein, weil
+unser Code den UDT nicht kennt. Aber nur weil ich einen Ordner zum Prüfen ausgenommen
+habe, heißt es ja nicht, das wir den Inhalt nicht kennen müssen." — der User hatte über
+`ausgeschlossene_ordner` einen ganzen Bibliotheksordner (`ProjectBib` in der lokalen
+Config) von der Prüfung ausgenommen; danach tauchten wieder massenhaft Einzelbefunde
+für Items *innerhalb* von UDTs/Multi-Instanz-FBs aus genau diesem Ordner auf.
+
+**Ursache:** `VariablenKommentarCheck` und `UdtKommentarCheck` bauen intern je ein Set
+`udt_names`/`fb_names`, gegen das der `DataTypeName` jedes Members abgeglichen wird, um
+zu entscheiden, ob es sich um ein UDT-/FB-typisiertes Member handelt (dessen innere
+Items dann bewusst nicht einzeln geprüft werden, siehe Prüfpunkt 1b/1c). Diese Sets
+wurden bislang mit denselben `excluded_folders`/`excluded_blocks` gebaut wie die
+eigentliche Iteration der zu prüfenden Objekte (`iter_plc_types(plc_software,
+self.excluded_folders)` bzw. `iter_blocks(plc_software, self.excluded_folders,
+self.excluded_blocks)`). Ein UDT/FB aus einem ausgeschlossenen Ordner tauchte dadurch
+gar nicht erst in `udt_names`/`fb_names` auf — ein damit typisiertes Member wurde
+folglich nicht als UDT/FB erkannt und seine Items wieder einzeln geprüft, obwohl
+`ausgeschlossene_ordner` nur steuern soll, was selbst geprüft wird, nicht welche
+Datentypen dem Linter zur Klassifizierung bekannt sind.
+
+**Fix** (`src/tia_linter/checks/comments.py`): In `VariablenKommentarCheck.run()`
+werden `udt_names`/`fb_names` jetzt über `iter_plc_types(plc_software)` bzw.
+`iter_blocks(plc_software)` **ohne** Exclusion-Parameter gebaut — sie enthalten damit
+immer alle UDTs/FBs der PLC-Software, unabhängig von `ausgeschlossene_ordner`/
+`ausgeschlossene_bausteine`. Die eigentliche DB-Iteration (`iter_data_blocks(...,
+self.excluded_folders, self.excluded_blocks)`) bleibt unverändert gefiltert — nur die
+Klassifizierungs-Sets nicht mehr. Analoger Fix in `UdtKommentarCheck.run()` für die
+Erkennung verschachtelter UDT-typisierter Items (`udt_names` dort ebenfalls ohne
+`excluded_folders` gebaut, die äußere Iteration der selbst zu prüfenden UDTs bleibt
+gefiltert). Docstring von `VariablenKommentarCheck` um einen neuen Abschnitt "Neunter
+Bug" ergänzt.
+
+**Verifiziert gegen das echte Salzmaschine-Projekt** (mit der lokalen
+`project_settings.yaml` des Users, `ausgeschlossene_ordner: ["ProjectBib"]`):
+- Vorher (Fix per `git stash` temporär entfernt): **927 Befunde** bei
+  `variablen_kommentar` — durchweg Items innerhalb von UDT-/Multi-Instanz-Membern aus
+  dem ausgeschlossenen Ordner `ProjectBib` (z. B. `"4805_6S10".Alm`,
+  `"4805_15A1Prg".RstAlm`, ...).
+- Nachher (Fix wiederhergestellt): **0 Befunde** — bestätigt, dass die UDT-/FB-Typen
+  aus dem ausgeschlossenen Ordner jetzt wieder korrekt erkannt werden und ihre Items
+  übersprungen werden.
+- `pytest`: weiterhin 38/38 grün, `py_compile` fehlerfrei.
+- Vor der Live-Verifikation lief noch ein `Siemens.Automation.Object`-Prozess (PID
+  25560) — Rückfrage per `AskUserQuestion`, User entschied sich für "Prozess
+  beenden"; anschließend die üblichen ~125s auf die Freigabe der TIA-Projektsperre
+  gewartet.
+
+**Dokumentiert:** `docs/Handbuch.md` (Besonderheiten von Prüfpunkt 1 in Abschnitt 10.1
+um den Hinweis ergänzt, dass die UDT-/FB-Erkennung unabhängig von
+`ausgeschlossene_ordner`/`ausgeschlossene_bausteine` wirkt; Version 0.22, neuer
+Anhang-C-Eintrag). `README.md` bewusst nicht geändert — reiner Bugfix an bestehendem
+Verhalten, keine neue Einstellung/kein neuer Parameter.
+
+Letzter Stand: "Neunter Kommentar-Bug behoben: UDT-/FB-Typ-Erkennung in Prüfpunkt 1/1b
+ignoriert jetzt ausgeschlossene Ordner/Bausteine, wie es sein soll — nur was selbst
+geprüft wird, wird dadurch eingeschränkt, nicht was der Linter an Datentypen kennt.
+Live verifiziert (927 → 0 Befunde bei ausgeschlossenem Ordner ProjectBib), pytest
+38/38 grün."

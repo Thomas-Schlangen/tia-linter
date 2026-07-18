@@ -1,6 +1,6 @@
 # TIA Linter — Benutzerhandbuch
 
-**Version dieses Handbuchs:** 0.21 (Entwurf)
+**Version dieses Handbuchs:** 0.22 (Entwurf)
 **Stand:** 18.07.2026
 **Programmversion:** 0.1.0
 
@@ -668,7 +668,14 @@ PLC_1 > Variablentabellen > Tags_Eingaenge > I_Sensor_01
   wirkt unabhängig davon, ob die Variable selbst über `ausnahme_prefixe`
   oder `ausnahme_variables` von der eigenen Kommentarprüfung ausgenommen
   ist — eine ausgenommene, aber UDT-typisierte Variable schützt ihre
-  Items trotzdem vor Einzelprüfung.
+  Items trotzdem vor Einzelprüfung. Sie wirkt ebenso unabhängig von
+  `ausgeschlossene_ordner`/`ausgeschlossene_bausteine`: Auch ein UDT (oder
+  FB, siehe nächster Punkt), der selbst in einem ausgeschlossenen Ordner
+  liegt und deshalb nirgends im Projekt eigenständig geprüft wird, bleibt
+  dem Linter als UDT/FB bekannt — nur so schützt er weiterhin die Items
+  einer Variable, die diesen Typ verwendet, vor Einzelprüfung. Ein
+  ausgeschlossener Ordner steuert also nur, was selbst geprüft wird, nicht
+  welche Datentypen der Linter kennt.
 - Dieselbe Logik gilt auch für **Multi-Instanz-Aufrufe von
   Funktionsbausteinen (FBs)** — z. B. eine Variable vom Typ eines FB
   innerhalb eines Datenbausteins. Deren Interface-Member werden hier
@@ -2646,3 +2653,4 @@ zu der Übersicht, die bereits am Anfang der Markdown-Datei steht.
 | 0.19 | 18.07.2026 | Neuen Prüfpunkt 1c ("FB-Interface-Member ohne Kommentar") in Abschnitt 10.1 ergänzt — schließt die Lücke, die dadurch entsteht, dass Prüfpunkt 1 Items innerhalb einer Multi-Instanz-FB-Variable ab dieser Version ebenfalls bewusst nicht mehr einzeln prüft (analog zur UDT-Behandlung aus Prüfpunkt 1b). Prüfpunkt 1c prüft die Interface-Member (Input/Output/InOut/Static) direkt an der FB-Definition, nicht den FB-Kopfkommentar (bleibt Sache von Prüfpunkt 2). Technischer Hinweis ergänzt: die Openness-API liefert für FBs keine Interface-Member über die direkte Objektnavigation (anders als bei DBs/UDTs) — der Prüfpunkt liest sie stattdessen aus dem XML-Export. Querverweis bei Prüfpunkt 1 ergänzt, veralteten `ausnahme_prefixe`-Standardwert bei Prüfpunkt 1b auf `["__"]` korrigiert, Abschlusshinweis am Ende von Kapitel 10 aktualisiert. |
 | 0.20 | 18.07.2026 | Redundanz zwischen Prüfpunkt 1 und 1c behoben (User-Brainstorming): Prüfpunkt 1 prüfte bislang zusätzlich jedes Instanz-DB-Member einzeln (mit Fallback auf den FB-Kommentar), was bei fehlendem FB-Kommentar zu doppelten Befunden führte. Prüfpunkt 1 überspringt Instanz-DBs jetzt komplett — Prüfpunkt 1c ist die alleinige Quelle für FB-Interface-Member-Kommentare, egal ob als Multi-Instanz oder als eigenständige Instanz-DB verwendet. Tradeoff dokumentiert: ein an einer einzelnen Instanz überschriebener, abweichender Kommentar wird dadurch nicht mehr erkannt. Besonderheiten bei Prüfpunkt 1 und 1c entsprechend ergänzt. |
 | 0.21 | 18.07.2026 | Zwei Programmänderungen dokumentiert: (1) Läuft ein Prüfpunkt komplett ohne Fehler/Warnung durch, meldet er jetzt genau einen zusammenfassenden OK-Befund statt gar keinen — Abschnitt 4.4 entsprechend überarbeitet, Besonderheiten von Prüfpunkt 18c klargestellt (bleibt einziger Prüfpunkt mit Befunden pro Einzelobjekt statt nur einem zusammenfassenden OK). (2) In der Eingabeseite steht jetzt links neben jedem Kontrollkästchen die zugehörige Prüfpunkt-Nummer aus diesem Handbuch — Abschnitt 6.2 entsprechend ergänzt. |
+| 0.22 | 18.07.2026 | Neunter Kommentar-Bug behoben (User-Meldung, live an ausgeschlossenem Ordner "ProjectBib" verifiziert): Bei Prüfpunkt 1/1b wurden UDT-/FB-Namen zur Typ-Erkennung bislang mit `ausgeschlossene_ordner`/`ausgeschlossene_bausteine` gefiltert, wodurch ein UDT oder FB aus einem ausgeschlossenen Ordner dem Linter als solcher unbekannt wurde — eine damit typisierte Variable wurde dadurch fälschlich doch wieder in ihre (nicht einsehbaren) Items hinein geprüft. Fix: die Typ-Erkennungslisten umfassen jetzt immer alle UDTs/FBs der PLC-Software, unabhängig von Ausschlüssen — nur die eigentliche Prüfung selbst bleibt davon betroffen. Besonderheiten von Prüfpunkt 1 in Abschnitt 10.1 entsprechend ergänzt. |
