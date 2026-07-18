@@ -1192,3 +1192,71 @@ ignoriert jetzt ausgeschlossene Ordner/Bausteine, wie es sein soll — nur was s
 geprüft wird, wird dadurch eingeschränkt, nicht was der Linter an Datentypen kennt.
 Live verifiziert (927 → 0 Befunde bei ausgeschlossenem Ordner ProjectBib), pytest
 38/38 grün."
+
+## Runde 24 — Zehnter Kommentar-Bug: Multi-Instanz-Sub-Member leckten in Prüfpunkt 1c
+
+**Ausgangspunkt (User-Meldung):** "Beim check (FB-Interface-Member ohne Kommentar)
+stimmt noch etwas nicht. Im Baustein 01OrgPrg wurden die Member des Interfaces
+gecheckt. Ein Member ist eine Multiinstanz: 'ReqRcp'. Leider werden alle Sub-Member
+der Unterinstanz geprüft. Wir hatten aber gesagt, das wir das nicht tun." — genau die
+Redundanz, die Prüfpunkt 1c laut seinem eigenen Docstring hätte ausschließen sollen
+("keine rekursive Auflösung verschachtelter Struct-/UDT-/Array-Felder... jedes
+Ergebnis ist bereits ein einzelnes, direkt deklariertes Interface-Member").
+
+**Untersuchung:** Live-Export von `01OrgPrg` inspiziert (`ET.parse`-Dump der Roh-XML).
+Ergebnis: Im gesamten Dokument fanden sich **zwei** `<Section Name="Static">`-Elemente
+statt einem — eines mit den 4 tatsächlich direkt deklarierten Static-Membern
+(`lx`, `lt_TofStartup`, `lu_RcpReq`, `lx_xx`), eines mit 9 weiteren Namen
+(`lx_ReqRcpSpCvEqu`, `lt_TonALM`, ...), die sich als das **verschachtelte
+Sub-Interface** der Multi-Instanz `lu_RcpReq` (bzw. deren InOut-Pendant
+`iou_ReqRcp` — vermutlich der vom User gemeinte "ReqRcp") herausstellten: TIA
+exportiert für ein Multi-Instanz-Member auch dessen eigene Interface-Struktur
+verschachtelt innerhalb des `<Member>`-Elements. `interface_section_members()`
+suchte bislang mit `xml_root.iter()` nach *jeder* Section mit passendem Namen im
+gesamten Dokument, unabhängig von der Verschachtelungstiefe — dadurch wurden die 9
+Sub-Member der Multi-Instanz fälschlich als eigene, direkte Interface-Member von
+`01OrgPrg` behandelt und einzeln bemängelt, obwohl sie beim Durchlauf des
+referenzierten FB (`lu_RcpReq`s bzw. `iou_ReqRcp`s Typ) ohnehin eigenständig geprüft
+werden.
+
+**Fix** (`src/tia_linter/checks/_tia_helpers.py::interface_section_members`): Der
+Baumdurchlauf ist jetzt ein manueller rekursiver Walk (`_walk`), der beim Absteigen
+**nicht** in `<Member>`-Elemente hinein rekursiert — nur Sections auf dem direkten
+Pfad `Interface > Sections > Section` des exportierten Bausteins selbst zählen,
+verschachtelte Sub-Interfaces von Multi-Instanz-/Struct-Membern werden ignoriert. Da
+diese Funktion zentral in `_tia_helpers.py` liegt, profitieren automatisch auch
+`styleguide.static_zugriff_extern` (Prüfpunkt 26) und
+`styleguide.output_mehrfach_beschrieben` (Prüfpunkt 27) vom selben Fix — beide nutzen
+denselben Mechanismus (`libraries.py`). Docstring von `FbMemberKommentarCheck`
+korrigiert: die bisherige Annahme "keine rekursive Auflösung nötig" war schlicht
+falsch, mit dem Fix stimmt sie jetzt tatsächlich.
+
+**Verifiziert gegen das echte Salzmaschine-Projekt:**
+- `interface_section_members(xml_root, "Static")` für `01OrgPrg` liefert nach dem Fix
+  exakt die erwarteten **4** Member (`lx`, `lt_TofStartup`, `lu_RcpReq`, `lx_xx`) statt
+  vorher 13 (4 + 9 aus dem verschachtelten Sub-Interface).
+- `fb_member_kommentar` für `01OrgPrg` allein: **25 → 2 Befunde** (nur noch die beiden
+  Multi-Instanzen selbst, falls ohne eigenen Kommentar — nicht mehr deren Sub-Member).
+- Projektweit: `fb_member_kommentar` **256 → 45 Befunde**.
+- Sanity-Check der beiden mitbetroffenen Prüfpunkte 26/27: laufen weiterhin
+  fehlerfrei durch (0 Befunde je, ~330s bzw. ~1s Laufzeit) — keine Regression durch
+  die geteilte Helper-Funktion.
+- `pytest`: weiterhin 38/38 grün, `py_compile` fehlerfrei.
+- Vorgehen zur Vorher/Nachher-Messung: Fix per `git stash` temporär entfernt, Messung
+  wiederholt, Fix per `git stash pop` wiederhergestellt (wie schon in Runde 23).
+- Vor der Live-Verifikation lief noch derselbe `Siemens.Automation.Object`-Prozess wie
+  am Ende von Runde 23 (offenbar bleibt der TIA-Prozess nach einem sauberen
+  `with connector:`-Exit im Hintergrund bestehen) — mehrere aufeinanderfolgende
+  Verbindungen liefen ohne Probleme durch, keine erneute Wartezeit nötig.
+
+**Dokumentiert:** `docs/Handbuch.md` (Version 0.23, neuer Anhang-C-Eintrag;
+Besonderheiten von Prüfpunkt 1c beschrieben bereits vorher korrekt das jetzt
+tatsächlich erreichte Verhalten, daher dort keine inhaltliche Änderung nötig).
+`README.md` bewusst nicht geändert — reiner Bugfix an bestehendem Verhalten.
+
+Letzter Stand: "Zehnter Kommentar-Bug behoben: interface_section_members() flachte
+bislang das verschachtelte Sub-Interface von Multi-Instanz-Membern fälschlich mit ein
+— betraf Prüfpunkt 1c sowie (über denselben Mechanismus) Prüfpunkt 26/27. Live
+verifiziert an 01OrgPrg (13 → 4 Static-Member, 25 → 2 Befunde lokal, 256 → 45
+projektweit bei fb_member_kommentar), Prüfpunkt 26/27 als Sanity-Check ohne
+Regression bestätigt, pytest 38/38 grün."

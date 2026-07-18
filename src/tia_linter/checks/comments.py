@@ -413,11 +413,21 @@ class FbMemberKommentarCheck(BaseCheck):
     Mechanismus für alle vier "echten" Interface-Sections eines FB (``Input``,
     ``Output``, ``InOut``, ``Static`` — ``Temp`` bewusst ausgenommen, da
     Temp-Variablen zwischen Aufrufen nicht persistieren und in der Praxis nicht
-    einzeln kommentiert werden). Da der XML-Export nur die direkt deklarierten
-    Member einer Section liefert (keine rekursive Auflösung verschachtelter
-    Struct-/UDT-/Array-Felder wie bei ``Interface.Members``), ist hier — anders
-    als bei den Prüfpunkten 1/1b — keine Array-/UDT-Skip-Logik nötig: jedes
-    Ergebnis ist bereits ein einzelnes, direkt deklariertes Interface-Member.
+    einzeln kommentiert werden).
+
+    Zehnter Bug (User-Meldung, live an ``01OrgPrg > lu_RcpReq``/``iou_ReqRcp``
+    verifiziert): Die ursprüngliche Annahme, der XML-Export liefere pro Section
+    nur die direkt deklarierten Member ohne rekursive Auflösung, war falsch für
+    Multi-Instanz-Member (Member, deren eigener Datentyp ein FB/UDT mit eigenem
+    Interface ist): Deren verschachteltes Sub-Interface trägt im Export
+    ebenfalls eine ``<Section Name="...">`` mit demselben Namen wie die
+    äußeren Sections — der Fix dafür sitzt direkt in
+    ``interface_section_members`` (``_tia_helpers.py``), das jetzt beim
+    Abstieg nicht mehr in ``<Member>``-Elemente hinein rekursiert. Dieser
+    Prüfpunkt selbst brauchte dadurch keine Änderung, nur die zuvor falsche
+    Annahme in diesem Docstring ist hiermit korrigiert: Mit dem Fix stimmt sie
+    jetzt tatsächlich — jedes Ergebnis ist ein einzelnes, direkt deklariertes
+    Interface-Member, keine Array-/UDT-Skip-Logik nötig.
     """
 
     _INTERFACE_SECTIONS = ("Input", "Output", "InOut", "Static")

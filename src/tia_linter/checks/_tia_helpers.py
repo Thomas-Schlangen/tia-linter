@@ -412,18 +412,44 @@ def interface_section_members(xml_root: Any, section_name: str) -> set[str]:
     Bestätigt durch die V21-Openness-Referenz (Manual 03/2026, SIMATIC-ML-
     Beispiele): ``<Interface><Sections><Section Name="Static">
     <Member Name="...">...</Member></Section></Sections></Interface>``.
+
+    User-Meldung, live an FB ``01OrgPrg`` (Multi-Instanz ``lu_RcpReq`` in der
+    Static-Section) verifiziert: Ein ``<Member>``, dessen Datentyp selbst ein
+    FB/UDT mit eigenem Interface ist (Multi-Instanz bzw. UDT-typisiertes
+    Struct-Member), trägt im XML-Export ein eigenes verschachteltes
+    ``<Sections><Section Name="...">...`` mit der Struktur *dieses* Typs
+    (z. B. eine eigene ``Static``-Section mit dessen Sub-Membern). Die
+    ursprüngliche Implementierung suchte mit ``xml_root.iter()`` nach *jeder*
+    ``Section`` mit passendem Namen im gesamten Dokument — dadurch wurden
+    auch diese verschachtelten, zum Multi-Instanz-Typ gehörenden Sub-Member
+    fälschlich als direkte Interface-Member des exportierten Bausteins selbst
+    behandelt (betraf Prüfpunkt 1c sowie ``libraries.py``s
+    ``static_zugriff_extern``/``output_mehrfach_beschrieben``, die denselben
+    Mechanismus nutzen). Fix: Ein manueller Baumdurchlauf, der beim
+    Abstieg nicht in ``<Member>``-Elemente hinein rekursiert — nur die
+    Sections auf dem direkten Pfad ``Interface > Sections > Section`` des
+    Bausteins selbst zählen, ein verschachteltes Interface eines
+    Multi-Instanz-/Struct-Members wird ignoriert (dieser Typ wird ohnehin
+    eigenständig geprüft, wenn die äußere Schleife bei ihm ankommt).
     """
     if xml_root is None:
         return set()
     names: set[str] = set()
-    for section in xml_root.iter():
-        if _local_name(section.tag) != "Section" or section.attrib.get("Name") != section_name:
-            continue
-        for member in section:
-            if _local_name(member.tag) == "Member":
-                member_name = member.attrib.get("Name")
-                if member_name:
-                    names.add(member_name)
+
+    def _walk(elem: Any) -> None:
+        for child in elem:
+            tag = _local_name(child.tag)
+            if tag == "Member":
+                continue  # nicht in verschachtelte Sub-Interfaces absteigen
+            if tag == "Section" and child.attrib.get("Name") == section_name:
+                for member in child:
+                    if _local_name(member.tag) == "Member":
+                        member_name = member.attrib.get("Name")
+                        if member_name:
+                            names.add(member_name)
+            _walk(child)
+
+    _walk(xml_root)
     return names
 
 
