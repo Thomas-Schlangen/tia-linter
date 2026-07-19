@@ -1364,3 +1364,16 @@ obwohl TIA Title und Comment als zwei unabhängige mehrsprachige Felder führt �
 Title. Fix: das jeweils längere der beiden Felder zählt jetzt. Live verifiziert
 (48 → 3 mit check_db=false, 48 → 34 isoliert über alle Bausteintypen), pytest
 38/38 grün."
+
+**Nachtrag (direkt im Anschluss, kein Code-Fix, nur Untersuchung):** User meldete einen
+weiteren vermeintlichen Fall — OB `Startup` mit Titel "Complete Restart" wird trotz
+Runde-26-Fix weiterhin als Warnung markiert, Vermutung: entweder falsches Feld (wie bei
+`40Org`) oder Quotierung (der Titel ist im Projekt tatsächlich `"Complete Restart"` mit
+literalen Anführungszeichen). Live untersucht: `read_title()` liest den Text korrekt
+(kein Lesefehler, Hypothese 1 widerlegt) — die Anführungszeichen sind echte, in TIA
+gespeicherte Zeichen (Hypothese 2 bestätigt), aber **nicht ursächlich** für die Warnung:
+"Complete Restart" hat 16 Zeichen, mit den Anführungszeichen 18 — beide Werte liegen
+unter dem konfigurierten `min_laenge: 20`, der Baustein würde also auch ohne die
+Anführungszeichen als "zu kurz" markiert. User-Entscheidung (per Rückfrage): "Nichts
+ändern, Warnung ist korrekt" — kein Bug, sondern erwartetes Verhalten bei einem knapp zu
+kurzen, aber echten Titel. Keine Code-/Doku-Änderung vorgenommen.
