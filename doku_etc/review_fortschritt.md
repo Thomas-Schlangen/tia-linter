@@ -1260,3 +1260,107 @@ bislang das verschachtelte Sub-Interface von Multi-Instanz-Membern fälschlich m
 verifiziert an 01OrgPrg (13 → 4 Static-Member, 25 → 2 Befunde lokal, 256 → 45
 projektweit bei fb_member_kommentar), Prüfpunkt 26/27 als Sanity-Check ohne
 Regression bestätigt, pytest 38/38 grün."
+
+## Runde 25 — Neuer Parameter `check_db` bei Prüfpunkt 2, YAML-Doku überarbeitet
+
+**Ausgangspunkt (User-Auftrag):** "Prüfpunkt 2 würde ich gerne ändern. Die
+Kopfbeschreibung ist bei Datenbausteinen eher unüblich, könntest du die Logik für FBs
+und FCs so lassen und für DBs einen boolean Parameter in der YAML-Datei anlegen.
+Default-mäßig soll der auf false, so dass die Kopfbeschreibung (Prüfpunkt 2) bei
+Datenbausteinen nicht geprüft wird. [...] Der Parameter könnte `check_db` heißen?"
+Zusätzlich: "Könntest du auch bitte die YAML-Datei intern besser dokumentieren. Vor
+jeden Konfigurations-Bereich eine kleine Erklärung beginnend mit der Prüfpunkt-Nr.
+Einige sind ja schon dokumentiert, z. B. 1b und 1c. Bitte so ähnlich überall, aber
+kürzer."
+
+**Fix** (`src/tia_linter/checks/comments.py::BausteinBeschreibungCheck`): Neuer
+Parameter `check_db` (Standard `False`, `bool(self.definition.params.get("check_db",
+False))`). Im Block-Loop wird jetzt zusätzlich `isinstance(block, DataBlock)` geprüft
+(Import aus `Siemens.Engineering.SW.Blocks`) — ist `check_db` falsch und der Baustein
+ein DB (Global-, Instanz- oder Array-DB), wird er komplett übersprungen; FB/FC/OB
+bleiben davon unberührt und werden wie bisher immer geprüft. Docstring um einen
+"Elfter Bug/Design-Entscheidung"-Abschnitt ergänzt.
+
+**YAML-Doku-Überarbeitung** (`config/default.yaml`, komplett neu geschrieben statt
+inkrementell editiert): Vor jedem der 44 Konfigurationsbereiche steht jetzt ein kurzer,
+meist einzeiliger Kommentar, beginnend mit "Prüfpunkt N —" und der Kurzbeschreibung aus
+`registry.py`. Die bereits ausführlicheren Kommentare bei 1b/1c sowie die Prüfpunkt-5-
+und 12b-Erklärungen blieben unverändert (dienten bereits als Vorlage für den Stil).
+`config/project_settings.yaml` (lokale, gitignorte Config des Users) um denselben
+`check_db`-Parameter samt Kurzkommentar ergänzt — die übrigen 43 neuen Kurzkommentare
+wurden dort bewusst *nicht* nachgezogen (personalisierte Datei, nur neue Parameter
+werden synchronisiert, siehe bisheriges Vorgehen in Runde 20/21).
+
+**Verifiziert:**
+- `pytest`: weiterhin 38/38 grün, `py_compile` fehlerfrei.
+- Beide YAML-Dateien laden weiterhin fehlerfrei über `load_app_config()`
+  (`Pydantic`-Model mit `extra="allow"` — kein Schema-Update für den neuen Parameter
+  nötig), `check_db` kommt korrekt als `False` in `CheckDefinition.params` an.
+- Live gegen das echte Salzmaschine-Projekt: `check_db=False` liefert **16 Befunde**
+  (nur FB/FC/OB), `check_db=True` liefert **48 Befunde** — Differenz von **32** entspricht
+  exakt der Anzahl der DBs ohne (ausreichende) Kopfbeschreibung, die jetzt standardmäßig
+  nicht mehr gemeldet werden (Stichprobe: `PrgFieldbusOkDb`, `LSNTP_ServerDb`, `SysDiag`,
+  `Org`, `PlcTimeDb`, ...).
+
+**Dokumentiert:** `docs/Handbuch.md` (Prüfpunkt 2: Parameter-Tabelle um `check_db`
+ergänzt, neue Besonderheiten-Zeile, Version 0.24 + Anhang-C-Eintrag). `README.md`
+bewusst nicht geändert — dort werden laut eigenem Hinweis ("Details zu allen
+Prüfpunkten: siehe `config/default.yaml`") nur komplett neue Prüfpunkte (1b/1c/12b)
+mit eigenem Absatz vorgestellt, keine neuen Parameter bestehender Prüfpunkte; die
+jetzt überarbeitete `default.yaml` übernimmt diese Rolle direkt.
+
+Letzter Stand: "Prüfpunkt 2 prüft Datenbausteine standardmäßig nicht mehr auf eine
+Kopfbeschreibung (neuer Parameter `check_db`, Standard `false`) — FB/FC/OB unverändert.
+`config/default.yaml` durchgehend mit kurzen Prüfpunkt-Kommentaren vor jedem
+Konfigurationsbereich versehen. Live verifiziert (16 vs. 48 Befunde, Differenz 32 DBs),
+pytest 38/38 grün."
+
+## Runde 26 — Zwölfter Kommentar-Bug: Prüfpunkt 2 las nur Comment, nicht Title
+
+**Ausgangspunkt (User-Meldung, direkt im Anschluss an Runde 25):** "Der Prüfpunkt 2
+funktioniert nicht. Das Problem ist das gleiche wie wir schon x mal haben. Der Text ist
+multilingual und lässt sich nicht direkt vom z. B. FB-Objekt lesen. Beispiel wenn du
+testest: der Baustein 40Org hat definitiv eine Kopfbeschreibung ('Organisation
+Störungen Allgemein') wird aber als Warnung markiert." — der Verdacht auf den
+altbekannten MultilingualText-Bug (siehe Runde 13) lag nahe, war aber diesmal nicht die
+Ursache: Der Check nutzte bereits korrekt `read_comment()`.
+
+**Untersuchung:** Live an `40Org` (FC) inspiziert (`GetAttributeInfos()`,
+`block.Comment`, `block.Title`, jeweils alle `MultilingualTextItem`s ausgegeben).
+Ergebnis: `block.Comment` ist für **jede** Sprache leer (`''`), aber `block.Title`
+trägt für die Referenzsprache tatsächlich "Organisation Störungen Allgemein". `PlcBlock`
+hat laut V21-Openness-Referenz zwei **unabhängige** mehrsprachige Felder — `Title` und
+`Comment` — beide im Bausteinkopf des TIA-Editors sichtbar (der Abschnittstitel der
+Referenz, "Mehrsprachige Titel **und** Kommentare", hatte das schon verraten). Prüfpunkt
+2 las von Anfang an nur `Comment`, obwohl die eigentliche, im Projekt tatsächlich
+gepflegte Kopfbeschreibung offenbar meist in `Title` steht.
+
+**Fix:** Neue Hilfsfunktion `read_title()` in `_tia_helpers.py` (analog zu
+`read_comment()`, gleicher `multilingual_text()`-Mechanismus, nur für das
+`Title`-Attribut). `BausteinBeschreibungCheck.run()` liest jetzt beide Felder
+(`read_comment`/`read_title`) und verwendet das jeweils längere für die
+Mindestlängen-Prüfung — je nachdem, welches Feld in der Praxis für die Kopfbeschreibung
+genutzt wird. Docstring um einen "Zwölfter Bug"-Abschnitt ergänzt.
+
+**Verifiziert gegen das echte Salzmaschine-Projekt:**
+- `40Org` taucht nach dem Fix nicht mehr in den Befunden auf.
+- Mit der Standardkonfiguration (`check_db: false`, wie in Runde 25 eingeführt): **48 →
+  3 Befunde**.
+- Isoliert vom `check_db`-Filter (mit `check_db: true` erzwungen, um den Effekt allein
+  auf den Title/Comment-Fix zurückzuführen, unabhängig von Runde 25): **48 → 34
+  Befunde** über alle Bausteintypen hinweg — 14 Bausteine hatten wie `40Org` nur einen
+  `Title`, keinen `Comment`.
+- `pytest`: weiterhin 38/38 grün, `py_compile` fehlerfrei.
+- Vorher/Nachher-Messung wie gewohnt per `git stash`/`git stash pop`.
+
+**Dokumentiert:** `docs/Handbuch.md` ("Was wird geprüft?" und Besonderheiten bei
+Prüfpunkt 2 um den Title/Comment-Hinweis ergänzt, Version 0.25 + Anhang-C-Eintrag).
+`README.md` bewusst nicht geändert — reiner Bugfix an bestehendem Verhalten, kein neuer
+Prüfpunkt.
+
+Letzter Stand: "Prüfpunkt 2 las bislang nur das Comment-Attribut eines Bausteins,
+obwohl TIA Title und Comment als zwei unabhängige mehrsprachige Felder führt — bei
+40Org (und 13 weiteren Bausteinen) stand die tatsächliche Kopfbeschreibung nur in
+Title. Fix: das jeweils längere der beiden Felder zählt jetzt. Live verifiziert
+(48 → 3 mit check_db=false, 48 → 34 isoliert über alle Bausteintypen), pytest
+38/38 grün."

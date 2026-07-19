@@ -249,6 +249,25 @@ def read_comment(obj: Any, language: Any) -> str:
     return multilingual_text(comment, language)
 
 
+def read_title(obj: Any, language: Any) -> str:
+    """Liest das (mehrsprachige) ``Title``-Attribut eines Openness-Objekts
+    für ``language`` (siehe ``multilingual_text``/``reference_language``).
+
+    User-Meldung, live an FC ``40Org`` verifiziert: ``PlcBlock`` hat laut
+    V21-Openness-Referenz ("Mehrsprachige Titel und Kommentare") zwei
+    unabhängige mehrsprachige Attribute, ``Title`` **und** ``Comment`` — im
+    TIA-UI beide im Bausteinkopf sichtbar, aber getrennt gepflegt. In der
+    Praxis steht die eigentliche Kurzbeschreibung eines Bausteins oft im
+    ``Title`` (z. B. ``40Org``: ``Comment`` leer für jede Sprache, ``Title``
+    trägt "Organisation Störungen Allgemein"), nicht im ``Comment``. Objekte
+    ohne ``Title``-Attribut liefern ``""`` statt einer Exception."""
+    try:
+        title = obj.Title
+    except Exception:  # noqa: BLE001 — Objekttyp hat evtl. kein Title-Attribut
+        return ""
+    return multilingual_text(title, language)
+
+
 def normalize_member_path(name: str) -> str:
     """Entfernt Anführungszeichen, die TIA um Namenssegmente setzt, die keine
     gültigen "einfachen" Bezeichner sind (z. B. weil sie mit einer Ziffer

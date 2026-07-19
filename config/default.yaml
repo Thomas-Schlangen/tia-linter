@@ -59,6 +59,7 @@ ausgeschlossene_bausteine: []
 
 checks:
   kommentare:
+    # Prüfpunkt 1 — PLC-Tags und DB-Variablen ohne Kommentar.
     variablen_kommentar:
       enabled: true
       severity: warning
@@ -109,16 +110,28 @@ checks:
       severity: warning
       ausnahme_prefixe: ["__"]
 
+    # Prüfpunkt 2 — Bausteine (FB/FC/OB/DB) ohne (aussagekräftige)
+    # Kopfbeschreibung.
     baustein_beschreibung:
       enabled: true
       severity: warning
       min_laenge: 20
+      # Eine Kopfbeschreibung ist bei Datenbausteinen in der Praxis unüblich
+      # (anders als bei FB/FC/OB, wo sie den Zweck des Codes beschreibt) —
+      # daher standardmäßig false: DBs werden von dieser Prüfung
+      # ausgenommen, FB/FC/OB werden unabhängig davon immer geprüft. Auf
+      # true setzen, um auch DB-Kopfbeschreibungen zu prüfen.
+      check_db: false
 
+    # Prüfpunkt 3 — Netzwerke ohne Titel/Kurzbeschreibung oder mit zu langer
+    # Beschreibung.
     netzwerk_beschreibung:
       enabled: true
       severity: warning
       max_zeichen: 80
 
+    # Prüfpunkt 4 — Bausteinkopf ohne Versionsinfo/Änderungshistorie (Autor,
+    # Version, Datum).
     aenderungshistorie:
       enabled: true
       severity: warning
@@ -138,6 +151,8 @@ checks:
       severity: error
       regex: "^DB_[A-Za-z]"
 
+    # Prüfpunkt 6 (Eingänge/Ausgänge) — PLC-Tag entspricht nicht dem
+    # konfigurierten Namensmuster, getrennt konfigurierbar je Richtung.
     plc_tag_eingaenge:
       enabled: true
       severity: error
@@ -148,6 +163,8 @@ checks:
       severity: error
       regex: "^Q_"
 
+    # Prüfpunkt 7 (FB/FC) — Bausteinname entspricht nicht dem konfigurierten
+    # Regex, getrennt konfigurierbar je Bausteinart.
     fb_prefix:
       enabled: true
       severity: error
@@ -158,149 +175,211 @@ checks:
       severity: error
       regex: "^FC_\\S*$"
 
+    # Prüfpunkt 8 — Konstante entspricht nicht dem konfigurierten Regex
+    # (Standard: nur Großbuchstaben).
     konstanten_format:
       enabled: true
       severity: warning
       regex: "^[A-Z][A-Z0-9_]*$"
 
+    # Prüfpunkt 9 — Variable mit Test-/Debug-Präfix (aus Liste) im Projekt
+    # gefunden.
     testvariablen:
       enabled: true
       severity: warning
       prefixe: ["TEST_", "DEBUG_", "_TEMP"]
 
   programmstruktur:
+    # Prüfpunkt 10 — Netzwerk ohne Inhalt (keine Kontakte, keine
+    # Bausteinaufrufe).
     leere_netzwerke:
       enabled: true
       severity: warning
 
+    # Prüfpunkt 11 — PLC-Tag/DB-Variable wird im gesamten Programm nirgends
+    # referenziert (Dead Code).
     unbenutzte_variablen:
       enabled: true
       severity: warning
 
+    # Prüfpunkt 11b — FB/FC/DB wird von keiner Stelle im Projekt
+    # aufgerufen/referenziert.
     unbenutzte_bausteine:
       enabled: true
       severity: warning
 
+    # Prüfpunkt 12 — Eingangs-Tag wird im Programm nie gelesen.
     eingaenge_gelesen:
       enabled: true
       severity: warning
 
-    # Eingänge werden jeden Zyklus vom Prozessabbild aus der Hardware
-    # überschrieben — ein Schreibzugriff aus dem Anwenderprogramm wird beim
-    # nächsten Zyklus ohnehin verworfen und deutet meist auf eine
-    # Verwechslung mit einem Merker hin. Deshalb Standard-Schweregrad Fehler,
-    # nicht nur Warnung.
+    # Prüfpunkt 12b — Eingangs-Tag wird im Programm beschrieben (statt nur
+    # gelesen). Eingänge werden jeden Zyklus vom Prozessabbild aus der
+    # Hardware überschrieben — ein Schreibzugriff aus dem Anwenderprogramm
+    # wird beim nächsten Zyklus ohnehin verworfen und deutet meist auf eine
+    # Verwechslung mit einem Merker hin. Deshalb Standard-Schweregrad
+    # Fehler, nicht nur Warnung.
     eingaenge_nicht_beschrieben:
       enabled: true
       severity: error
 
+    # Prüfpunkt 13 — Ausgangs-Tag wird an mehreren Stellen im Programm
+    # beschrieben.
     ausgaenge_mehrfach_schreiben:
       enabled: true
       severity: error
 
+    # Prüfpunkt 14 — Baustein bzw. Netzwerk ist in AWL/STL programmiert
+    # (gilt als veraltet).
     awl_code:
       enabled: true
       severity: warning
 
+    # Prüfpunkt 15 — Innerhalb eines Bausteins werden mehrere
+    # Programmiersprachen gemischt (z. B. KOP und SCL).
     gemischte_sprachen:
       enabled: true
       severity: warning
 
+    # Prüfpunkt 16 — Netzwerk mit mehr Elementen als der konfigurierte
+    # Schwellenwert.
     max_netzwerk_elemente:
       enabled: true
       severity: warning
       max_elemente: 50
 
   hardware:
+    # Prüfpunkt 17 — Für einen I/O-Tag ist kein passendes, aktives
+    # Hardware-Modul vorhanden.
     hardware_vorhanden:
       enabled: true
       severity: error
 
+    # Prüfpunkt 18 — CPU-Typ oder Firmware-Version sind in den
+    # Projekteigenschaften nicht vermerkt.
     cpu_firmware_dokumentiert:
       enabled: true
       severity: warning
 
+    # Prüfpunkt 18b — F-CPU ohne gesetztes Safety-Offline-Passwort.
     safety_passwort:
       enabled: true
       severity: error
 
+    # Prüfpunkt 18c — Kein Kommunikationszertifikat vorhanden oder
+    # Restlaufzeit unter Schwellenwert.
     zertifikat:
       enabled: true
       severity: warning
       min_restlaufzeit_monate: 6
 
   projektmetadaten:
+    # Prüfpunkt 19 — Konfiguriertes Pflichtfeld in den Top-Level-
+    # Projekteigenschaften ist leer. Wichtig: 'felder' muss die echten
+    # (englischen) Openness-Attributnamen enthalten, z. B. 'Author', nicht
+    # die deutsche GUI-Bezeichnung 'Autor'.
     pflichtfelder:
       enabled: true
       severity: warning
       felder: ["Author", "Version"]
 
+    # Prüfpunkt 20 — Mehr aktive Sprachen im Projekt als konfiguriertes
+    # Maximum (oft vergessene Testsprachen).
     max_sprachen:
       enabled: true
       severity: warning
       max: 2
 
+    # Prüfpunkt 21 — Beim Übersetzen der PLC-Software sind Fehler oder
+    # Warnungen aufgetreten.
     kompilierfehler:
       enabled: true
       severity: error
 
+    # Prüfpunkt 22 — Projekt hat keine Versionsnummer hinterlegt.
     projektversion:
       enabled: true
       severity: warning
 
   bibliotheken:
+    # Prüfpunkt 23 — Verwendeter Bibliothekstyp entspricht nicht der
+    # aktuellen Bibliotheksversion.
     veraltete_bibliotheken:
       enabled: true
       severity: warning
 
+    # Prüfpunkt 24 — Instanz-Datenbaustein, dessen Quell-FB nicht mehr im
+    # Projekt existiert.
     verwaiste_instanz_dbs:
       enabled: true
       severity: error
 
   styleguide:
+    # Prüfpunkt 25 — Kommentare/Netzwerktitel weichen von der in Config
+    # erwarteten Sprache ab.
     sprachen_konsistent:
       enabled: true
       severity: warning
       erwartete_sprache: "de"
 
+    # Prüfpunkt 26 — Static-Tag eines FB wird von außerhalb des FB direkt
+    # gelesen/beschrieben (statt über Ein-/Ausgangsparameter gekapselt).
     static_zugriff_extern:
       enabled: true
       severity: warning
 
+    # Prüfpunkt 27 — VAR_OUTPUT-Parameter wird innerhalb eines Bausteins an
+    # mehreren Stellen beschrieben.
     output_mehrfach_beschrieben:
       enabled: true
       severity: error
 
+    # Prüfpunkt 28 — Timer/Zähler/FB-Aufruf verwendet einen Einzel-
+    # Instanz-DB statt einer Multi-Instanz.
     multi_instanzen:
       enabled: true
       severity: warning
 
+    # Prüfpunkt 29 — Identische STRUCT-Definition kommt in mehreren DBs vor,
+    # ohne als UDT ausgelagert zu sein.
     udt_wiederkehrende_strukturen:
       enabled: true
       severity: warning
 
+    # Prüfpunkt 30 — OB1 (Main) enthält mehr Netzwerke mit eigener Logik als
+    # der konfigurierte Schwellenwert.
     ob1_komplexitaet:
       enabled: true
       severity: warning
       max_netzwerke_mit_logik: 5
 
+    # Prüfpunkt 31 — Know-how-geschützter Baustein ist nicht als solcher
+    # dokumentiert.
     know_how_schutz:
       enabled: true
       severity: warning
 
+    # Prüfpunkt 32 — Tag-Tabelle enthält Tags außerhalb des I-/
+    # Q-Adressbereichs.
     tag_tabellen_nur_io:
       enabled: true
       severity: warning
 
+    # Prüfpunkt 33 — Baustein ist mit Standard- statt optimiertem
+    # Bausteinzugriff projektiert.
     nicht_optimierte_bausteine:
       enabled: true
       severity: warning
 
+    # Prüfpunkt 34 — Mehr Bausteine im Wurzelordner als der konfigurierte
+    # Schwellenwert.
     bausteine_im_root:
       enabled: true
       severity: warning
       max_bausteine_root: 20
 
+    # Prüfpunkt 35 (neu in V21) — Baustein hat Schreibschutz, der nicht
+    # dokumentiert ist.
     schreibschutz:
       enabled: true
       severity: warning

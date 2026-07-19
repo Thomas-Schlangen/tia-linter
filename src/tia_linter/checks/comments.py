@@ -480,19 +480,47 @@ class BausteinBeschreibungCheck(BaseCheck):
     ``VariablenKommentarCheck``) ein mehrsprachiges ``MultilingualText``-
     Objekt (V21-Openness-Referenz nennt ``PlcBlock`` explizit unter "Mehrsprachige
     Titel und Kommentare") — Lesen über ``read_comment`` statt ``GetAttribute``.
+
+    Elfter Bug/Design-Entscheidung (User-Meldung): Eine Kopfbeschreibung ist
+    bei Datenbausteinen in der Praxis unüblich — anders als bei FB/FC/OB, wo
+    sie den Zweck des Codes beschreibt, hat ein DB meist nur Daten ohne
+    eigene "Funktion" zu beschreiben. Neuer Parameter ``check_db`` (Standard
+    ``false``): Ist er ``false``, werden Datenbausteine (Global-, Instanz-
+    und Array-DB) von dieser Prüfung komplett ausgenommen — FB/FC/OB bleiben
+    unverändert geprüft. Steht er auf ``true``, werden auch DBs wie bisher
+    geprüft.
+
+    Zwölfter Bug (User-Meldung, live an FC ``40Org`` verifiziert): Der Titel
+    "Mehrsprachige Titel und Kommentare" der V21-Openness-Referenz hätte es
+    verraten — ``PlcBlock`` hat **zwei** unabhängige mehrsprachige Attribute,
+    ``Title`` und ``Comment``, beide im Bausteinkopf des TIA-UI sichtbar,
+    aber getrennt gepflegt. Diese Prüfung las bislang nur ``Comment`` — bei
+    ``40Org`` war ``Comment`` für jede Sprache leer, obwohl ``Title`` die
+    eigentliche, sichtbare Kopfbeschreibung "Organisation Störungen
+    Allgemein" trug, wodurch der Baustein fälschlich als unbeschrieben
+    gemeldet wurde. Fix: Es zählt jetzt das längere der beiden Felder
+    (``Title``/``Comment``) — je nachdem, welches Feld in der Praxis für die
+    Kopfbeschreibung genutzt wird.
     """
 
     def run(self, project: Any) -> list[CheckResult]:
-        from tia_linter.checks._tia_helpers import iter_blocks
+        from Siemens.Engineering.SW.Blocks import DataBlock
+
+        from tia_linter.checks._tia_helpers import iter_blocks, read_title
 
         results: list[CheckResult] = []
         min_length = int(self.definition.params.get("min_laenge", 20))
+        check_db = bool(self.definition.params.get("check_db", False))
         language = reference_language(project)
 
         for plc_software in iter_plc_software(project):
             for block, group_path in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
+                if not check_db and isinstance(block, DataBlock):
+                    continue
                 comment = read_comment(block, language)
-                if len(comment) < min_length:
+                title = read_title(block, language)
+                description_text = comment if len(comment) >= len(title) else title
+                if len(description_text) < min_length:
                     results.append(
                         self._make_result(
                             path=format_path(plc_software.Name, "Programmbausteine", *group_path, block.Name),
@@ -500,7 +528,7 @@ class BausteinBeschreibungCheck(BaseCheck):
                                 f"Baustein '{block.Name}' hat keine oder zu kurze Kopfbeschreibung "
                                 f"(mind. {min_length} Zeichen erwartet)."
                             ),
-                            value=comment,
+                            value=description_text,
                         )
                     )
         return results

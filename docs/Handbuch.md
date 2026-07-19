@@ -1,6 +1,6 @@
 # TIA Linter — Benutzerhandbuch
 
-**Version dieses Handbuchs:** 0.23 (Entwurf)
+**Version dieses Handbuchs:** 0.25 (Entwurf)
 **Stand:** 18.07.2026
 **Programmversion:** 0.1.0
 
@@ -841,9 +841,11 @@ eingesetzt wird.
 | **Config-Schlüssel** | `checks.kommentare.baustein_beschreibung` |
 
 **Was wird geprüft?**
-Für jeden Baustein (FB, FC, OB, DB) wird die Kopfbeschreibung (das
-Kommentarfeld der Bausteineigenschaften) geprüft. Fehlt sie oder ist sie
-kürzer als die konfigurierte Mindestlänge, wird ein Befund erzeugt.
+Für jeden Baustein (standardmäßig FB, FC, OB — siehe `check_db` für
+Datenbausteine) wird die Kopfbeschreibung geprüft: Sowohl das `Title`- als
+auch das `Comment`-Attribut der Bausteineigenschaften werden gelesen, das
+längere der beiden zählt. Fehlt eine ausreichend lange Kopfbeschreibung in
+beiden Feldern, wird ein Befund erzeugt.
 
 **Warum ist das wichtig?**
 Die Kopfbeschreibung ist meist die erste Stelle, an der sich jemand über
@@ -856,6 +858,7 @@ die einzelnen Netzwerke arbeitet. Eine zu kurze oder fehlende Beschreibung
 | Parameter | Standardwert | Bedeutung |
 |---|---|---|
 | `min_laenge` | `20` | Mindestanzahl an Zeichen, die die Kopfbeschreibung haben muss, um als aussagekräftig zu gelten. |
+| `check_db` | `false` | Ob auch Datenbausteine (Global-, Instanz- und Array-DB) auf eine Kopfbeschreibung geprüft werden sollen. |
 
 **Beispiel**
 
@@ -864,6 +867,21 @@ PLC_1 > Programmbausteine > FB_Motor
 → Baustein 'FB_Motor' hat keine oder zu kurze Kopfbeschreibung
   (mind. 20 Zeichen erwartet).
 ```
+
+**Besonderheiten**
+
+- Eine Kopfbeschreibung ist bei Datenbausteinen in der Praxis unüblich —
+  anders als bei FB/FC/OB, wo sie den Zweck des Codes beschreibt, hat ein
+  DB meist nur Daten ohne eigene "Funktion" zu beschreiben. Deshalb sind
+  DBs standardmäßig (`check_db: false`) von dieser Prüfung ausgenommen;
+  FB/FC/OB werden davon unabhängig immer geprüft. Mit `check_db: true`
+  lässt sich die ursprüngliche Prüfung aller Bausteintypen wiederherstellen.
+- `Title` und `Comment` sind zwei unabhängige, jeweils mehrsprachige Felder,
+  die im Bausteinkopf des TIA-Editors beide sichtbar sind, aber getrennt
+  gepflegt werden — in der Praxis wird die eigentliche Kurzbeschreibung
+  häufig nur in eines der beiden Felder eingetragen (meist `Title`). Dieser
+  Prüfpunkt zählt daher das jeweils längere der beiden Felder, statt nur
+  `Comment` zu betrachten.
 
 **Empfehlung zur Behebung**
 Kopfbeschreibung mit Zweck und Funktionsweise des Bausteins ergänzen — was
@@ -2655,3 +2673,5 @@ zu der Übersicht, die bereits am Anfang der Markdown-Datei steht.
 | 0.21 | 18.07.2026 | Zwei Programmänderungen dokumentiert: (1) Läuft ein Prüfpunkt komplett ohne Fehler/Warnung durch, meldet er jetzt genau einen zusammenfassenden OK-Befund statt gar keinen — Abschnitt 4.4 entsprechend überarbeitet, Besonderheiten von Prüfpunkt 18c klargestellt (bleibt einziger Prüfpunkt mit Befunden pro Einzelobjekt statt nur einem zusammenfassenden OK). (2) In der Eingabeseite steht jetzt links neben jedem Kontrollkästchen die zugehörige Prüfpunkt-Nummer aus diesem Handbuch — Abschnitt 6.2 entsprechend ergänzt. |
 | 0.22 | 18.07.2026 | Neunter Kommentar-Bug behoben (User-Meldung, live an ausgeschlossenem Ordner "ProjectBib" verifiziert): Bei Prüfpunkt 1/1b wurden UDT-/FB-Namen zur Typ-Erkennung bislang mit `ausgeschlossene_ordner`/`ausgeschlossene_bausteine` gefiltert, wodurch ein UDT oder FB aus einem ausgeschlossenen Ordner dem Linter als solcher unbekannt wurde — eine damit typisierte Variable wurde dadurch fälschlich doch wieder in ihre (nicht einsehbaren) Items hinein geprüft. Fix: die Typ-Erkennungslisten umfassen jetzt immer alle UDTs/FBs der PLC-Software, unabhängig von Ausschlüssen — nur die eigentliche Prüfung selbst bleibt davon betroffen. Besonderheiten von Prüfpunkt 1 in Abschnitt 10.1 entsprechend ergänzt. |
 | 0.23 | 19.07.2026 | Zehnter Kommentar-Bug behoben (User-Meldung, live an FB `01OrgPrg` und dessen Multi-Instanz `iou_ReqRcp`/`lu_RcpReq` verifiziert): `interface_section_members()` (`_tia_helpers.py`), gemeinsam genutzt von Prüfpunkt 1c sowie den Prüfpunkten 26 und 27 (`static_zugriff_extern`/`output_mehrfach_beschrieben`), suchte im XML-Export bislang nach *jeder* Section mit passendem Namen im gesamten Dokument — dadurch wurde auch das verschachtelte Sub-Interface eines Multi-Instanz-Members fälschlich als Teil des äußeren Bausteins behandelt, seine Sub-Member wurden mitgeprüft, obwohl sie eigenständig geprüft werden, sobald die Prüfung beim referenzierten FB selbst ankommt. Fix: die Funktion steigt beim Baumdurchlauf nicht mehr in `<Member>`-Elemente hinein ab, wodurch nur noch die Sections des Bausteins selbst gefunden werden. Live verifiziert an `01OrgPrg`: Anzahl der Static-Interface-Member sank von fälschlich 13 (4 direkte + 9 aus dem verschachtelten Sub-Interface) auf korrekt 4; projektweit sank Prüfpunkt 1c von 256 auf 45 Befunde. Docstring von `FbMemberKommentarCheck` korrigiert (die dortige Annahme "keine rekursive Auflösung nötig" war zuvor schlicht falsch). |
+| 0.24 | 19.07.2026 | Neuer Parameter `check_db` bei Prüfpunkt 2 (User-Meldung: Kopfbeschreibungen sind bei Datenbausteinen unüblich) — Standardwert `false`: Datenbausteine werden von der Kopfbeschreibungs-Prüfung ausgenommen, FB/FC/OB bleiben davon unberührt und werden weiterhin immer geprüft; `true` stellt das bisherige Verhalten (alle Bausteintypen) wieder her. Parameter-Tabelle und Besonderheiten bei Prüfpunkt 2 entsprechend ergänzt. Außerdem: `config/default.yaml` durchgehend um kurze, einzeilige Prüfpunkt-Kommentare vor jedem Konfigurationsbereich ergänzt (analog zu den bereits bestehenden, ausführlicheren Kommentaren bei Prüfpunkt 1b/1c) — jeder der 35 Prüfpunkte lässt sich damit direkt in der YAML-Datei anhand seiner Nummer wiederfinden. |
+| 0.25 | 19.07.2026 | Zwölfter Kommentar-Bug behoben (User-Meldung, live an FC `40Org` verifiziert): Prüfpunkt 2 las bislang nur das `Comment`-Attribut eines Bausteins — `PlcBlock` hat laut V21-Openness-Referenz aber zwei unabhängige mehrsprachige Felder, `Title` und `Comment`, beide im Bausteinkopf sichtbar. Bei `40Org` war `Comment` für jede Sprache leer, obwohl `Title` die sichtbare Kopfbeschreibung "Organisation Störungen Allgemein" trug — der Baustein wurde fälschlich als unbeschrieben gemeldet. Fix: Es zählt jetzt das längere der beiden Felder. Live verifiziert: 48 → 34 Befunde über alle Bausteintypen hinweg (isoliert vom `check_db`-Filter aus Version 0.24 gemessen), mit der Standardkonfiguration (`check_db: false`) 48 → 3. "Was wird geprüft?" und Besonderheiten bei Prüfpunkt 2 entsprechend ergänzt. |
