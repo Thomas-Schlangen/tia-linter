@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import tempfile
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterable, Iterator
 
 logger = logging.getLogger(__name__)
 
@@ -436,6 +436,41 @@ def cross_reference_locations(engineering_object: Any) -> list[Any]:
         for location in getattr(reference, "Locations", []) or []:
             locations.append(location)
     return locations
+
+
+def unused_cross_reference_leaf_names(sources: Iterable[Any]) -> Iterator[str]:
+    """Durchläuft rekursiv den von ``CrossReferenceService.GetCrossReferences``
+    zurückgelieferten ``Sources``-Baum und liefert die Namen aller
+    Blatt-Objekte (``SourceObject``s ohne eigene ``Children``).
+
+    User-Meldung, live an Instanz-DB ``DB_PrgFieldbusOkDb`` verifiziert,
+    zusätzlich bestätigt durch den offiziellen Beispielcode der
+    V21-Openness-Referenz (Manual 03/2026, "Querverweise für STEP 7
+    abrufen", Abschnitt ``PrintSourceObjects``): ``CrossReferenceResult.Sources``
+    ist **kein** flacher Treffer pro unbenutztem Objekt, sondern die Wurzel
+    eines Baums — jedes ``SourceObject`` kann über ``.Children`` weitere,
+    tiefer verschachtelte ``SourceObject``s enthalten. Fragt man
+    ``UnusedObjects`` auf einer Instanz-DB ab, liefert ``Sources`` in der
+    Praxis genau einen Wurzelknoten (die DB selbst, ``TypeName`` "Instance DB
+    of ..."), dessen ``Children`` — rekursiv — die tatsächlich unbenutzten
+    Member enthalten (z. B. ``DB_PrgFieldbusOkDb`` → ``DiagCpu`` (UDT-Struct,
+    selbst kein Blatt) → ``DiagCpu.DNNmode`` (echtes unbenutztes Blatt-Member).
+    Nur Blattknoten (ohne eigene ``Children``) werden geliefert — ein
+    Zwischenknoten wie ein UDT-typisiertes Struct-Member wird nicht separat
+    gemeldet, nur was am Ende des Pfads tatsächlich unbenutzt ist.
+
+    Array-Elemente (Name enthält ``[...]``) werden übersprungen — live
+    verifiziert, dass ein einziges großes Array-Member sonst tausende
+    Einzelindizes als separate Blattknoten liefert (analog zum bereits
+    bestehenden Array-Skip bei Prüfpunkt 1)."""
+    for source in sources:
+        children = list(getattr(source, "Children", None) or [])
+        if children:
+            yield from unused_cross_reference_leaf_names(children)
+            continue
+        name = getattr(source, "Name", None)
+        if name and "[" not in name:
+            yield name
 
 
 def find_source_child_by_name(source_object: Any, name: str) -> Any | None:

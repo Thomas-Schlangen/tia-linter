@@ -1711,3 +1711,190 @@ als leer: SCL-Netzwerke innerhalb eines sonst FBD-Bausteins wurden nicht erkannt
 von compile_unit_element_count() gar nicht mitgezaehlt. Beide behoben, live
 verifiziert (55 → 19 Befunde, alle 7 gemeldeten OrgPrg-Netzwerke korrekt), Prüfpunkt
 16/30 als Sanity-Check ohne Regression bestätigt, pytest 38/38 grün."
+
+## Runde 33 — Neuer Parameter `ausnahme_titel_regex` bei Prüfpunkt 10
+
+**Ausgangspunkt (User-Auftrag, direkt im Anschluss an Runde 32):** "Zu Prüfpunkt 10:
+leere Netzwerke werden auch gerne verwendet um mit dem Netzwerkkommentar eine Art
+neues Kapitel im Baustein zu beginnen. Können wir den Check ausnehmen, wenn der
+Netzwerkkommentar einer bestimmten Syntax entspricht: Regex-Parameter im YAML."
+
+**Umsetzung** (`src/tia_linter/checks/structure.py::LeereNetzwerkeCheck`): Neuer
+Parameter `ausnahme_titel_regex` (Standard `""` = deaktiviert). Wird ein Netzwerk als
+leer erkannt (0 Programmelemente), wird zusätzlich sein Titel gelesen (über
+`compile_unit_multilingual_text()`, denselben Mechanismus wie Prüfpunkt 3 — Titel
+liegen im XML-Export als eigene `MultilingualText`-Komposition, siehe Runde 27) und
+gegen `re.match(ausnahme_titel_regex, titel)` geprüft (Konvention wie bei allen
+anderen Regex-Parametern in diesem Projekt, siehe `naming.py`). Passt der Titel,
+wird kein Befund erzeugt. Ist der Parameter leer, wird die komplette
+Titel-Lookup-Logik übersprungen (kein unnötiger Overhead, wenn das Feature nicht
+genutzt wird). Docstring um einen "Sechzehnter Bug/Design-Entscheidung"-Abschnitt
+ergänzt. Parameter in `config/default.yaml` und `config/project_settings.yaml`
+ergänzt (jeweils mit Kurzkommentar, Standard `''`).
+
+**Verifiziert:**
+- `pytest`: weiterhin 38/38 grün, `py_compile` fehlerfrei.
+- Beide YAML-Dateien laden fehlerfrei, `ausnahme_titel_regex` kommt korrekt als
+  leerer String in `CheckDefinition.params` an.
+- TIA-Verbindungshinweis: Vor der Live-Verifikation war das Projekt bei laufenden
+  `Siemens.Automation.Portal`-Prozessen mit deutlichem Speicherverbrauch offenbar
+  vom User selbst in der TIA-Portal-GUI geöffnet — per Rückfrage bestätigt und vom
+  User geschlossen, danach übliche ~125s auf die Freigabe der Projektsperre
+  gewartet.
+- Live gegen das echte Salzmaschine-Projekt: ein **echter** Anwendungsfall gefunden
+  — `40Prg > Netzwerk 1` ist leer und trägt den Titel
+  `"########## Schaltgerüst/ Bedienschrank =4805 ##########"``, exakt das vom User
+  beschriebene Kapitelüberschrift-Muster. Mit passendem Regex (escaped exakter
+  Titel): **19 → 18 Befunde**. Mit einem absichtlich nicht passenden Regex:
+  unverändert **19 Befunde** (bestätigt, dass der Parameter nichts verändert, wenn
+  er nicht zutrifft).
+- Eigener Verifikationsfehler unterwegs: ein erster Testlauf verglich Netzwerk-Pfade
+  per Teilstring-Suche (`"OrgPrg" in pfad`) statt exaktem Abgleich — dadurch wurde
+  fälschlich `01OrgPrg` statt `OrgPrg` als Stichprobe gefunden (Namenskollision,
+  `"OrgPrg"` ist Teilstring von `"01OrgPrg"`). Nach Umstellung auf exakten
+  Pfadabgleich (`format_path(...) in {r.path for r in results}`) lieferte der Test
+  den echten, oben beschriebenen Treffer.
+
+**Dokumentiert:** `docs/Handbuch.md` (Parameter-Tabelle um `ausnahme_titel_regex`
+ergänzt, neue Besonderheiten-Zeile, Empfehlung zur Behebung erweitert, Version 0.32 +
+Anhang-C-Eintrag). `README.md` bewusst nicht geändert — dort werden laut eigenem
+Hinweis nur komplett neue Prüfpunkte mit eigenem Absatz vorgestellt, keine neuen
+Parameter bestehender Prüfpunkte.
+
+Letzter Stand: "Prüfpunkt 10 kann jetzt per `ausnahme_titel_regex` (Standard leer =
+deaktiviert) leere Netzwerke ausnehmen, deren Titel als Kapitelüberschrift dient.
+Live an einem echten Fall verifiziert (40Prg > Netzwerk 1, '##########
+Schaltgerüst/ Bedienschrank =4805 ##########'): 19 → 18 mit passendem Regex, 19
+unverändert mit nicht-passendem Regex. pytest 38/38 grün."
+
+## Runde 34 — Siebzehnter Bug: Prüfpunkt 11 meldete DB-Selbst-Eintrag als Phantom-Member
+
+**Ausgangspunkt (User-Meldung):** "Ich bekomme bei Prüfpunkt 11 mehrere Warnungen,
+die keinen Sinn machen. [...] Bitte erklär mir was da falsch läuft, bevor du etwas
+änderst." — mit Beispielbefund: `pn4805-15a1 > Datenbaustein > _Org > IDb >
+DB_PrgFieldbusOkDb > Member > DB_PrgFieldbusOkDb`, "DB-Variable
+'DB_PrgFieldbusOkDb' wird im gesamten Programm nicht verwendet". Auffällig: das
+gemeldete "Member" trägt exakt denselben Namen wie die DB selbst.
+
+**Untersuchung (erst nur Erklärung, kein Fix, wie explizit gewünscht):** Live an
+genau dieser Instanz-DB inspiziert. `cross_reference_locations(db)` (Filter
+`AllObjects`) findet 2 Fundstellen — die DB wird also durchaus irgendwo referenziert.
+`GetCrossReferences(CrossReferenceFilter.UnusedObjects)` auf derselben DB liefert
+dagegen genau einen `Source`-Eintrag mit `Name='DB_PrgFieldbusOkDb'`,
+`TypeName='Instance DB of PrgFieldbusOk [FB82]'` und `Path` zeigt auf den *Ordner*
+der DB, nicht auf ein verschachteltes Member. Das ist eindeutig die DB **selbst**,
+kein echtes Member — Openness liefert sie hier trotzdem (widersprüchlich zum
+`AllObjects`-Befund) als "unused Source" zurück. Der bisherige Code
+(`UnbenutzteVariablenCheck`) behandelte jeden `Source` blind als DB-Variable und baute
+daraus den irreführenden Pfad mit dem Phantom-"Member". Erklärung an den User
+gegeben; User-Entscheidung: "Ja, DB-eigene Einträge rausfiltern, andere echte
+unbenutzte Member weiterhin melden."
+
+**Fix** (`src/tia_linter/checks/structure.py::UnbenutzteVariablenCheck`): `Source`s,
+deren `Name` exakt dem Namen der DB entspricht, werden übersprungen — echte Member
+(deren Name naturgemäß nie mit dem DB-Namen übereinstimmt) bleiben unberührt
+gemeldet. Docstring um einen "Siebzehnter Bug"-Abschnitt ergänzt.
+
+**Verifiziert gegen das echte Salzmaschine-Projekt** (per `git stash`/`git stash pop`
+vor/nach gemessen):
+- `DB_PrgFieldbusOkDb` taucht nach dem Fix nicht mehr in den Befunden auf.
+- Projektweit: **23 → 5 Befunde**. Aufschlussreich: **alle 18** zuvor gemeldeten
+  "DB-Member"-Befunde im Projekt erwiesen sich beim Nachzählen als exakt dieser
+  Selbst-Eintrag-Fall (`Member`-Name == DB-Name bei jedem einzelnen) — es gab in
+  diesem Projekt aktuell keinen einzigen echten unbenutzten DB-Member, nur
+  Phantom-Einträge.
+- `pytest`: weiterhin 38/38 grün, `py_compile` fehlerfrei.
+- TIA-Hinweis: vor der Live-Verifikation war das Projekt kurzzeitig gesperrt (User
+  hatte es zwischenzeitlich selbst in TIA Portal offen, siehe Runde 33) — bereits
+  dort geklärt und gewartet.
+
+**Dokumentiert:** `docs/Handbuch.md` (neue Besonderheiten-Zeile bei Prüfpunkt 11 mit
+Querverweis auf Prüfpunkt 11b, Version 0.33 + Anhang-C-Eintrag). `README.md` bewusst
+nicht geändert — reiner Bugfix an bestehendem Verhalten.
+
+Letzter Stand: "Prüfpunkt 11 meldete bei manchen Instanz-DBs die DB selbst als
+Phantom-'Member' mit identischem Namen (Openness' UnusedObjects-Filter liefert dafür
+manchmal einen Source-Eintrag zusätzlich zu echten Membern). Fix: Source, dessen
+Name exakt dem DB-Namen entspricht, wird übersprungen. Live verifiziert (23 → 5
+Befunde, alle 18 vorherigen DB-Member-Befunde waren dieser Phantom-Fall), pytest
+38/38 grün."
+
+## Runde 35 — Achtzehnter Bug: Prüfpunkt 11 verschluckte nach Runde 34 sämtliche echten Treffer
+
+**Ausgangspunkt (User-Meldung, direkt im Anschluss an Runde 34, Widerspruch statt
+Bestätigung):** "Bist du dir sicher? Meiner Meinung nach wird DB_PrgFieldbusOkDb ->
+DiagCpu -> DNNmode nicht verwendet." — der Fix aus Runde 34 (Skip des Source, dessen
+Name exakt dem DB-Namen entspricht) hatte den irreführenden Phantom-Befund zwar
+entfernt, aber offenbar auch den vom User erwarteten echten Treffer mit entfernt.
+
+**Hinweis des Users:** "Hast du schon mal im Ordner doku_etc in das PDF geschaut? Da
+ist einiges an Beispielcode bezüglich Cross Reference drin." — Verweis auf die
+offizielle, lokal abgelegte V21-Openness-Referenz-PDF (28 MB, nicht die davon
+abgeleitete, verkürzte `Openness-API-Referenz-fuer-Linter.md`, die nur aus der
+älteren V18-Doku erarbeitet worden war).
+
+**Untersuchung:** PDF via `pdftotext -layout` in Textform extrahiert und durchsucht.
+Abschnitt "1.4.11.2.11 Querverweise für STEP 7 abrufen" (Manual 03/2026, S. 623-624)
+enthält offiziellen Beispielcode (`PrintSourceObjects`), der **rekursiv** über
+`source.Children` absteigt:
+```
+SourceObjectComposition sourceObjectChildren = source.Children;
+PrintSourceObjects(sourceObjectChildren);
+```
+Live an `DB_PrgFieldbusOkDb` nachvollzogen (`.Children` bis in die Tiefe gedumpt):
+`GetCrossReferences(UnusedObjects)` liefert genau einen Wurzelknoten (Name == DB-Name,
+`TypeName` "Instance DB of ...") — dessen `Children` enthalten `DiagCpu` (UDT-Struct,
+selbst kein Blatt), dessen `Children` wiederum `DiagCpu.DNNmode` (echtes unbenutztes
+Blatt-Member) enthalten. Der Runde-34-Fix hatte also nicht "einen Phantom-Eintrag
+herausgefiltert", sondern schlicht den einzigen zurückgelieferten Wurzelknoten
+komplett verworfen, ohne je in dessen Children abzusteigen — der Check meldete
+dadurch seit jeher (auch schon vor Runde 34) faktisch nie ein echtes unbenutztes
+DB-Member.
+
+**Skalen-Check vor der Umsetzung:** Projektweite Testmessung der vollen
+Children-Rekursion über alle 32 DBs ergab **41.087 rohe Blattknoten**, davon
+**37.882 (92 %) mit `[...]`** im Namen — Array-Elemente, exakt dasselbe
+Explosionsmuster wie beim historischen Array-Bug in Prüfpunkt 1. Nach Anwendung
+desselben Array-Skip-Prinzips (ein Kommentar/eine Verwendung auf dem Array selbst
+reicht) verblieben **3.205** echte, nicht-Array-Blattknoten. Da diese Änderung
+projektweit auf einen Schlag von effektiv 0 auf über 3.000 Befunde springen würde,
+per `AskUserQuestion` rückgefragt, ob die volle Rekursion trotzdem gewünscht ist
+(Alternative: Tiefenbegrenzung auf die erste Ebene). User-Entscheidung: "Ja, voll
+implementieren."
+
+**Fix:**
+- Neue Hilfsfunktion `unused_cross_reference_leaf_names()` in `_tia_helpers.py`:
+  steigt rekursiv durch `.Children` ab, liefert nur echte Blattknoten (Objekte ohne
+  eigene Children), überspringt dabei Array-Elemente (`[...]` im Namen).
+- `UnbenutzteVariablenCheck` (`structure.py`) nutzt diese Funktion statt der
+  flachen Source-Iteration; der vom DB-Namen (quotiert oder unquotiert) geführte
+  Pfadanteil eines Blattnamens wird für eine lesbare Anzeige abgeschnitten
+  (`DiagCpu.DNNmode` statt `"DB_PrgFieldbusOkDb".DiagCpu.DNNmode`).
+- Docstring um einen "Achtzehnter Bug"-Abschnitt ergänzt, der den "Siebzehnter
+  Bug"-Fix aus Runde 34 einordnet (behob den Phantom-Befund korrekt, verschluckte
+  dabei aber unbeabsichtigt alle echten Treffer).
+
+**Verifiziert gegen das echte Salzmaschine-Projekt:**
+- `DiagCpu.DNNmode` wird jetzt korrekt als einziger Befund zu `DB_PrgFieldbusOkDb`
+  gemeldet — exakt der vom User erwartete Treffer.
+- Keine Array-Indizes in den Ergebnissen (0 Member-Namen mit `[...]`) — Explosion
+  erfolgreich vermieden.
+- Keine Phantom-Selbst-Einträge mehr (0 Fälle, in denen der Member-Name dem
+  DB-Namen entspricht).
+- Projektweit: **5 → 3.210 Befunde** (deckt sich mit der vorherigen Skalen-Schätzung
+  von ~3.205).
+- `pytest`: weiterhin 38/38 grün, `py_compile` fehlerfrei.
+
+**Dokumentiert:** `docs/Handbuch.md` (Besonderheiten bei Prüfpunkt 11 überarbeitet —
+Rekursions-/Array-Verhalten statt der überholten "Phantom-Filter"-Beschreibung aus
+Runde 34, Version 0.34 + Anhang-C-Eintrag, der explizit auf die Korrektur von Version
+0.33 verweist). `README.md` bewusst nicht geändert — reiner Bugfix an bestehendem
+Verhalten.
+
+Letzter Stand: "Prüfpunkt 11 nutzte für DB-Member bislang nur die Wurzel des von
+Openness gelieferten Source-Baums, nicht dessen .Children — dadurch wurden seit
+jeher praktisch nie echte unbenutzte DB-Member gefunden (der Runde-34-Fix behob nur
+den irreführenden Wurzel-Phantom-Befund, verschluckte aber unbeabsichtigt die
+eigentlichen Treffer mit). Fix: rekursive Children-Traversierung mit Array-Skip
+(analog Prüfpunkt 1). Live verifiziert (DiagCpu.DNNmode korrekt erkannt, 5 → 3.210
+Befunde projektweit nach Skalen-Rückfrage beim User), pytest 38/38 grün."

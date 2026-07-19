@@ -1,6 +1,6 @@
 # TIA Linter — Benutzerhandbuch
 
-**Version dieses Handbuchs:** 0.31 (Entwurf)
+**Version dieses Handbuchs:** 0.34 (Entwurf)
 **Stand:** 18.07.2026
 **Programmversion:** 0.1.0
 
@@ -1293,7 +1293,10 @@ verlängern den Baustein unnötig und sorgen bei der Fehlersuche für die
 Frage: "Fehlt hier etwas, oder ist das Netzwerk absichtlich leer?"
 
 **Parameter**
-Dieser Prüfpunkt hat keine konfigurierbaren Parameter.
+
+| Parameter | Standardwert | Bedeutung |
+|---|---|---|
+| `ausnahme_titel_regex` | `""` (deaktiviert) | Passt der Netzwerktitel eines sonst leeren Netzwerks auf dieses Muster, wird es nicht gemeldet. |
 
 **Beispiel**
 
@@ -1315,9 +1318,18 @@ PLC_1 > Programmbausteine > FB_Motor > Netzwerk 5
 - Ein Netzwerk, das ausschließlich einen einzigen Bausteinaufruf enthält
   (keinen Kontakt, keine Spule), zählt als nicht-leer — ein Bausteinaufruf
   ist ein eigenständiges Programmelement.
+- Ein leeres Netzwerk wird in der Praxis gelegentlich absichtlich verwendet,
+  um mit seinem Netzwerktitel eine Art Kapitelüberschrift innerhalb eines
+  Bausteins zu setzen (z. B. `"########## Kapitel-Titel ##########"`).
+  Passt der Titel eines sonst leeren Netzwerks auf `ausnahme_titel_regex`
+  (`re.match`, wie bei allen anderen Regex-Parametern dieses Projekts),
+  wird es trotz fehlender Programmelemente nicht gemeldet. Ein Netzwerk mit
+  echten Programmelementen ist davon unabhängig ohnehin nie betroffen.
 
 **Empfehlung zur Behebung**
-Leeres Netzwerk mit Logik befüllen oder entfernen.
+Leeres Netzwerk mit Logik befüllen oder entfernen — oder, falls absichtlich
+als Kapitelüberschrift verwendet, den Titel auf `ausnahme_titel_regex`
+abstimmen.
 
 #### Prüfpunkt 11 — Unbenutzte Variablen (Dead Code)
 
@@ -1356,6 +1368,18 @@ PLC_1 > Variablentabellen > Tags_Allgemein > Merker_Testlauf
   Für die Nutzung der Oberfläche macht das keinen Unterschied — das
   Ergebnis ist in beiden Fällen ein Befund mit derselben Aussage:
   "wird nirgends verwendet".
+- Die von Openness gelieferten Kreuzreferenz-Ergebnisse für einen
+  Datenbaustein liegen als Baum vor: verschachtelte Struct-/UDT-typisierte
+  Member (z. B. `DiagCpu`) enthalten selbst wieder Member (z. B.
+  `DiagCpu.DNNmode`). Diese Prüfung steigt rekursiv bis zu den tatsächlich
+  unbenutzten Blatt-Variablen ab, meldet aber nicht die durchlaufenen
+  Zwischen-Member selbst und nicht den Datenbaustein als Ganzes — ob ein
+  Datenbaustein komplett unbenutzt ist, prüft ohnehin eigenständig
+  [Prüfpunkt 11b](#prüfpunkt-11b-unbenutzte-bausteine).
+- Wie bei Prüfpunkt 1 gilt: Ein Kommentar bzw. hier eine Verwendung auf dem
+  Array selbst reicht — einzelne Array-Elemente (z. B. `Rezepte[3]`) werden
+  nicht separat als unbenutzt gemeldet, ein großes Array-Member könnte sonst
+  tausende Einzelbefunde erzeugen.
 
 **Empfehlung zur Behebung**
 Unbenutzte Variable entfernen oder die fehlende Verwendung ergänzen.
@@ -2724,3 +2748,6 @@ zu der Übersicht, die bereits am Anfang der Markdown-Datei steht.
 | 0.29 | 19.07.2026 | Zwei GUI-Änderungen (User-Auftrag) dokumentiert: (1) Die Prüfpunkt-Kategorien stehen auf der Eingabeseite jetzt zu je drei nebeneinander (Grid-Layout) statt strikt untereinander (Pack-Layout) — nutzt die verfügbare Fensterbreite besser aus. (2) Das Mausrad scrollt jetzt überall im Prüfpunkte-Bereich, nicht mehr nur direkt über der Bildlaufleiste (rekursive `<MouseWheel>`-Bindung auf Canvas und alle Kind-Widgets, da Enter/Leave-basierte Umschaltung wegen der eingebetteten Checkbox-Frame als eigenes Kind-Fenster nicht robust funktioniert hätte). Abschnitt 6.2 entsprechend ergänzt. |
 | 0.30 | 19.07.2026 | Drei weitere GUI-Änderungen (User-Auftrag): (1) "Alle auswählen"/"Alle abwählen" sowie "Prüfung starten"/"Abbrechen" sind jetzt ca. 50 % größer (Schrift relativ zur tatsächlichen Basisschriftgröße skaliert, nicht hart kodiert) und horizontal zentriert statt linksbündig. (2) "Prüfung starten" färbt sich hellgrün, sobald mindestens ein Prüfpunkt angehakt ist — dafür auf ein klassisches `tk.Button` statt `ttk.Button` umgestellt, da ttk-Buttons unter den nativen Windows-Themes eine gesetzte Hintergrundfarbe ignorieren. Abschnitt 6.2 entsprechend ergänzt. |
 | 0.31 | 19.07.2026 | Fünfzehnter Kommentar-/Struktur-Bug behoben (User-Meldung, live an FC `OrgPrg` verifiziert, Netzwerke 3/8/9/12/13/14/15): Prüfpunkt 10 meldete massenhaft nicht-leere Netzwerke fälschlich als leer, aus zwei unabhängigen Gründen. (1) Ein Netzwerk mit einem einzigen Bausteinaufruf und sonst keiner Logik wird im XML-Export als `<Call>`-Element dargestellt, nicht als `<Part>` — `compile_unit_element_count()` (`_tia_helpers.py`, gemeinsam genutzt mit Prüfpunkt 16 und 30) zählte bislang nur `<Part>`-Elemente, ein reiner Call-Aufruf ergab dadurch Elementanzahl 0. Fix: `<Call>` zählt jetzt ebenfalls als Element. (2) TIA erlaubt gemischte Programmiersprachen innerhalb eines Bausteins (siehe Prüfpunkt 15) — ein einzelnes Netzwerk kann SCL sein, obwohl der Baustein insgesamt z. B. FBD ist; der bisherige Skip anhand der Baustein-`ProgrammingLanguage` griff dann nicht, ein SCL-Netzwerk (`<StructuredText>` statt `<FlgNet>`/`<Part>`) wurde fälschlich als leer gezählt. Fix: zusätzlicher Skip anhand der Netzwerk-eigenen `ProgrammingLanguage`. Live verifiziert: 55 → 19 Befunde projektweit, alle 7 gemeldeten `OrgPrg`-Netzwerke korrekt behoben. Besonderheiten bei Prüfpunkt 10 entsprechend ergänzt. |
+| 0.32 | 19.07.2026 | Neuer Parameter `ausnahme_titel_regex` bei Prüfpunkt 10 (User-Auftrag: leere Netzwerke werden gelegentlich absichtlich als Kapitelüberschrift innerhalb eines Bausteins verwendet, per Netzwerktitel statt Inhalt) — Standardwert `""` (deaktiviert): Passt der Titel eines sonst leeren Netzwerks auf das konfigurierte Muster, wird es nicht gemeldet, unabhängig davon, ob es tatsächlich leer ist. Live an einem echten Fall im Salzmaschine-Projekt verifiziert (`40Prg > Netzwerk 1`, Titel `"########## Schaltgerüst/ Bedienschrank =4805 ##########"`): mit passendem Regex 19 → 18 Befunde, mit nicht-passendem Regex unverändert 19. Parameter-Tabelle und Besonderheiten bei Prüfpunkt 10 entsprechend ergänzt. |
+| 0.33 | 19.07.2026 | Siebzehnter Kommentar-/Struktur-Bug behoben (User-Meldung, live an Instanz-DB `DB_PrgFieldbusOkDb` verifiziert): Prüfpunkt 11 meldete bei manchen Instanz-DBs einen nicht existierenden "Member" mit demselben Namen wie die DB selbst (`... > DB_PrgFieldbusOkDb > Member > DB_PrgFieldbusOkDb`). Ursache: `GetCrossReferences(CrossReferenceFilter.UnusedObjects)` liefert für eine Instanz-DB nicht ausschließlich echte Member als `Source` — ein zusätzlicher `Source`-Eintrag mit `Name` == Name der DB und `TypeName` "Instance DB of ..." repräsentiert die DB selbst, kein Member. Der bisherige Code behandelte jeden `Source` blind als DB-Variable. Fix: `Source`s, deren Name exakt dem Namen der DB entspricht, werden übersprungen — Prüfpunkt 11b prüft ohnehin eigenständig, ob eine DB als Ganzes unbenutzt ist. Live verifiziert: 23 → 5 Befunde projektweit — alle 18 zuvor gemeldeten "DB-Member"-Befunde erwiesen sich als exakt dieser Selbst-Eintrag-Fall, keine echten Member betroffen. Besonderheiten bei Prüfpunkt 11 entsprechend ergänzt. |
+| 0.34 | 19.07.2026 | Achtzehnter Bug behoben, korrigiert/erweitert Version 0.33 (User-Meldung: "meiner Meinung nach wird DB_PrgFieldbusOkDb -> DiagCpu -> DNNmode nicht verwendet", per Rückfrage bestätigt anhand des offiziellen Beispielcodes der V21-Openness-Referenz, Manual 03/2026, "Querverweise für STEP 7 abrufen"): Die Annahme aus Version 0.33, jeder `Source` in `unused_result.Sources` sei bereits ein fertiges unbenutztes Member, war falsch — `Sources` ist die Wurzel eines Baums; der in 0.33 übersprungene Source (Name == DB-Name) ist genau dieser Wurzelknoten, dessen `.Children` rekursiv die tatsächlich unbenutzten Member enthalten. Der bloße Skip aus 0.33 behob zwar den irreführenden Phantom-Befund, verschluckte dabei aber auch sämtliche echten, tiefer verschachtelten Treffer — der Prüfpunkt meldete dadurch de facto nie ein einziges echtes unbenutztes DB-Member. Fix: neue Hilfsfunktion `unused_cross_reference_leaf_names()` steigt rekursiv durch `.Children` ab und liefert nur echte Blattknoten; Array-Elemente werden dabei übersprungen (ein einzelnes großes Array-Member lieferte live tausende Einzelindizes als separate Blätter — analog zum Array-Skip bei Prüfpunkt 1). Live verifiziert: `DiagCpu.DNNmode` wird jetzt korrekt gemeldet; projektweit **5 → 3.210 Befunde** (vorher blind durch den reinen Root-Skip, nach Array-Filter aber realistisch). Besonderheiten bei Prüfpunkt 11 entsprechend überarbeitet. |

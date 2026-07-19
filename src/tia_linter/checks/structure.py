@@ -11,11 +11,13 @@ abgefragt, nicht projektweit in einem Aufruf.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from tia_linter.checks._tia_helpers import (
     compile_unit_attribute,
     compile_unit_element_count,
+    compile_unit_multilingual_text,
     cross_reference_locations,
     export_block_xml,
     format_path,
@@ -25,7 +27,9 @@ from tia_linter.checks._tia_helpers import (
     iter_data_blocks,
     iter_plc_software,
     iter_tag_tables,
+    reference_language,
     tag_direction,
+    unused_cross_reference_leaf_names,
 )
 from tia_linter.checks.base import BaseCheck
 from tia_linter.models import CheckResult
@@ -44,10 +48,25 @@ class LeereNetzwerkeCheck(BaseCheck):
     ``compile_unit_element_count`` fälschlich als leer (0 Elemente) gezählt.
     Fix: zusätzlicher Skip anhand der **Netzwerk**-eigenen
     ``ProgrammingLanguage``.
+
+    Sechzehnter Bug/Design-Entscheidung (User-Auftrag): Ein leeres Netzwerk
+    wird in der Praxis gelegentlich absichtlich verwendet, um mit seinem
+    Netzwerktitel eine Art Kapitelüberschrift innerhalb eines Bausteins zu
+    setzen (z. B. ``"=== Freigaben ==="``), ohne selbst Logik zu enthalten.
+    Neuer Parameter ``ausnahme_titel_regex`` (Standard ``""`` = deaktiviert):
+    Ist er gesetzt, wird ein sonst leeres Netzwerk **nicht** gemeldet, wenn
+    sein Titel (gelesen wie bei Prüfpunkt 3, ``compile_unit_multilingual_text``)
+    auf das konfigurierte Muster passt (``re.match``, wie bei allen anderen
+    Regex-Parametern in diesem Projekt). Ein Netzwerk mit Programmelementen
+    ist davon unabhängig ohnehin nie betroffen.
     """
 
     def run(self, project: Any) -> list[CheckResult]:
         results: list[CheckResult] = []
+        title_exception_regex = self.definition.params.get("ausnahme_titel_regex", "")
+        title_pattern = re.compile(title_exception_regex) if title_exception_regex else None
+        culture = str(reference_language(project).Culture) if title_pattern is not None else ""
+
         for plc_software in iter_plc_software(project):
             for block, group_path in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
                 if get_attribute(block, "ProgrammingLanguage") in ("SCL", "STL"):
@@ -57,6 +76,10 @@ class LeereNetzwerkeCheck(BaseCheck):
                     if compile_unit_attribute(compile_unit, "ProgrammingLanguage") in ("SCL", "STL"):
                         continue
                     if compile_unit_element_count(compile_unit) == 0:
+                        if title_pattern is not None:
+                            title = compile_unit_multilingual_text(compile_unit, "Title", culture)
+                            if title_pattern.match(title):
+                                continue
                         results.append(
                             self._make_result(
                                 path=format_path(
@@ -78,6 +101,38 @@ class UnbenutzteVariablenCheck(BaseCheck):
     wird ``CrossReferenceFilter.UnusedObjects`` am jeweiligen DB abgefragt
     (DB ist bestätigt unterstützt) — die zurückgegebenen ``Sources`` sind
     dann die unbenutzten Mitglieder dieses DBs.
+
+    Siebzehnter Bug (User-Meldung, live an Instanz-DB ``DB_PrgFieldbusOkDb``
+    verifiziert): ``GetCrossReferences(CrossReferenceFilter.UnusedObjects)``
+    liefert für eine Instanz-DB nicht ausschließlich echte Member als
+    ``Source`` — manchmal liegt genau ein ``Source`` dabei, dessen ``Name``
+    identisch zum Namen der DB selbst ist und dessen ``TypeName`` "Instance DB
+    of <FB> [...]" lautet (``Path`` zeigt auf den Ordner der DB, nicht auf ein
+    verschachteltes Member). Das ist die DB **selbst**, kein Member — der
+    ursprüngliche Code behandelte jeden Source blind als DB-Variable, wodurch
+    ein nicht existierendes "Member" mit demselben Namen wie die DB gemeldet
+    wurde (``... > DB_PrgFieldbusOkDb > Member > DB_PrgFieldbusOkDb``).
+
+    Achtzehnter Bug (User-Meldung, verifiziert anhand des offiziellen
+    Beispielcodes der V21-Openness-Referenz, Manual 03/2026, "Querverweise
+    für STEP 7 abrufen"): Die ursprüngliche Annahme, jeder ``Source`` in
+    ``unused_result.Sources`` sei bereits ein fertiges, unbenutztes Member,
+    war falsch — ``Sources`` ist die Wurzel eines Baums, kein flacher
+    Treffer. Der Source aus dem "Siebzehnter Bug" (Name == DB-Name) ist
+    genau dieser Wurzelknoten; seine ``.Children`` enthalten — rekursiv —
+    die tatsächlich unbenutzten Member (z. B. ``DB_PrgFieldbusOkDb`` →
+    ``DiagCpu`` (UDT-Struct, selbst kein Blatt) → ``DiagCpu.DNNmode``, echtes
+    unbenutztes Blatt-Member). Der bloße Skip aus dem "Siebzehnter Bug"
+    behob zwar den irreführenden Phantom-Befund, verschluckte dabei aber
+    auch sämtliche echten, tiefer verschachtelten Treffer — der Check
+    meldete dadurch de facto nie ein einziges echtes unbenutztes DB-Member.
+    Fix: ``unused_cross_reference_leaf_names()`` (siehe ``_tia_helpers.py``)
+    steigt rekursiv ab und liefert nur echte Blattknoten; Array-Elemente
+    werden dabei übersprungen (ein einzelnes großes Array-Member lieferte
+    live tausende Einzelindizes als separate Blätter, analog zum
+    Array-Skip bei Prüfpunkt 1). Der vom DB-Namen führende Pfadanteil wird
+    für eine lesbare Anzeige abgeschnitten (``DiagCpu.DNNmode`` statt
+    ``"DB_PrgFieldbusOkDb".DiagCpu.DNNmode``).
     """
 
     def run(self, project: Any) -> list[CheckResult]:
@@ -104,9 +159,19 @@ class UnbenutzteVariablenCheck(BaseCheck):
                 if service is None:
                     continue
                 unused_result = service.GetCrossReferences(CrossReferenceFilter.UnusedObjects)
-                for source in getattr(unused_result, "Sources", []) or []:
-                    name = getattr(source, "Name", None)
-                    if not name:
+                sources = getattr(unused_result, "Sources", []) or []
+                for raw_name in unused_cross_reference_leaf_names(sources):
+                    # Blattnamen sind mit dem DB-Namen als Pfadpräfix
+                    # qualifiziert (z. B. '"DB_X".DiagCpu.DNNmode' oder
+                    # 'DB_X.DiagCpu.DNNmode') — für eine lesbare Anzeige
+                    # abschneiden, analog zum bereits an anderer Stelle
+                    # üblichen Member-Pfad-Format.
+                    name = raw_name
+                    for prefix in (f'"{db.Name}".', f"{db.Name}."):
+                        if name.startswith(prefix):
+                            name = name[len(prefix):]
+                            break
+                    if not name or name == db.Name:
                         continue
                     results.append(
                         self._make_result(

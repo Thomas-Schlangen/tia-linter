@@ -202,6 +202,12 @@ checks:
     leere_netzwerke:
       enabled: true
       severity: warning
+      # Ein leeres Netzwerk dient manchmal absichtlich als "Kapitelüberschrift"
+      # innerhalb eines Bausteins (Netzwerktitel als Gliederungspunkt, kein
+      # eigener Inhalt). Passt der Netzwerktitel auf dieses Muster, wird das
+      # Netzwerk trotz fehlender Programmelemente nicht gemeldet. Leer ("") =
+      # deaktiviert, jedes leere Netzwerk wird wie bisher gemeldet.
+      ausnahme_titel_regex: '^#{5,}[^#]+#{5,}$'
 
     # Prüfpunkt 11 — PLC-Tag/DB-Variable wird im gesamten Programm nirgends
     # referenziert (Dead Code).
