@@ -151,43 +151,43 @@ checks:
     db_format_global:
       enabled: true
       severity: error
-      regex: "^DB_[A-Za-z]"
+      regex: '^DB_[A-Za-z]'
 
     db_format_instance:
       enabled: true
       severity: error
-      regex: "^DB_[A-Za-z]"
+      regex: '^DB_[A-Za-z]'
 
     # Prüfpunkt 6 (Eingänge/Ausgänge) — PLC-Tag entspricht nicht dem
     # konfigurierten Namensmuster, getrennt konfigurierbar je Richtung.
     plc_tag_eingaenge:
       enabled: true
       severity: error
-      regex: "^I_"
+      regex: '^I_'
 
     plc_tag_ausgaenge:
       enabled: true
       severity: error
-      regex: "^Q_"
+      regex: '^Q_'
 
     # Prüfpunkt 7 (FB/FC) — Bausteinname entspricht nicht dem konfigurierten
     # Regex, getrennt konfigurierbar je Bausteinart.
     fb_prefix:
       enabled: true
       severity: error
-      regex: "^FB_\\S*$"
+      regex: '^FB_\S*$'
 
     fc_prefix:
       enabled: true
       severity: error
-      regex: "^FC_\\S*$"
+      regex: '^FC_\S*$'
 
     # Prüfpunkt 8 — Konstante entspricht nicht dem konfigurierten Regex
     # (Standard: nur Großbuchstaben).
     konstanten_format:
       enabled: true
       severity: warning
-      regex: "^[A-Z][A-Z0-9_]*$"
+      regex: '^[A-Z][A-Z0-9_]*$'
 
     # Prüfpunkt 9 — Variable mit Test-/Debug-Präfix (aus Liste) im Projekt
     # gefunden.
