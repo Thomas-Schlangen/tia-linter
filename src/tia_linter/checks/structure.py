@@ -32,7 +32,19 @@ from tia_linter.models import CheckResult
 
 
 class LeereNetzwerkeCheck(BaseCheck):
-    """Prüfpunkt 10: Netzwerke ohne Inhalt (keine Programmelemente)."""
+    """Prüfpunkt 10: Netzwerke ohne Inhalt (keine Programmelemente).
+
+    User-Meldung, live an FC ``OrgPrg`` verifiziert: TIA erlaubt gemischte
+    Programmiersprachen innerhalb eines Bausteins (siehe Prüfpunkt 15,
+    ``GemischteSprachenCheck``) — ein einzelnes Netzwerk kann z. B. SCL sein,
+    obwohl der Baustein insgesamt als FBD geführt wird (``OrgPrg``: Netzwerk
+    3/8). Der Skip anhand der **Baustein**-``ProgrammingLanguage`` greift in
+    diesem Fall nicht; ein SCL-Netzwerk exportiert seinen Inhalt als
+    ``<StructuredText>`` statt ``<FlgNet>``/``<Part>``, wurde also von
+    ``compile_unit_element_count`` fälschlich als leer (0 Elemente) gezählt.
+    Fix: zusätzlicher Skip anhand der **Netzwerk**-eigenen
+    ``ProgrammingLanguage``.
+    """
 
     def run(self, project: Any) -> list[CheckResult]:
         results: list[CheckResult] = []
@@ -42,6 +54,8 @@ class LeereNetzwerkeCheck(BaseCheck):
                     continue
                 xml_root = export_block_xml(block)
                 for index, compile_unit in enumerate(iter_compile_units(xml_root), start=1):
+                    if compile_unit_attribute(compile_unit, "ProgrammingLanguage") in ("SCL", "STL"):
+                        continue
                     if compile_unit_element_count(compile_unit) == 0:
                         results.append(
                             self._make_result(

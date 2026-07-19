@@ -522,9 +522,19 @@ def interface_section_members(xml_root: Any, section_name: str) -> set[str]:
 
 def compile_unit_element_count(compile_unit: Any) -> int:
     """Zählt die Programmelemente (Kontakte, Spulen, Bausteinaufrufe, ...)
-    eines Netzwerks anhand der ``Parts`` in seiner ``NetworkSource``."""
+    eines Netzwerks anhand der ``Part``- und ``Call``-Elemente in seiner
+    ``NetworkSource``.
+
+    User-Meldung, live an FC ``OrgPrg`` verifiziert (Netzwerke 9/12/13/14/15):
+    Ein Bausteinaufruf (FB-/FC-Call) wird im XML-Export **nicht** als
+    ``<Part>`` dargestellt, sondern als eigenes ``<Call>``-Element —
+    ein Netzwerk, das ausschließlich einen einzigen Bausteinaufruf enthält
+    (kein Kontakt, keine Spule), wurde dadurch bislang mit Elementanzahl 0
+    gezählt, obwohl es klar nicht leer ist (betraf vor allem Prüfpunkt 10,
+    ``leere_netzwerke``). Fix: ``<Call>`` zählt jetzt ebenfalls als Element.
+    """
     count = 0
     for child in compile_unit.iter():
-        if _local_name(child.tag) == "Part":
+        if _local_name(child.tag) in ("Part", "Call"):
             count += 1
     return count

@@ -1653,3 +1653,61 @@ Hintergrundfarbe zuverlässig übernimmt). Größe/Klasse/Farbe/Zentrierung per
 Smoketest bestätigt, visuelles Erscheinungsbild dem User gegenüber als ungeprüft
 benannt (kein Screenshot-Tool). pytest 38/38 grün. Noch nicht committet — wartet
 auf Rückmeldung des Users nach eigenem Test in der GUI (zusammen mit Runde 30)."
+
+## Runde 32 — Fünfzehnter Bug: Prüfpunkt 10 markierte massenhaft nicht-leere Netzwerke
+
+**Ausgangspunkt (User-Meldung):** "Prüfpunkt 10 funktioniert nicht. Es werden sehr
+viele Netzwerke markiert, die nicht leer sind. [...] entweder war es ein SCL
+Netzwerk. Das ist ok und sollte nicht markiert werden. Oder es war ein Netzwerk in
+dem nur 1 anderer Baustein aufgerufen wurde. Das ist auch ok. Das ist NICHT leer.
+Als Beispiel [...] Baustein OrgPrg [...] ALLE Warnungen sind falsch. NW: 3,8,9,12,
+13,14,15." — beide vom User selbst identifizierten Muster erwiesen sich live als
+exakt zutreffend, aus zwei unabhängigen Ursachen.
+
+**Untersuchung:** Live-XML-Export von `OrgPrg` (nicht zu verwechseln mit `01OrgPrg`
+aus früheren Runden — beide Blöcke existieren, erste Verwechslung im eigenen
+Testskript sofort korrigiert) für genau die gemeldeten Netzwerke inspiziert.
+- Netzwerk 3/8: Block-Level `ProgrammingLanguage` ist `"FBD"`, aber diese beiden
+  Netzwerke haben ihre eigene, netzwerk-lokale `ProgrammingLanguage` `"SCL"` — TIA
+  erlaubt gemischte Sprachen innerhalb eines Bausteins (dasselbe Konzept, das
+  Prüfpunkt 15 explizit prüft). Ihr Inhalt liegt als `<StructuredText>` vor, nicht
+  als `<FlgNet>`/`<Part>` — der bisherige, nur Baustein-Level greifende SCL/STL-Skip
+  erkannte das nicht.
+- Netzwerk 9/12/13/14/15: Jeweils genau ein Bausteinaufruf (`CtrCycleTime`,
+  `PrgFieldbusOk`, `01Org`, `40Org`, `4805PrgMan`), sonst keine Logik. Im XML-Export
+  wird ein Bausteinaufruf als eigenes `<Call>`-Element dargestellt, **nicht** als
+  `<Part>` — `compile_unit_element_count()` zählte bislang ausschließlich
+  `<Part>`-Elemente, ein reiner Call-Aufruf ergab dadurch Elementanzahl 0.
+
+**Fix:**
+- `_tia_helpers.py::compile_unit_element_count()`: zählt jetzt `<Part>`- **und**
+  `<Call>`-Elemente. Diese Funktion wird auch von Prüfpunkt 16
+  (`max_netzwerk_elemente`) und Prüfpunkt 30 (`ob1_komplexitaet`) genutzt —
+  Letzterer geht laut eigenem Code-Kommentar sogar explizit davon aus, dass ein
+  reiner Call-Aufruf mit Elementanzahl 1 gezählt wird ("1 Part == der Call
+  selbst"), was durch den bisherigen Bug nie zutraf (tatsächlich 0). Der Fix
+  korrigiert diese Annahme rückwirkend mit, statt sie zusätzlich zu brechen.
+- `structure.py::LeereNetzwerkeCheck`: zusätzlicher Skip anhand der
+  **Netzwerk**-eigenen `ProgrammingLanguage` (nicht nur der des Bausteins) —
+  `compile_unit_attribute(compile_unit, "ProgrammingLanguage") in ("SCL", "STL")`.
+
+**Verifiziert gegen das echte Salzmaschine-Projekt:**
+- `OrgPrg` liefert nach dem Fix keinen einzigen Befund mehr aus Prüfpunkt 10.
+- Projektweit (per `git stash`/`git stash pop` vor/nach gemessen): **55 → 19
+  Befunde**.
+- Sanity-Check der beiden mitbetroffenen Prüfpunkte 16/30: laufen weiterhin
+  fehlerfrei durch (0 bzw. 1 Befund, plausibel), keine Exception, keine
+  offensichtliche Regression.
+- `pytest`: weiterhin 38/38 grün, `py_compile` fehlerfrei.
+
+**Dokumentiert:** `docs/Handbuch.md` (zwei neue Besonderheiten-Zeilen bei
+Prüfpunkt 10 — Netzwerk-eigene Sprache und Call-als-Element, Version 0.31 +
+Anhang-C-Eintrag). `README.md` bewusst nicht geändert — reiner Bugfix an
+bestehendem Verhalten.
+
+Letzter Stand: "Prüfpunkt 10 markierte massenhaft nicht-leere Netzwerke faelschlich
+als leer: SCL-Netzwerke innerhalb eines sonst FBD-Bausteins wurden nicht erkannt
+(Skip war nur auf Baustein-Ebene), und reine Bausteinaufrufe (<Call>-Element) wurden
+von compile_unit_element_count() gar nicht mitgezaehlt. Beide behoben, live
+verifiziert (55 → 19 Befunde, alle 7 gemeldeten OrgPrg-Netzwerke korrekt), Prüfpunkt
+16/30 als Sanity-Check ohne Regression bestätigt, pytest 38/38 grün."

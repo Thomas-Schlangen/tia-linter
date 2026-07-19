@@ -1,6 +1,6 @@
 # TIA Linter — Benutzerhandbuch
 
-**Version dieses Handbuchs:** 0.30 (Entwurf)
+**Version dieses Handbuchs:** 0.31 (Entwurf)
 **Stand:** 18.07.2026
 **Programmversion:** 0.1.0
 
@@ -1307,6 +1307,14 @@ PLC_1 > Programmbausteine > FB_Motor > Netzwerk 5
 - Wie bei [Prüfpunkt 3](#prüfpunkt-3-netzwerk-ohne-beschreibung) gibt es
   das Konzept "Netzwerk" nur in den grafischen Sprachen (KOP/FUP/GRAPH) —
   Bausteine in SCL oder AWL/STL werden automatisch nicht geprüft.
+- TIA erlaubt gemischte Programmiersprachen innerhalb eines Bausteins (siehe
+  [Prüfpunkt 15](#prüfpunkt-15-gemischte-programmiersprachen)) — ein
+  einzelnes Netzwerk kann z. B. SCL sein, obwohl der Baustein insgesamt als
+  FBD geführt wird. Ein solches Netzwerk wird ebenfalls automatisch nicht
+  geprüft, unabhängig von der Sprache des Bausteins insgesamt.
+- Ein Netzwerk, das ausschließlich einen einzigen Bausteinaufruf enthält
+  (keinen Kontakt, keine Spule), zählt als nicht-leer — ein Bausteinaufruf
+  ist ein eigenständiges Programmelement.
 
 **Empfehlung zur Behebung**
 Leeres Netzwerk mit Logik befüllen oder entfernen.
@@ -2715,3 +2723,4 @@ zu der Übersicht, die bereits am Anfang der Markdown-Datei steht.
 | 0.28 | 19.07.2026 | Neuer Parameter `check_idb` bei Prüfpunkt 4 (User-Auftrag, analog zu `check_db` bei Prüfpunkt 2) — Standardwert `false`: Instanz-Datenbausteine werden von der Autor/Version-Prüfung ausgenommen, Global-/Array-DBs sowie FB/FC/OB bleiben unverändert und werden weiterhin immer geprüft; `true` stellt das bisherige Verhalten (inkl. Instanz-DBs) wieder her. Anders als `check_db` bei Prüfpunkt 2 betrifft dieser Parameter gezielt nur Instanz-DBs, nicht alle Datenbausteine. Parameter-Tabelle und Besonderheiten bei Prüfpunkt 4 entsprechend ergänzt. Live verifiziert (2 Instanz-DBs ohne Autor/Version standardmäßig ausgenommen, z. B. `PrgFieldbusOkDb`, `PlcTimeDb`). |
 | 0.29 | 19.07.2026 | Zwei GUI-Änderungen (User-Auftrag) dokumentiert: (1) Die Prüfpunkt-Kategorien stehen auf der Eingabeseite jetzt zu je drei nebeneinander (Grid-Layout) statt strikt untereinander (Pack-Layout) — nutzt die verfügbare Fensterbreite besser aus. (2) Das Mausrad scrollt jetzt überall im Prüfpunkte-Bereich, nicht mehr nur direkt über der Bildlaufleiste (rekursive `<MouseWheel>`-Bindung auf Canvas und alle Kind-Widgets, da Enter/Leave-basierte Umschaltung wegen der eingebetteten Checkbox-Frame als eigenes Kind-Fenster nicht robust funktioniert hätte). Abschnitt 6.2 entsprechend ergänzt. |
 | 0.30 | 19.07.2026 | Drei weitere GUI-Änderungen (User-Auftrag): (1) "Alle auswählen"/"Alle abwählen" sowie "Prüfung starten"/"Abbrechen" sind jetzt ca. 50 % größer (Schrift relativ zur tatsächlichen Basisschriftgröße skaliert, nicht hart kodiert) und horizontal zentriert statt linksbündig. (2) "Prüfung starten" färbt sich hellgrün, sobald mindestens ein Prüfpunkt angehakt ist — dafür auf ein klassisches `tk.Button` statt `ttk.Button` umgestellt, da ttk-Buttons unter den nativen Windows-Themes eine gesetzte Hintergrundfarbe ignorieren. Abschnitt 6.2 entsprechend ergänzt. |
+| 0.31 | 19.07.2026 | Fünfzehnter Kommentar-/Struktur-Bug behoben (User-Meldung, live an FC `OrgPrg` verifiziert, Netzwerke 3/8/9/12/13/14/15): Prüfpunkt 10 meldete massenhaft nicht-leere Netzwerke fälschlich als leer, aus zwei unabhängigen Gründen. (1) Ein Netzwerk mit einem einzigen Bausteinaufruf und sonst keiner Logik wird im XML-Export als `<Call>`-Element dargestellt, nicht als `<Part>` — `compile_unit_element_count()` (`_tia_helpers.py`, gemeinsam genutzt mit Prüfpunkt 16 und 30) zählte bislang nur `<Part>`-Elemente, ein reiner Call-Aufruf ergab dadurch Elementanzahl 0. Fix: `<Call>` zählt jetzt ebenfalls als Element. (2) TIA erlaubt gemischte Programmiersprachen innerhalb eines Bausteins (siehe Prüfpunkt 15) — ein einzelnes Netzwerk kann SCL sein, obwohl der Baustein insgesamt z. B. FBD ist; der bisherige Skip anhand der Baustein-`ProgrammingLanguage` griff dann nicht, ein SCL-Netzwerk (`<StructuredText>` statt `<FlgNet>`/`<Part>`) wurde fälschlich als leer gezählt. Fix: zusätzlicher Skip anhand der Netzwerk-eigenen `ProgrammingLanguage`. Live verifiziert: 55 → 19 Befunde projektweit, alle 7 gemeldeten `OrgPrg`-Netzwerke korrekt behoben. Besonderheiten bei Prüfpunkt 10 entsprechend ergänzt. |
