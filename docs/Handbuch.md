@@ -1,6 +1,6 @@
 # TIA Linter — Benutzerhandbuch
 
-**Version dieses Handbuchs:** 0.26 (Entwurf)
+**Version dieses Handbuchs:** 0.28 (Entwurf)
 **Stand:** 18.07.2026
 **Programmversion:** 0.1.0
 
@@ -946,10 +946,12 @@ eines mehrzeiligen Fließtexts).
 | **Config-Schlüssel** | `checks.kommentare.aenderungshistorie` |
 
 **Was wird geprüft?**
-Für jeden Baustein wird geprüft, ob im Bausteinkopf **sowohl** ein Autor
-**als auch** eine Versionsangabe hinterlegt sind. Ein Befund entsteht nur,
-wenn **beide** Angaben vollständig fehlen — ist mindestens eine der beiden
-Angaben vorhanden, gilt der Prüfpunkt für diesen Baustein als erfüllt.
+Für jeden Baustein (standardmäßig FB, FC, OB und Global-/Array-DBs — siehe
+`check_idb` für Instanz-Datenbausteine) wird geprüft, ob im Bausteinkopf
+**sowohl** ein Autor **als auch** eine Versionsangabe hinterlegt sind. Ein
+Befund entsteht nur, wenn **beide** Angaben vollständig fehlen — ist
+mindestens eine der beiden Angaben vorhanden, gilt der Prüfpunkt für diesen
+Baustein als erfüllt.
 
 **Warum ist das wichtig?**
 Autor und Version im Bausteinkopf machen nachvollziehbar, wer einen
@@ -958,7 +960,10 @@ handelt. Das ist besonders bei Projekten hilfreich, an denen mehrere
 Personen über einen längeren Zeitraum arbeiten.
 
 **Parameter**
-Dieser Prüfpunkt hat keine konfigurierbaren Parameter.
+
+| Parameter | Standardwert | Bedeutung |
+|---|---|---|
+| `check_idb` | `false` | Ob auch Instanz-Datenbausteine auf Autor/Version im Bausteinkopf geprüft werden sollen. |
 
 **Beispiel**
 
@@ -967,6 +972,20 @@ PLC_1 > Programmbausteine > FB_Motor
 → Baustein 'FB_Motor' hat weder Autor noch Version im
   Bausteinkopf hinterlegt.
 ```
+
+**Besonderheiten**
+
+- Eine nie gesetzte Version liest die Openness-API intern als
+  ``"0.0.0.0"`` — dieser technische Standardwert wird hier wie eine leere
+  Version behandelt, nicht wie eine echte Versionsangabe.
+- Instanz-Datenbausteine pflegen in der Praxis keine eigene
+  Änderungshistorie — Autor/Version "gehören" konzeptionell zur
+  FB-Definition, nicht zur einzelnen Instanz. Deshalb sind Instanz-DBs
+  standardmäßig (`check_idb: false`) von dieser Prüfung ausgenommen;
+  Global-/Array-DBs sowie FB/FC/OB werden davon unabhängig immer geprüft.
+  Mit `check_idb: true` lässt sich die Prüfung auch für Instanz-DBs
+  wiederherstellen. Anders als bei Prüfpunkt 2s `check_db` betrifft dieser
+  Parameter also gezielt nur Instanz-DBs, nicht alle Datenbausteine.
 
 **Empfehlung zur Behebung**
 Änderungshistorie im Bausteinkopf pflegen — mindestens Autor und
@@ -2679,3 +2698,5 @@ zu der Übersicht, die bereits am Anfang der Markdown-Datei steht.
 | 0.24 | 19.07.2026 | Neuer Parameter `check_db` bei Prüfpunkt 2 (User-Meldung: Kopfbeschreibungen sind bei Datenbausteinen unüblich) — Standardwert `false`: Datenbausteine werden von der Kopfbeschreibungs-Prüfung ausgenommen, FB/FC/OB bleiben davon unberührt und werden weiterhin immer geprüft; `true` stellt das bisherige Verhalten (alle Bausteintypen) wieder her. Parameter-Tabelle und Besonderheiten bei Prüfpunkt 2 entsprechend ergänzt. Außerdem: `config/default.yaml` durchgehend um kurze, einzeilige Prüfpunkt-Kommentare vor jedem Konfigurationsbereich ergänzt (analog zu den bereits bestehenden, ausführlicheren Kommentaren bei Prüfpunkt 1b/1c) — jeder der 35 Prüfpunkte lässt sich damit direkt in der YAML-Datei anhand seiner Nummer wiederfinden. |
 | 0.25 | 19.07.2026 | Zwölfter Kommentar-Bug behoben (User-Meldung, live an FC `40Org` verifiziert): Prüfpunkt 2 las bislang nur das `Comment`-Attribut eines Bausteins — `PlcBlock` hat laut V21-Openness-Referenz aber zwei unabhängige mehrsprachige Felder, `Title` und `Comment`, beide im Bausteinkopf sichtbar. Bei `40Org` war `Comment` für jede Sprache leer, obwohl `Title` die sichtbare Kopfbeschreibung "Organisation Störungen Allgemein" trug — der Baustein wurde fälschlich als unbeschrieben gemeldet. Fix: Es zählt jetzt das längere der beiden Felder. Live verifiziert: 48 → 34 Befunde über alle Bausteintypen hinweg (isoliert vom `check_db`-Filter aus Version 0.24 gemessen), mit der Standardkonfiguration (`check_db: false`) 48 → 3. "Was wird geprüft?" und Besonderheiten bei Prüfpunkt 2 entsprechend ergänzt. |
 | 0.26 | 19.07.2026 | Dreizehnter Kommentar-Bug behoben (User-Meldung: "fast alle Warnungen sind falsch"): Prüfpunkt 3 las den Netzwerktitel bislang aus der `AttributeList` eines `CompileUnit`-XML-Elements (analog zu einfachen Attributen wie `ProgrammingLanguage`) — Titel/Kommentar eines Netzwerks liegen im XML-Export aber als eigene, mehrsprachige `MultilingualText`-Komposition im `ObjectList`, strukturell identisch zu `PlcBlock.Title`/`.Comment` (siehe Version 0.25). Die alte Leselogik fand dadurch **nie** einen Titel, unabhängig davon, ob einer gepflegt war. Zusätzlicher, davon unabhängiger Fallstrick beim Fix selbst: `reference_language(project).Culture` liefert ein `System.Globalization.CultureInfo`-.NET-Objekt, kein `System.String` — ein direkter Vergleich gegen die aus dem XML gelesenen reinen Text-Kultur-Codes (z. B. `"de-DE"`) schlug deshalb zunächst trotz des Strukturfixes weiterhin fehl, bis `str(...)` ergänzt wurde. Live verifiziert: 148 → 1 Befund (der verbleibende ist ein echter "Titel zu lang"-Fall). Neue Hilfsfunktion `compile_unit_multilingual_text()` in `_tia_helpers.py`. Besonderheiten bei Prüfpunkt 3 entsprechend ergänzt. |
+| 0.27 | 19.07.2026 | Vierzehnter Kommentar-Bug behoben (User-Meldung, live an FB `01OrgPrg` verifiziert, dort absichtlich weder Autor noch Version gesetzt): Prüfpunkt 4 meldete trotz fehlender Angaben keinen Befund. Ursache: `GetAttribute("HeaderVersion")` liefert ein `System.Version`-.NET-Objekt statt eines Strings, dessen `ToString()` bei nicht gesetzter Version `"0.0.0.0"` ergibt (.NET-Standardwert) — ein nicht-leerer String, wodurch die Version fälschlich als vorhanden galt und praktisch jeder Baustein den Prüfpunkt bestand. Live an allen 288 Bausteinen des Salzmaschine-Projekts bestätigt: 234 tragen exakt `"0.0.0.0"`, echte Versionen sehen dagegen wie `"0.1"`/`"1.0"`/`"2.1"` aus (im TIA-UI ohnehin nicht als vierteiliger Wert eingebbar). Fix: `"0.0.0.0"` wird wie eine leere Version behandelt. Live verifiziert: 0 → 104 Befunde projektweit. Besonderheiten bei Prüfpunkt 4 entsprechend ergänzt. |
+| 0.28 | 19.07.2026 | Neuer Parameter `check_idb` bei Prüfpunkt 4 (User-Auftrag, analog zu `check_db` bei Prüfpunkt 2) — Standardwert `false`: Instanz-Datenbausteine werden von der Autor/Version-Prüfung ausgenommen, Global-/Array-DBs sowie FB/FC/OB bleiben unverändert und werden weiterhin immer geprüft; `true` stellt das bisherige Verhalten (inkl. Instanz-DBs) wieder her. Anders als `check_db` bei Prüfpunkt 2 betrifft dieser Parameter gezielt nur Instanz-DBs, nicht alle Datenbausteine. Parameter-Tabelle und Besonderheiten bei Prüfpunkt 4 entsprechend ergänzt. Live verifiziert (2 Instanz-DBs ohne Autor/Version standardmäßig ausgenommen, z. B. `PrgFieldbusOkDb`, `PlcTimeDb`). |

@@ -591,17 +591,52 @@ class NetzwerkBeschreibungCheck(BaseCheck):
 
 
 class AenderungshistorieCheck(BaseCheck):
-    """Prüfpunkt 4: Bausteinkopf ohne Versionsinfo/Änderungshistorie."""
+    """Prüfpunkt 4: Bausteinkopf ohne Versionsinfo/Änderungshistorie.
+
+    Vierzehnter Bug (User-Meldung, live an FB ``01OrgPrg`` verifiziert, dort
+    absichtlich weder Autor noch Version gesetzt): ``GetAttribute("HeaderVersion")``
+    liefert kein ``System.String``, sondern ein ``System.Version``-.NET-Objekt,
+    dessen ``ToString()`` bei einer nicht gesetzten Version ``"0.0.0.0"``
+    ergibt (.NET-Standardwert des parameterlosen ``Version()``-Konstruktors) —
+    ein nicht-leerer String, wodurch die Version fälschlich als "vorhanden"
+    galt und praktisch **jeder** Baustein den Prüfpunkt bestand, unabhängig
+    vom tatsächlichen Inhalt. Live an allen 288 Bausteinen des
+    Salzmaschine-Projekts bestätigt: 234 tragen exakt ``"0.0.0.0"`` (nie
+    gesetzt), echte Versionen sehen dagegen wie ``"0.1"``, ``"1.0"``,
+    ``"2.1"`` aus — im TIA-UI besteht das Versionsfeld im Bausteinkopf aus
+    genau zwei Zahlenfeldern, ein vierteiliger Wert wie ``"0.0.0.0"`` lässt
+    sich dort gar nicht eingeben. Fix: ``"0.0.0.0"`` wird wie ein leerer
+    Wert behandelt.
+
+    Fünfzehnter Bug/Design-Entscheidung (User-Meldung, analog zu Prüfpunkt 2
+    "Elfter Bug/Design-Entscheidung"): Instanz-Datenbausteine pflegen keine
+    eigene Änderungshistorie — Autor/Version "gehören" konzeptionell zur
+    FB-Definition, nicht zur einzelnen Instanz. Neuer Parameter ``check_idb``
+    (Standard ``false``): Ist er ``false``, werden Instanz-DBs
+    (``db.GetAttribute("InstanceOfName")`` nicht leer) von dieser Prüfung
+    ausgenommen — Global-/Array-DBs sowie FB/FC/OB bleiben davon unberührt
+    und werden weiterhin normal geprüft. Anders als bei Prüfpunkt 2s
+    ``check_db`` betrifft dieser Parameter also gezielt nur Instanz-DBs,
+    nicht alle Datenbausteine.
+    """
 
     def run(self, project: Any) -> list[CheckResult]:
         from tia_linter.checks._tia_helpers import iter_blocks
 
         results: list[CheckResult] = []
+        # .NET-Standardwert von System.Version bei nicht gesetzter Version —
+        # siehe Klassen-Docstring, "Vierzehnter Bug".
+        unset_version = "0.0.0.0"
+        check_idb = bool(self.definition.params.get("check_idb", False))
 
         for plc_software in iter_plc_software(project):
             for block, group_path in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
+                if not check_idb and get_attribute(block, "InstanceOfName", ""):
+                    continue
                 author = str(get_attribute(block, "HeaderAuthor", "") or "").strip()
                 version = str(get_attribute(block, "HeaderVersion", "") or "").strip()
+                if version == unset_version:
+                    version = ""
                 if not author and not version:
                     results.append(
                         self._make_result(

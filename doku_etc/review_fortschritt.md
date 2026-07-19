@@ -1435,3 +1435,91 @@ Letzter Stand: "Prüfpunkt 3 las Netzwerktitel aus der falschen XML-Struktur
 (AttributeList statt ObjectList/MultilingualText) und fand dadurch strukturell nie
 einen Titel — zusätzlich ein CultureInfo-vs-String-Vergleichsfehler beim ersten
 Fix-Versuch. Beide behoben, live verifiziert (148 → 1 Befund), pytest 38/38 grün."
+
+## Runde 28 — Vierzehnter Kommentar-Bug: Prüfpunkt 4 erkannte fehlende Version nie
+
+**Ausgangspunkt (User-Meldung):** Nutzer hatte sich erst von mir Prüfpunkt 4 erklären
+lassen ("ein Befund entsteht nur, wenn Autor UND Version beide fehlen") und dann
+absichtlich bei FB `01OrgPrg` beide Felder geleert, um das zu testen. Ergebnis: "Der
+Test läuft ohne Warnungen durch, obwohl ich absichtlich einen Fehler eingebaut habe."
+
+**Untersuchung:** Live an `01OrgPrg` inspiziert. `GetAttribute("HeaderAuthor")` liefert
+korrekt `''` (leerer String). `GetAttribute("HeaderVersion")` liefert dagegen **kein**
+`System.String`, sondern ein `System.Version`-.NET-Objekt — dessen `ToString()` bei
+nicht gesetzter Version `"0.0.0.0"` ergibt (Standardwert des parameterlosen
+`Version()`-Konstruktors in .NET). Der bestehende Code (`str(get_attribute(...) or
+"").strip()`) wandelte das Objekt korrekt in einen String um, aber `"0.0.0.0"` ist
+selbst ein **nicht-leerer** String — die Version galt dadurch immer als "vorhanden",
+unabhängig vom tatsächlichen Inhalt, wodurch praktisch kein Baustein im gesamten
+Projekt je einen Befund auslösen konnte. Ein Vollprojekt-Scan über alle 288 Bausteine
+bestätigte den Verdacht: 234 tragen exakt `"0.0.0.0"` (Sentinel für "nie gesetzt"),
+echte Versionen sehen dagegen wie `"0.1"`, `"1.0"`, `"2.1"` aus — im Bausteinkopf-UI
+von TIA besteht das Versionsfeld aus genau zwei Zahlenfeldern, ein vierteiliger Wert
+wie `"0.0.0.0"` lässt sich dort gar nicht eingeben, kann also nur der interne
+.NET-Standardwert sein.
+
+**Fix** (`src/tia_linter/checks/comments.py::AenderungshistorieCheck`): Nach dem
+Auslesen wird `version == "0.0.0.0"` explizit auf `""` normalisiert, bevor die
+Leer-Prüfung (`not author and not version`) läuft. Docstring um einen "Vierzehnter
+Bug"-Abschnitt ergänzt.
+
+**Verifiziert gegen das echte Salzmaschine-Projekt:**
+- `01OrgPrg` (Autor UND Version vom User absichtlich geleert) wird jetzt korrekt
+  gemeldet: "Baustein '01OrgPrg' hat weder Autor noch Version im Bausteinkopf
+  hinterlegt."
+- Projektweit: **0 → 104 Befunde** — vorher hatte der Prüfpunkt trotz vieler Bausteine
+  ohne echte Versionsangabe (234 von 288 mit dem `"0.0.0.0"`-Sentinel) keinen einzigen
+  Befund geliefert.
+- `pytest`: weiterhin 38/38 grün, `py_compile` fehlerfrei.
+
+**Dokumentiert:** `docs/Handbuch.md` (neue Besonderheiten-Zeile bei Prüfpunkt 4,
+Version 0.27 + Anhang-C-Eintrag). `README.md` bewusst nicht geändert — reiner Bugfix
+an bestehendem Verhalten.
+
+Letzter Stand: "Prüfpunkt 4 (Bausteinkopf ohne Autor/Version) meldete praktisch nie
+einen Befund, weil HeaderVersion als System.Version-Objekt mit Sentinel-Wert
+'0.0.0.0' bei nicht gesetzter Version zurückkam — als String immer nicht-leer, also
+fälschlich 'vorhanden'. Fix: '0.0.0.0' wird wie leer behandelt. Live verifiziert
+(0 → 104 Befunde bei 234 von 288 Bausteinen ohne echte Version), pytest 38/38 grün."
+
+## Runde 29 — Neuer Parameter `check_idb` bei Prüfpunkt 4
+
+**Ausgangspunkt (User-Auftrag, direkt im Anschluss an Runde 28):** "Bitte bei
+Prüfpunkt 4 die Instanzdatenbausteine ausnehmen, so wie bei Prüfpunkt 2. Und auch
+bitte konfigurierbar machen so wie in Prüfpunkt 2. Name Parameter: check_idb.
+Defaultwert false. Nicht-Instanzdatenbausteine sollen normal geprüft werden, so wie
+die anderen Bausteine auch." — anders als `check_db` bei Prüfpunkt 2 (das *alle*
+Datenbausteine ausnimmt) soll `check_idb` gezielt nur Instanz-DBs betreffen,
+Global-/Array-DBs bleiben wie FB/FC/OB immer geprüft.
+
+**Umsetzung** (`src/tia_linter/checks/comments.py::AenderungshistorieCheck`): Neuer
+Parameter `check_idb` (Standard `False`). Im Block-Loop wird zusätzlich
+`get_attribute(block, "InstanceOfName", "")` geprüft (dieselbe Erkennung wie bei
+Prüfpunkt 1s Instanz-DB-Skip, siehe Runde 21) — ist `check_idb` falsch und der
+Baustein eine Instanz-DB, wird er übersprungen; alle anderen Bausteintypen bleiben
+unberührt. Docstring um einen "Fünfzehnter Bug/Design-Entscheidung"-Abschnitt
+ergänzt. `check_idb: false` in `config/default.yaml` und `config/project_settings.yaml`
+ergänzt (jeweils mit Kurzkommentar).
+
+**Verifiziert:**
+- `pytest`: weiterhin 38/38 grün, `py_compile` fehlerfrei.
+- Beide YAML-Dateien laden fehlerfrei, `check_idb` kommt korrekt als `False` in
+  `CheckDefinition.params` an.
+- Live gegen das echte Salzmaschine-Projekt: `check_idb=False` liefert **6 Befunde**,
+  `check_idb=True` liefert **8 Befunde** — Differenz von **2** entspricht exakt den
+  beiden Instanz-DBs ohne Autor/Version (`PrgFieldbusOkDb`, `PlcTimeDb`), die
+  standardmäßig nicht mehr gemeldet werden. (Die absolute Zahl liegt bewusst weit
+  unter den 104 aus Runde 28, da jener Test ohne `ausgeschlossene_ordner` lief — hier
+  wird korrekt der ausgeschlossene Ordner `ProjectBib` aus der echten
+  `project_settings.yaml` berücksichtigt.)
+
+**Dokumentiert:** `docs/Handbuch.md` (Parameter-Tabelle um `check_idb` ergänzt, neue
+Besonderheiten-Zeile mit Abgrenzung zu Prüfpunkt 2s `check_db`, Version 0.28 +
+Anhang-C-Eintrag). `README.md` bewusst nicht geändert — dort werden laut eigenem
+Hinweis nur komplett neue Prüfpunkte mit eigenem Absatz vorgestellt, keine neuen
+Parameter bestehender Prüfpunkte.
+
+Letzter Stand: "Prüfpunkt 4 nimmt Instanz-Datenbausteine nur noch standardmäßig aus
+(neuer Parameter check_idb, Standard false) — Global-/Array-DBs und FB/FC/OB
+unverändert geprüft, anders als check_db bei Prüfpunkt 2 (das alle DBs betrifft).
+Live verifiziert (6 vs. 8 Befunde, Differenz 2 Instanz-DBs), pytest 38/38 grün."

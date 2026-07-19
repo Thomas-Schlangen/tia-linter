@@ -135,6 +135,13 @@ checks:
     aenderungshistorie:
       enabled: true
       severity: warning
+      # Instanz-Datenbausteine pflegen keine eigene Änderungshistorie —
+      # Autor/Version gehören zur FB-Definition, nicht zur einzelnen
+      # Instanz. Daher standardmäßig false: Instanz-DBs werden von dieser
+      # Prüfung ausgenommen, Global-/Array-DBs sowie FB/FC/OB werden
+      # unabhängig davon immer geprüft. Auf true setzen, um auch
+      # Instanz-DBs zu prüfen.
+      check_idb: false
 
   namenskonventionen:
     # Prüfpunkt 5 ist in zwei unabhängig konfigurierbare Einträge aufgeteilt:
