@@ -1523,3 +1523,133 @@ Letzter Stand: "Prüfpunkt 4 nimmt Instanz-Datenbausteine nur noch standardmäß
 (neuer Parameter check_idb, Standard false) — Global-/Array-DBs und FB/FC/OB
 unverändert geprüft, anders als check_db bei Prüfpunkt 2 (das alle DBs betrifft).
 Live verifiziert (6 vs. 8 Befunde, Differenz 2 Instanz-DBs), pytest 38/38 grün."
+
+**Zwischenzeitlich (kein eigener Runden-Eintrag):** User hatte in seiner lokalen
+`project_settings.yaml` zwei neue Regex-Werte mit unescaptem `\d` in doppelt
+angeführten YAML-Strings eingefügt (`"^(.*Db|S\d{4})$"`) — YAML interpretiert
+Backslashes in `"..."`-Strings wie JSON, `\d` ist keine gültige Escape-Sequenz,
+wodurch die komplette Config-Datei nicht mehr lud. Behoben durch Umstellung auf
+einfache Anführungszeichen (`'...'`, dort werden Backslashes nicht interpretiert).
+Auf Bitte des Users danach `default.yaml` auf Backslash-Fehler geprüft (keine
+gefunden, `fb_prefix`/`fc_prefix` waren bereits korrekt mit `\\S` escaped) und alle
+7 Regex-Werte in beiden Dateien einheitlich auf einfache Anführungszeichen
+umgestellt. Commit `b2c5bac` (nur `default.yaml`, `project_settings.yaml` ist
+gitignored).
+
+## Runde 30 — GUI: Prüfpunkt-Kategorien im Grid, Mausrad überall nutzbar
+
+**Ausgangspunkt (User-Auftrag):** "Du hast die Punkte wirklich gut gruppiert. Aber es
+steht in der GUI eine Gruppe unter der anderen. Rechts ist noch viel Platz. Ordne die
+Gruppen doch bitte auch nebeneinander an. Z. B. immer 3 Gruppen nebeneinander." —
+konkret: "Kommentare & Beschreibungen", "Namenskonventionen" und "Programmstruktur" in
+der ersten Zeile nebeneinander, danach die restlichen Kategorien entsprechend.
+Zusätzlich: "Mein Mausrad in dem Bereich funktioniert nur, wenn ich mit der Maus über
+dem Scrollbalken bin. Ist es möglich, das das Mausrad auch funktioniert, wenn der
+Mauszeiger in dem Bereich ist?"
+
+**Umsetzung 1 — Grid-Layout** (`src/tia_linter/gui.py::MainPage.rebuild_check_tree`):
+Die Kategorie-`LabelFrame`s wurden bisher mit `.pack(fill="x", ...)` untereinander
+gestapelt. Umgestellt auf `.grid(row=..., column=..., sticky="nsew")` mit einer neuen
+Konstante `_CATEGORY_COLUMNS = 3` — `row, col = divmod(index, 3)`. Die drei Spalten von
+`self._checks_frame` werden mit `columnconfigure(col, weight=1, uniform="category")`
+gleich breit gehalten, damit sich der Platz beim Fenster-Resize gleichmäßig verteilt.
+
+**Umsetzung 2 — Mausrad überall** (`gui.py`): Neue Methode
+`_bind_mousewheel_recursive()`, die `<MouseWheel>` (Windows/Mac,
+`event.delta`) sowie `<Button-4>`/`<Button-5>` (Linux/X11, kein
+`MouseWheel`-Event dort) direkt auf den Canvas und **rekursiv auf jedes einzelne
+Kind-Widget** bindet (Kategorie-Frames, Checkbox-Zeilen, Labels, Checkbuttons) —
+aufgerufen am Ende von `rebuild_check_tree()`. Bewusst **keine**
+Enter/Leave-Umschaltung mit `bind_all`/`unbind_all` (der naheliegendere, verbreitetere
+Tkinter-Ansatz): Die per `canvas.create_window()` eingebettete Checkbox-Frame ist ein
+eigenständiges Kind-Fenster des Canvas — beim Wechsel der Maus vom Canvas auf eine
+Checkbox hätte das dortige `<Leave>` auf dem Canvas die globale Bindung sofort wieder
+aufgehoben, genau im Bereich, wo sie gebraucht wird. Die direkte, rekursive Bindung
+umgeht dieses Problem vollständig.
+
+**Verifiziert:**
+- `pytest`: weiterhin 38/38 grün, `py_compile` fehlerfrei.
+- GUI-Smoketest (`TiaLinterApp` ohne `mainloop`): 7 Kategorie-Frames erzeugt,
+  `grid_info()` bestätigt exakt die erwartete Anordnung — Zeile 0:
+  Kommentare & Beschreibungen (Spalte 0), Namenskonventionen (Spalte 1),
+  Programmstruktur (Spalte 2); Zeile 1: Hardware & Konfiguration,
+  Projektmetadaten, Bibliotheken & Typen; Zeile 2: Siemens Styleguide & Best
+  Practices (allein, da nur 7 Kategorien bei 3 Spalten). Ein per Rekursion
+  gefundener `Checkbutton` hat nachweislich eine `<MouseWheel>`-Bindung.
+- Kein Screenshot-Tool verfügbar — das tatsächliche visuelle Layout (Breiten,
+  Abstände, ob es "gut aussieht") wurde dem User gegenüber ausdrücklich als
+  ungeprüft benannt, nur Struktur (Grid-Positionen) und Event-Bindungen wurden
+  bestätigt.
+
+**Dokumentiert:** `docs/Handbuch.md` (Abschnitt 6.2 "Die Eingabeseite" um Hinweise zu
+Spalten-Layout und durchgängiger Mausrad-Nutzung ergänzt, Version 0.29 +
+Anhang-C-Eintrag). `README.md` bewusst nicht geändert — reine GUI-Layout-Änderung ohne
+neuen Prüfpunkt/Parameter.
+
+Letzter Stand: "Prüfpunkt-Kategorien stehen jetzt zu je drei nebeneinander (Grid statt
+Pack), Mausrad scrollt überall im Prüfpunkte-Bereich (rekursive Bindung auf Canvas +
+alle Kind-Widgets, keine Enter/Leave-Umschaltung wegen der eingebetteten
+Checkbox-Frame als eigenem Kind-Fenster). Grid-Positionen und Event-Bindungen per
+Smoketest bestätigt, visuelles Layout dem User gegenüber als ungeprüft benannt
+(kein Screenshot-Tool). pytest 38/38 grün."
+
+## Runde 31 — GUI: Buttons vergrößert, zentriert, "Prüfung starten" dynamisch grün
+
+**Ausgangspunkt (User-Auftrag, direkt im Anschluss an Runde 30, vor dessen Commit):**
+"Die Buttons 'Alle auswählen' und 'Alle abwählen' bitte ca. 50% größer und in der
+Mitte des Bildes. Die Buttons 'Prüfung starten' und 'Abbrechen' auch ca. 50% größer
+und auch mittig. Den Button 'Prüfung starten' bitte hell grün wenn mindestens 1
+Haken gesetzt ist."
+
+**Umsetzung 1 — Größe & Zentrierung** (`src/tia_linter/gui.py::MainPage._build_widgets`):
+Eine 50 % größere Schrift wird relativ zur tatsächlichen `TkDefaultFont`-Größe
+berechnet (`tkfont.nametofont("TkDefaultFont")`, `size * 1.5`, gerundet) statt eine
+feste Punktgröße hart zu kodieren — respektiert damit auch abweichende
+DPI-/Basisschriftgrößen. Ein ttk-Style `"Big.TButton"` (größere Schrift + größeres
+`padding`) wird für "Alle auswählen"/"Alle abwählen"/"Abbrechen" verwendet. Für die
+Zentrierung wird pro Button-Zeile ein innerer `ttk.Frame` ohne `fill`/`side="left"`
+in den äußeren, `fill="x"` gepackten Frame gepackt — Packs Default-Anchor
+("center") zentriert diesen inneren Frame dadurch automatisch horizontal in der
+verfügbaren Breite.
+
+**Umsetzung 2 — Dynamische Grün-Färbung** (`gui.py`): "Prüfung starten" wurde von
+`ttk.Button` auf ein klassisches `tk.Button` umgestellt — `ttk.Button` ignoriert
+unter den nativen Windows-Themes ("vista"/"xpnative") eine per `background`/
+`style.map` gesetzte Hintergrundfarbe zuverlässig, `tk.Button.configure(background=...)`
+dagegen funktioniert direkt. Neue Methode `_update_start_button_appearance()`
+prüft, ob mindestens eine der `BooleanVar`s in `self._check_vars` `True` ist, und
+setzt `background`/`activebackground` entsprechend auf `"light green"` oder den
+ursprünglichen, beim ersten Aufbau gespeicherten System-Standardwert
+(`self._start_button_default_bg`, z. B. `"SystemButtonFace"`). Jede `BooleanVar`
+bekommt in `rebuild_check_tree()` einen `trace_add("write", ...)` auf diese Methode
+— dadurch reagiert die Färbung automatisch auf **jede** Änderung, egal ob per
+Einzel-Checkbox, Kategorie-"Alle"/"Keine" oder globalem "Alle auswählen"/"Alle
+abwählen" ausgelöst, da alle denselben Satz `BooleanVar`s verändern.
+
+**Verifiziert:**
+- `pytest`: weiterhin 38/38 grün, `py_compile` fehlerfrei.
+- GUI-Smoketest (`TiaLinterApp` ohne `mainloop`): Schriftgröße von "Prüfung
+  starten" 9 → 14 (erwartete Rundung von 9 × 1,5 = 13,5). Button-Klasse
+  bestätigt `"Button"` (nicht `"TButton"`) — reine `tk`-Variante wie
+  vorgesehen. Nach `_set_all(False)`: `background == "SystemButtonFace"`
+  (Ausgangswert). Nach `_set_all(True)`: `background == "light green"`.
+  "Alle auswählen" bestätigt Style `"Big.TButton"`. Beide inneren
+  Button-Container zeigen `pack_info()` mit `anchor="center"`, `fill="none"` —
+  wie für die Zentrierung vorgesehen.
+- Kein Screenshot-Tool verfügbar — das tatsächliche visuelle Erscheinungsbild
+  (wirkt es "50 % größer", sieht die Zentrierung gut aus) wurde dem User
+  gegenüber ausdrücklich als ungeprüft benannt, nur Größenverhältnis,
+  Button-Klasse, Farbwerte und Pack-Zentrierung wurden bestätigt.
+
+**Dokumentiert:** `docs/Handbuch.md` (Abschnitt 6.2 um Hinweise zu Button-Größe,
+Zentrierung und der grünen Startfarbe ergänzt, Version 0.30 + Anhang-C-Eintrag).
+`README.md` bewusst nicht geändert — reine GUI-Layout-/Optik-Änderung.
+
+Letzter Stand: "'Alle auswählen'/'Alle abwählen'/'Prüfung starten'/'Abbrechen' sind
+jetzt ca. 50% größer (Schrift relativ zur Basisschriftgröße skaliert) und zentriert.
+'Prüfung starten' färbt sich hellgrün, sobald mindestens ein Prüfpunkt angehakt ist
+(dafür auf tk.Button umgestellt, da ttk.Button unter Windows-Themes keine
+Hintergrundfarbe zuverlässig übernimmt). Größe/Klasse/Farbe/Zentrierung per
+Smoketest bestätigt, visuelles Erscheinungsbild dem User gegenüber als ungeprüft
+benannt (kein Screenshot-Tool). pytest 38/38 grün. Noch nicht committet — wartet
+auf Rückmeldung des Users nach eigenem Test in der GUI (zusammen mit Runde 30)."

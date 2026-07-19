@@ -8,7 +8,7 @@ import threading
 import tkinter as tk
 from datetime import datetime
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, font as tkfont, messagebox, ttk
 from typing import Callable
 
 from my_logger import setup_logger
@@ -289,15 +289,34 @@ class MainPage(ttk.Frame):
             variable=self.test_mode,
         ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(4, 0))
 
+        # ~50% größere Schrift für die hervorgehobenen Buttons unten (skaliert
+        # relativ zur tatsächlichen Basisschriftgröße, statt eine feste
+        # Punktgröße zu hart zu kodieren).
+        default_font = tkfont.nametofont("TkDefaultFont")
+        big_font = default_font.copy()
+        big_font.configure(size=round(default_font.cget("size") * 1.5))
+        style = ttk.Style()
+        style.configure("Big.TButton", font=big_font, padding=(12, 8))
+
         checks_outer = ttk.LabelFrame(self, text="Prüfpunkte")
         checks_outer.pack(fill="both", expand=True, **pad)
 
         global_buttons = ttk.Frame(checks_outer)
         global_buttons.pack(fill="x", padx=4, pady=(4, 0))
-        ttk.Button(global_buttons, text="Alle auswählen", command=lambda: self._set_all(True)).pack(side="left")
+        # Innerer Frame ohne fill/side="left" -> wird per Pack-Default
+        # (anchor="center") innerhalb der vollen Breite von global_buttons
+        # horizontal zentriert, statt links auszurichten.
+        global_buttons_inner = ttk.Frame(global_buttons)
+        global_buttons_inner.pack()
         ttk.Button(
-            global_buttons, text="Alle abwählen", command=lambda: self._set_all(False)
-        ).pack(side="left", padx=(6, 0))
+            global_buttons_inner, text="Alle auswählen", style="Big.TButton", command=lambda: self._set_all(True)
+        ).pack(side="left")
+        ttk.Button(
+            global_buttons_inner,
+            text="Alle abwählen",
+            style="Big.TButton",
+            command=lambda: self._set_all(False),
+        ).pack(side="left", padx=(8, 0))
 
         canvas = tk.Canvas(checks_outer, highlightthickness=0)
         scrollbar = ttk.Scrollbar(checks_outer, orient="vertical", command=canvas.yview)
@@ -307,15 +326,36 @@ class MainPage(ttk.Frame):
         canvas.configure(yscrollcommand=scrollbar.set)
         canvas.pack(side="left", fill="both", expand=True, padx=4, pady=4)
         scrollbar.pack(side="right", fill="y")
+        self._checks_canvas = canvas
 
         action_frame = ttk.Frame(self)
         action_frame.pack(fill="x", **pad)
-        self._start_button = ttk.Button(action_frame, text="Prüfung starten", command=self.app.start_lint_run)
-        self._start_button.pack(side="left")
-        self._cancel_button = ttk.Button(
-            action_frame, text="Abbrechen", command=self.app.cancel_lint_run, state="disabled"
+        action_frame_inner = ttk.Frame(action_frame)
+        action_frame_inner.pack()
+        # Reines tk.Button statt ttk.Button: ttk-Buttons ignorieren unter den
+        # nativen Windows-Themes ("vista"/"xpnative") eine über
+        # background/style.map gesetzte Hintergrundfarbe — nur ein klassisches
+        # tk.Button setzt sie zuverlässig um. Farbe wechselt dynamisch je
+        # nachdem, ob mindestens ein Prüfpunkt angehakt ist, siehe
+        # _update_start_button_appearance().
+        self._start_button = tk.Button(
+            action_frame_inner,
+            text="Prüfung starten",
+            font=big_font,
+            padx=12,
+            pady=8,
+            command=self.app.start_lint_run,
         )
-        self._cancel_button.pack(side="left", padx=(6, 0))
+        self._start_button.pack(side="left")
+        self._start_button_default_bg = self._start_button.cget("background")
+        self._cancel_button = ttk.Button(
+            action_frame_inner,
+            text="Abbrechen",
+            style="Big.TButton",
+            command=self.app.cancel_lint_run,
+            state="disabled",
+        )
+        self._cancel_button.pack(side="left", padx=(8, 0))
 
         self._progress = ttk.Progressbar(self, mode="indeterminate")
         self._progress.pack(fill="x", **pad)
@@ -331,6 +371,11 @@ class MainPage(ttk.Frame):
         self._log_text.pack(side="left", fill="both", expand=True)
         log_scroll.pack(side="right", fill="y")
 
+    # Anzahl Kategorie-Spalten nebeneinander in der Prüfpunkte-Übersicht —
+    # nutzt die verfügbare horizontale Breite besser aus, statt alle 7
+    # Kategorien stur untereinander zu stapeln.
+    _CATEGORY_COLUMNS = 3
+
     def rebuild_check_tree(self) -> None:
         """Baut die Checkbox-Gruppen aus ``app.definitions`` neu auf — z. B.
         nach dem Laden einer anderen Konfigurationsdatei."""
@@ -342,9 +387,13 @@ class MainPage(ttk.Frame):
         for definition in self.app.definitions:
             by_category.setdefault(definition.category, []).append(definition)
 
-        for category, definitions in by_category.items():
+        for col in range(self._CATEGORY_COLUMNS):
+            self._checks_frame.columnconfigure(col, weight=1, uniform="category")
+
+        for index, (category, definitions) in enumerate(by_category.items()):
+            row_index, col_index = divmod(index, self._CATEGORY_COLUMNS)
             cat_frame = ttk.LabelFrame(self._checks_frame, text=category)
-            cat_frame.pack(fill="x", padx=4, pady=4, anchor="w")
+            cat_frame.grid(row=row_index, column=col_index, padx=4, pady=4, sticky="nsew")
 
             header = ttk.Frame(cat_frame)
             header.pack(fill="x")
@@ -358,6 +407,7 @@ class MainPage(ttk.Frame):
             for definition in definitions:
                 var = tk.BooleanVar(value=definition.enabled)
                 self._check_vars[definition.check_id] = var
+                var.trace_add("write", lambda *_args: self._update_start_button_appearance())
 
                 row = ttk.Frame(cat_frame)
                 row.pack(fill="x", anchor="w", padx=16)
@@ -366,6 +416,43 @@ class MainPage(ttk.Frame):
                 # Checkboxen selbst untereinander bündig stehen.
                 ttk.Label(row, text=definition.nummer, width=6, anchor="e").pack(side="left")
                 ttk.Checkbutton(row, text=definition.name, variable=var).pack(side="left", padx=(4, 0))
+
+        self._bind_mousewheel_recursive(self._checks_frame)
+        self._update_start_button_appearance()
+
+    def _update_start_button_appearance(self) -> None:
+        """Färbt den "Prüfung starten"-Button hellgrün, sobald mindestens ein
+        Prüfpunkt angehakt ist — reagiert auf jede Änderung eines
+        Kontrollkästchens, egal ob einzeln, per Kategorie- oder per
+        globalem Auswählen/Abwählen-Button ausgelöst (alle wirken auf
+        dieselben ``BooleanVar``s, an die dieser Trace hängt)."""
+        any_checked = any(var.get() for var in self._check_vars.values())
+        color = "light green" if any_checked else self._start_button_default_bg
+        self._start_button.configure(background=color, activebackground=color)
+
+    def _bind_mousewheel_recursive(self, widget: tk.Widget) -> None:
+        """Bindet das Mausrad direkt an ``widget`` und alle seine Kinder, damit
+        der Prüfpunkte-Bereich überall scrollt, nicht nur über der Scrollbar
+        selbst (Windows/Mac: ``<MouseWheel>`` mit ``event.delta``; Linux:
+        ``<Button-4>``/``<Button-5>``, da X11 kein ``MouseWheel``-Event kennt).
+        Direkte Bindung statt ``bind_all`` mit Enter/Leave-Umschaltung, weil
+        die eingebettete Checkbox-Frame ein eigenes Kind-Widget des Canvas ist
+        — ein Wechsel der Maus vom Canvas auf eine Checkbox würde dort sonst
+        ein <Leave> auf dem Canvas auslösen und die Bindung wieder aufheben."""
+        widget.bind("<MouseWheel>", self._on_mousewheel)
+        widget.bind("<Button-4>", self._on_mousewheel)
+        widget.bind("<Button-5>", self._on_mousewheel)
+        for child in widget.winfo_children():
+            self._bind_mousewheel_recursive(child)
+
+    def _on_mousewheel(self, event: tk.Event) -> None:
+        if event.num == 4:
+            delta = -1
+        elif event.num == 5:
+            delta = 1
+        else:
+            delta = int(-1 * (event.delta / 120))
+        self._checks_canvas.yview_scroll(delta, "units")
 
     def collect_enabled_definitions(self) -> list[CheckDefinition]:
         result = []

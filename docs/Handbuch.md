@@ -1,6 +1,6 @@
 # TIA Linter — Benutzerhandbuch
 
-**Version dieses Handbuchs:** 0.28 (Entwurf)
+**Version dieses Handbuchs:** 0.30 (Entwurf)
 **Stand:** 18.07.2026
 **Programmversion:** 0.1.0
 
@@ -385,6 +385,8 @@ zuordnen, ohne den Namen abgleichen zu müssen. Zur schnellen Auswahl
 stehen zur Verfügung:
 
 - **"Alle auswählen" / "Alle abwählen"** — wirkt auf sämtliche Prüfpunkte.
+  Beide Buttons sind vergrößert und mittig über dem Prüfpunkte-Bereich
+  angeordnet.
 - **"Alle" / "Keine"** je Kategorie — wirkt nur auf die Prüfpunkte der
   jeweiligen Kategorie.
 - Einzelne Kontrollkästchen für jeden Prüfpunkt.
@@ -392,15 +394,26 @@ stehen zur Verfügung:
 Welche Prüfpunkte hier standardmäßig angehakt sind, ist in der aktiven
 Konfigurationsdatei festgelegt.
 
+Die Kategorien stehen zu je drei nebeneinander (erste Zeile z. B.
+"Kommentare & Beschreibungen", "Namenskonventionen", "Programmstruktur"),
+statt strikt untereinander — das nutzt die verfügbare Fensterbreite besser
+aus. Innerhalb des gesamten Prüfpunkte-Bereichs scrollt das Mausrad, egal
+über welchem Kontrollkästchen oder welcher Kategorie sich der Mauszeiger
+gerade befindet — nicht nur direkt über der Bildlaufleiste.
+
 ![Der Prüfpunkte-Bereich der Eingabeseite mit den nach Kategorie gruppierten Kontrollkästchen sowie den Buttons "Alle auswählen"/"Alle abwählen" und "Alle"/"Keine" je Kategorie](images/gui-pruefpunkte-bereich.png)
 
 **4. Start, Fortschritt und Log**
 
 - **"Prüfung starten"** beginnt den Prüflauf mit den aktuell ausgewählten
   Einstellungen. Der Button ist deaktiviert, solange keine Projektdatei,
-  kein Output-Ordner oder kein Prüfpunkt ausgewählt ist.
+  kein Output-Ordner oder kein Prüfpunkt ausgewählt ist. Er färbt sich
+  hellgrün, sobald mindestens ein Prüfpunkt angehakt ist — als visueller
+  Hinweis, dass der Lauf startbereit ist.
 - **"Abbrechen"** ist nur während eines laufenden Prüflaufs aktiv und bricht
   diesen kontrolliert ab.
+- Beide Buttons sind vergrößert und mittig unter dem Prüfpunkte-Bereich
+  angeordnet.
 - Eine **Fortschrittsanzeige** und eine **Statuszeile** zeigen, dass eine
   Prüfung läuft bzw. welche Meldung zuletzt eingegangen ist.
 - Ein **Log-Fenster** zeigt alle Meldungen des laufenden Prüflaufs live und
@@ -2700,3 +2713,5 @@ zu der Übersicht, die bereits am Anfang der Markdown-Datei steht.
 | 0.26 | 19.07.2026 | Dreizehnter Kommentar-Bug behoben (User-Meldung: "fast alle Warnungen sind falsch"): Prüfpunkt 3 las den Netzwerktitel bislang aus der `AttributeList` eines `CompileUnit`-XML-Elements (analog zu einfachen Attributen wie `ProgrammingLanguage`) — Titel/Kommentar eines Netzwerks liegen im XML-Export aber als eigene, mehrsprachige `MultilingualText`-Komposition im `ObjectList`, strukturell identisch zu `PlcBlock.Title`/`.Comment` (siehe Version 0.25). Die alte Leselogik fand dadurch **nie** einen Titel, unabhängig davon, ob einer gepflegt war. Zusätzlicher, davon unabhängiger Fallstrick beim Fix selbst: `reference_language(project).Culture` liefert ein `System.Globalization.CultureInfo`-.NET-Objekt, kein `System.String` — ein direkter Vergleich gegen die aus dem XML gelesenen reinen Text-Kultur-Codes (z. B. `"de-DE"`) schlug deshalb zunächst trotz des Strukturfixes weiterhin fehl, bis `str(...)` ergänzt wurde. Live verifiziert: 148 → 1 Befund (der verbleibende ist ein echter "Titel zu lang"-Fall). Neue Hilfsfunktion `compile_unit_multilingual_text()` in `_tia_helpers.py`. Besonderheiten bei Prüfpunkt 3 entsprechend ergänzt. |
 | 0.27 | 19.07.2026 | Vierzehnter Kommentar-Bug behoben (User-Meldung, live an FB `01OrgPrg` verifiziert, dort absichtlich weder Autor noch Version gesetzt): Prüfpunkt 4 meldete trotz fehlender Angaben keinen Befund. Ursache: `GetAttribute("HeaderVersion")` liefert ein `System.Version`-.NET-Objekt statt eines Strings, dessen `ToString()` bei nicht gesetzter Version `"0.0.0.0"` ergibt (.NET-Standardwert) — ein nicht-leerer String, wodurch die Version fälschlich als vorhanden galt und praktisch jeder Baustein den Prüfpunkt bestand. Live an allen 288 Bausteinen des Salzmaschine-Projekts bestätigt: 234 tragen exakt `"0.0.0.0"`, echte Versionen sehen dagegen wie `"0.1"`/`"1.0"`/`"2.1"` aus (im TIA-UI ohnehin nicht als vierteiliger Wert eingebbar). Fix: `"0.0.0.0"` wird wie eine leere Version behandelt. Live verifiziert: 0 → 104 Befunde projektweit. Besonderheiten bei Prüfpunkt 4 entsprechend ergänzt. |
 | 0.28 | 19.07.2026 | Neuer Parameter `check_idb` bei Prüfpunkt 4 (User-Auftrag, analog zu `check_db` bei Prüfpunkt 2) — Standardwert `false`: Instanz-Datenbausteine werden von der Autor/Version-Prüfung ausgenommen, Global-/Array-DBs sowie FB/FC/OB bleiben unverändert und werden weiterhin immer geprüft; `true` stellt das bisherige Verhalten (inkl. Instanz-DBs) wieder her. Anders als `check_db` bei Prüfpunkt 2 betrifft dieser Parameter gezielt nur Instanz-DBs, nicht alle Datenbausteine. Parameter-Tabelle und Besonderheiten bei Prüfpunkt 4 entsprechend ergänzt. Live verifiziert (2 Instanz-DBs ohne Autor/Version standardmäßig ausgenommen, z. B. `PrgFieldbusOkDb`, `PlcTimeDb`). |
+| 0.29 | 19.07.2026 | Zwei GUI-Änderungen (User-Auftrag) dokumentiert: (1) Die Prüfpunkt-Kategorien stehen auf der Eingabeseite jetzt zu je drei nebeneinander (Grid-Layout) statt strikt untereinander (Pack-Layout) — nutzt die verfügbare Fensterbreite besser aus. (2) Das Mausrad scrollt jetzt überall im Prüfpunkte-Bereich, nicht mehr nur direkt über der Bildlaufleiste (rekursive `<MouseWheel>`-Bindung auf Canvas und alle Kind-Widgets, da Enter/Leave-basierte Umschaltung wegen der eingebetteten Checkbox-Frame als eigenes Kind-Fenster nicht robust funktioniert hätte). Abschnitt 6.2 entsprechend ergänzt. |
+| 0.30 | 19.07.2026 | Drei weitere GUI-Änderungen (User-Auftrag): (1) "Alle auswählen"/"Alle abwählen" sowie "Prüfung starten"/"Abbrechen" sind jetzt ca. 50 % größer (Schrift relativ zur tatsächlichen Basisschriftgröße skaliert, nicht hart kodiert) und horizontal zentriert statt linksbündig. (2) "Prüfung starten" färbt sich hellgrün, sobald mindestens ein Prüfpunkt angehakt ist — dafür auf ein klassisches `tk.Button` statt `ttk.Button` umgestellt, da ttk-Buttons unter den nativen Windows-Themes eine gesetzte Hintergrundfarbe ignorieren. Abschnitt 6.2 entsprechend ergänzt. |
