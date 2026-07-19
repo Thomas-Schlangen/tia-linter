@@ -348,6 +348,54 @@ def compile_unit_attribute(compile_unit: Any, name: str) -> str | None:
     return None
 
 
+def compile_unit_multilingual_text(compile_unit: Any, composition_name: str, culture: str) -> str:
+    """Liest ein mehrsprachiges Textfeld (``"Title"`` oder ``"Comment"``)
+    eines ``CompileUnit``-XML-Elements (= Netzwerk) für eine bestimmte
+    Kultur (z. B. ``"de-DE"``).
+
+    User-Meldung, live an Netzwerk-Titeln verifiziert: Anders als einfache
+    Attribute wie ``ProgrammingLanguage`` (siehe ``compile_unit_attribute``)
+    liegen Netzwerk-``Title``/``Comment`` nicht in der ``AttributeList``,
+    sondern als eigene ``MultilingualText``-Komposition im ``ObjectList`` —
+    strukturell identisch zu ``PlcBlock.Title``/``.Comment`` (siehe
+    ``read_title``/``read_comment``), nur eben im XML-Export statt als
+    Openness-Objekt:
+    ``<ObjectList><MultilingualText CompositionName="Title"><ObjectList>
+    <MultilingualTextItem CompositionName="Items"><AttributeList>
+    <Culture>de-DE</Culture><Text>...</Text></AttributeList>
+    </MultilingualTextItem>...</ObjectList></MultilingualText></ObjectList>``.
+    ``compile_unit_attribute(compile_unit, "Title")`` suchte bislang nur in
+    der ``AttributeList`` und lieferte dadurch **immer** ``None`` — unabhängig
+    davon, ob ein Titel gepflegt war (Prüfpunkt 3 meldete dadurch fast jedes
+    Netzwerk fälschlich als "kein Titel"). Liefert ``""``, wenn keine
+    passende Kultur gefunden wird oder kein Text hinterlegt ist."""
+    for object_list in compile_unit:
+        if _local_name(object_list.tag) != "ObjectList":
+            continue
+        for mlt in object_list:
+            if _local_name(mlt.tag) != "MultilingualText" or mlt.attrib.get("CompositionName") != composition_name:
+                continue
+            for inner_object_list in mlt:
+                if _local_name(inner_object_list.tag) != "ObjectList":
+                    continue
+                for item in inner_object_list:
+                    if _local_name(item.tag) != "MultilingualTextItem":
+                        continue
+                    item_culture = None
+                    item_text = None
+                    for attribute_list in item:
+                        if _local_name(attribute_list.tag) != "AttributeList":
+                            continue
+                        for child in attribute_list:
+                            if _local_name(child.tag) == "Culture":
+                                item_culture = child.text
+                            elif _local_name(child.tag) == "Text":
+                                item_text = child.text
+                    if item_culture == culture:
+                        return (item_text or "").strip()
+    return ""
+
+
 # STEP-7-Objekttypen, für die GetService[CrossReferenceService]() laut V21-
 # Openness-Referenz (Manual 03/2026, "Unter STEP 7 auf Cross Reference Service
 # zugreifen") bestätigt unterstützt ist: OB, FB, FC, DB, Instanz-DB, Globaler

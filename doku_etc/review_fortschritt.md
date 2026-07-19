@@ -1377,3 +1377,61 @@ unter dem konfigurierten `min_laenge: 20`, der Baustein würde also auch ohne di
 Anführungszeichen als "zu kurz" markiert. User-Entscheidung (per Rückfrage): "Nichts
 ändern, Warnung ist korrekt" — kein Bug, sondern erwartetes Verhalten bei einem knapp zu
 kurzen, aber echten Titel. Keine Code-/Doku-Änderung vorgenommen.
+
+## Runde 27 — Dreizehnter Kommentar-Bug: Prüfpunkt 3 fand Netzwerktitel nie
+
+**Ausgangspunkt (User-Meldung):** "Bei Prüfpunkt 3 sind fast alle Warnungen falsch.
+Das liegt wahrscheinlich auch wieder daran, das die Netzwerkbeschreibung multilingual
+ist."
+
+**Untersuchung:** Live-XML-Export eines Bausteins (`Startup`) inspiziert. Bisherige
+Annahme (`compile_unit_attribute(compile_unit, "Title")` liest aus der
+`AttributeList`, analog zu `ProgrammingLanguage`) war falsch für Titel/Kommentar:
+Diese liegen im XML-Export als eigene, vollständige `MultilingualText`-Komposition im
+`ObjectList` eines `CompileUnit` — strukturell identisch zu `PlcBlock.Title`/`.Comment`
+(Runde 26), nur eben als XML-Baum statt als Openness-Objekt:
+`<ObjectList><MultilingualText CompositionName="Title"><ObjectList>
+<MultilingualTextItem CompositionName="Items"><AttributeList><Culture>de-DE</Culture>
+<Text>...</Text></AttributeList></MultilingualTextItem>...`. Ein gezielter
+Vollprojekt-Scan bestätigte: **kein einziges** der durchsuchten Netzwerke hatte je ein
+`<Title>`-Kind in der `AttributeList` — `compile_unit_attribute` lieferte dadurch
+strukturell bedingt **immer** `None`, unabhängig davon, ob ein Titel gepflegt war.
+
+**Fix, Teil 1** (`_tia_helpers.py`): Neue Funktion `compile_unit_multilingual_text()`
+navigiert gezielt zu `ObjectList > MultilingualText[CompositionName=Title] >
+ObjectList > MultilingualTextItem`, vergleicht dort das `Culture`-Kind gegen die
+übergebene Kultur und liefert den zugehörigen `Text`. `NetzwerkBeschreibungCheck`
+(`comments.py`) nutzt diese Funktion jetzt statt `compile_unit_attribute`.
+
+**Fix, Teil 2 (zusätzlicher, beim Testen entdeckter Fallstrick):** Erste
+Live-Verifikation des Fixes zeigte weiterhin 148 Befunde — augenscheinlich wirkungslos.
+Ursache: `reference_language(project).Culture` liefert ein
+`System.Globalization.CultureInfo`-.NET-Objekt, kein `System.String`. Der Vergleich
+`item_culture == culture` in `compile_unit_multilingual_text` verglich also einen
+Python-`str` (aus dem XML) gegen ein .NET-Objekt — nie gleich, obwohl `print()`/`str()`
+auf das `CultureInfo`-Objekt korrekt `"de-DE"` anzeigt (daher beim ersten Hinsehen
+unauffällig). Fix: `culture = str(reference_language(project).Culture)` vor dem
+Aufruf.
+
+**Verifiziert gegen das echte Salzmaschine-Projekt** (per `git stash`/`git stash pop`
+vor/nach gemessen):
+- Vorher: **148 Befunde**, alle vom Typ "kein Titel" — inkl. `Startup > Netzwerk 1`,
+  das laut Rohdaten den Titel "Systemdiagnose auf DB speichern" (de-DE) trägt.
+- Nachher: **1 Befund** — ein echter "Titel zu lang"-Fall, keine "kein Titel"-Befunde
+  mehr.
+- Isolierter Funktionstest von `compile_unit_multilingual_text()` gegen
+  `Startup > Netzwerk 1`: liefert nach dem vollständigen Fix (Struktur + `str()`)
+  korrekt `'Systemdiagnose auf DB speichern'`.
+- `pytest`: weiterhin 38/38 grün, `py_compile` fehlerfrei.
+- Ungenutzten Import `compile_unit_attribute` aus `comments.py` entfernt (dort nicht
+  mehr aufgerufen, aber weiterhin von `libraries.py`/`structure.py` für echte
+  Attribute wie `ProgrammingLanguage` verwendet).
+
+**Dokumentiert:** `docs/Handbuch.md` (Besonderheiten bei Prüfpunkt 3 um den
+Mehrsprachigkeits-Hinweis ergänzt, Version 0.26 + Anhang-C-Eintrag). `README.md`
+bewusst nicht geändert — reiner Bugfix an bestehendem Verhalten.
+
+Letzter Stand: "Prüfpunkt 3 las Netzwerktitel aus der falschen XML-Struktur
+(AttributeList statt ObjectList/MultilingualText) und fand dadurch strukturell nie
+einen Titel — zusätzlich ein CultureInfo-vs-String-Vergleichsfehler beim ersten
+Fix-Versuch. Beide behoben, live verifiziert (148 → 1 Befund), pytest 38/38 grün."

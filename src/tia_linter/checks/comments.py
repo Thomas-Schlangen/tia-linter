@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any
 
 from tia_linter.checks._tia_helpers import (
-    compile_unit_attribute,
     export_block_xml,
     format_path,
     get_attribute,
@@ -535,13 +534,35 @@ class BausteinBeschreibungCheck(BaseCheck):
 
 
 class NetzwerkBeschreibungCheck(BaseCheck):
-    """Prüfpunkt 3: Netzwerke ohne Titel bzw. mit zu langer Beschreibung."""
+    """Prüfpunkt 3: Netzwerke ohne Titel bzw. mit zu langer Beschreibung.
+
+    Dreizehnter Bug (User-Meldung: "fast alle Warnungen sind falsch"): Anders
+    als einfache Attribute wie ``ProgrammingLanguage`` liegt der Netzwerktitel
+    im XML-Export nicht in der ``AttributeList`` eines ``CompileUnit``,
+    sondern als eigene, mehrsprachige ``MultilingualText``-Komposition im
+    ``ObjectList`` — strukturell identisch zu ``PlcBlock.Title``/``.Comment``
+    (siehe ``BausteinBeschreibungCheck``/"Zwölfter Bug"), nur eben als XML
+    statt als Openness-Objekt gelesen. ``compile_unit_attribute(compile_unit,
+    "Title")`` suchte bislang ausschließlich in der ``AttributeList`` und
+    lieferte dadurch **immer** ``None``, unabhängig davon, ob ein Titel
+    gepflegt war — fast jedes Netzwerk wurde daher fälschlich als "kein
+    Titel" gemeldet. Fix: ``compile_unit_multilingual_text()`` liest den
+    Titel gezielt für die Kultur der Projekt-Referenzsprache
+    (``reference_language(project).Culture``, z. B. ``"de-DE"``) aus dem
+    ``ObjectList``.
+    """
 
     def run(self, project: Any) -> list[CheckResult]:
-        from tia_linter.checks._tia_helpers import iter_blocks
+        from tia_linter.checks._tia_helpers import compile_unit_multilingual_text, iter_blocks
 
         results: list[CheckResult] = []
         max_chars = int(self.definition.params.get("max_zeichen", 80))
+        # .Culture liefert ein System.Globalization.CultureInfo-.NET-Objekt,
+        # kein System.String — str(...) für den Vergleich gegen die aus dem
+        # XML gelesenen (reinen Text-)Kultur-Codes wie "de-DE" nötig, sonst
+        # matcht compile_unit_multilingual_text() nie (live verifiziert:
+        # ohne str() lieferte der Vergleich immer "" statt des echten Titels).
+        culture = str(reference_language(project).Culture)
 
         for plc_software in iter_plc_software(project):
             for block, group_path in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
@@ -550,7 +571,7 @@ class NetzwerkBeschreibungCheck(BaseCheck):
 
                 xml_root = export_block_xml(block)
                 for index, compile_unit in enumerate(iter_compile_units(xml_root), start=1):
-                    title = (compile_unit_attribute(compile_unit, "Title") or "").strip()
+                    title = compile_unit_multilingual_text(compile_unit, "Title", culture)
                     block_path = format_path(
                         plc_software.Name, "Programmbausteine", *group_path, block.Name, f"Netzwerk {index}"
                     )
