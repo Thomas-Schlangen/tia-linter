@@ -1,6 +1,6 @@
 # TIA Linter — Benutzerhandbuch
 
-**Version dieses Handbuchs:** 0.35 (Entwurf)
+**Version dieses Handbuchs:** 0.36 (Entwurf)
 **Stand:** 21.07.2026
 **Programmversion:** 0.1.0
 
@@ -1478,6 +1478,14 @@ PLC_1 > Variablentabellen > Tags_Eingaenge > I_Reserve_03
   geprüft wird ausschließlich, ob tatsächlich gelesen wird. Ob ein Eingang
   fälschlich auch **beschrieben** wird, prüft der separate
   [Prüfpunkt 12b](#prüfpunkt-12b-eingänge-dürfen-nicht-beschrieben-werden).
+- Geprüft werden ausschließlich **PLC-Tags mit fester Hardware-Adresse**
+  (`%I`/`%Q`) aus den Variablentabellen — nicht DB-Member, selbst wenn sie
+  wie ein Eingang benannt sind. In Projekten, die Hardware-Ein-/Ausgänge
+  über einen Organisationsbaustein in einen Datenbaustein spiegeln (dort
+  arbeitet dann die eigentliche Logik weiter), sieht dieser Prüfpunkt nur
+  die ursprünglichen PLC-Tags, nicht die gespiegelten DB-Member — die
+  tatsächliche Anzahl geprüfter Ein-/Ausgänge kann dadurch deutlich kleiner
+  ausfallen als die Anzahl der physisch verdrahteten Signale.
 
 **Empfehlung zur Behebung**
 Prüfen, ob der Eingang tatsächlich benötigt wird — andernfalls Beschaltung
@@ -1525,6 +1533,9 @@ PLC_1 > Variablentabellen > Tags_Eingaenge > I_Sensor_01
   Eingänge dürfen grundsätzlich gar nicht beschrieben werden.
 - Der Standard-Schweregrad ist **Fehler**, nicht Warnung wie bei den
   meisten übrigen Prüfpunkten dieser Kategorie.
+- Wie bei Prüfpunkt 12: Es werden ausschließlich echte PLC-Tags mit
+  Hardware-Adresse geprüft, keine DB-Member (siehe dortige Besonderheiten
+  zum I/O-Spiegel-Pattern).
 
 **Empfehlung zur Behebung**
 Schreibzugriff auf den Eingang entfernen — Eingänge sind nur lesend zu
@@ -1566,6 +1577,9 @@ PLC_1 > Variablentabellen > Tags_Ausgaenge > Q_Ventil_02
 - Der Standard-Schweregrad ist hier **Fehler** statt Warnung wie bei den
   meisten übrigen Prüfpunkten dieser Kategorie — das unterstreicht, wie
   ernst dieser Verstoß typischerweise einzustufen ist.
+- Wie bei Prüfpunkt 12: Es werden ausschließlich echte PLC-Tags mit
+  Hardware-Adresse geprüft, keine DB-Member (siehe dortige Besonderheiten
+  zum I/O-Spiegel-Pattern).
 
 **Empfehlung zur Behebung**
 Schreibzugriffe auf den Ausgang auf eine einzige Stelle im Programm
@@ -2785,3 +2799,4 @@ zu der Übersicht, die bereits am Anfang der Markdown-Datei steht.
 | 0.33 | 19.07.2026 | Siebzehnter Kommentar-/Struktur-Bug behoben (User-Meldung, live an Instanz-DB `DB_PrgFieldbusOkDb` verifiziert): Prüfpunkt 11 meldete bei manchen Instanz-DBs einen nicht existierenden "Member" mit demselben Namen wie die DB selbst (`... > DB_PrgFieldbusOkDb > Member > DB_PrgFieldbusOkDb`). Ursache: `GetCrossReferences(CrossReferenceFilter.UnusedObjects)` liefert für eine Instanz-DB nicht ausschließlich echte Member als `Source` — ein zusätzlicher `Source`-Eintrag mit `Name` == Name der DB und `TypeName` "Instance DB of ..." repräsentiert die DB selbst, kein Member. Der bisherige Code behandelte jeden `Source` blind als DB-Variable. Fix: `Source`s, deren Name exakt dem Namen der DB entspricht, werden übersprungen — Prüfpunkt 11b prüft ohnehin eigenständig, ob eine DB als Ganzes unbenutzt ist. Live verifiziert: 23 → 5 Befunde projektweit — alle 18 zuvor gemeldeten "DB-Member"-Befunde erwiesen sich als exakt dieser Selbst-Eintrag-Fall, keine echten Member betroffen. Besonderheiten bei Prüfpunkt 11 entsprechend ergänzt. |
 | 0.34 | 19.07.2026 | Achtzehnter Bug behoben, korrigiert/erweitert Version 0.33 (User-Meldung: "meiner Meinung nach wird DB_PrgFieldbusOkDb -> DiagCpu -> DNNmode nicht verwendet", per Rückfrage bestätigt anhand des offiziellen Beispielcodes der V21-Openness-Referenz, Manual 03/2026, "Querverweise für STEP 7 abrufen"): Die Annahme aus Version 0.33, jeder `Source` in `unused_result.Sources` sei bereits ein fertiges unbenutztes Member, war falsch — `Sources` ist die Wurzel eines Baums; der in 0.33 übersprungene Source (Name == DB-Name) ist genau dieser Wurzelknoten, dessen `.Children` rekursiv die tatsächlich unbenutzten Member enthalten. Der bloße Skip aus 0.33 behob zwar den irreführenden Phantom-Befund, verschluckte dabei aber auch sämtliche echten, tiefer verschachtelten Treffer — der Prüfpunkt meldete dadurch de facto nie ein einziges echtes unbenutztes DB-Member. Fix: neue Hilfsfunktion `unused_cross_reference_leaf_names()` steigt rekursiv durch `.Children` ab und liefert nur echte Blattknoten; Array-Elemente werden dabei übersprungen (ein einzelnes großes Array-Member lieferte live tausende Einzelindizes als separate Blätter — analog zum Array-Skip bei Prüfpunkt 1). Live verifiziert: `DiagCpu.DNNmode` wird jetzt korrekt gemeldet; projektweit **5 → 3.210 Befunde** (vorher blind durch den reinen Root-Skip, nach Array-Filter aber realistisch). Besonderheiten bei Prüfpunkt 11 entsprechend überarbeitet. |
 | 0.35 | 21.07.2026 | Grundlegende Überarbeitung von Prüfpunkt 11, Neunzehnter bis Dreiundzwanzigster Bug (User-Einwand: Instanz-DBs haben keine eigene Logik, die Prüfung sollte sich auf die interne Verwendung im FB/FC/OB selbst beschränken, externe Zugriffe sind ohnehin unerwünscht und gehören zu Prüfpunkt 26). Instanz-DBs werden bei Prüfpunkt 11 jetzt komplett übersprungen; FB-/FC-/OB-Interface-Member (inkl. Temp) werden stattdessen direkt anhand des Bausteincodes geprüft (neue Hilfsfunktion `local_variable_access_names()`: `<Access>`/`<Instance Scope="LocalVariable">` im XML-Export, sprachunabhängig für SCL und FBD/LAD identisch strukturiert) — garantiert strukturell, dass nur interne Verwendung zählt. Global-/Array-DBs bleiben unverändert über `CrossReferenceService` geprüft. Live verifiziert: 163 Befunde (5 PLC-Tags, 140 Global-/Array-DB-Member, 18 neue FB/FC/OB-Member-Treffer wie `OrgPrg > test`). Im Zuge dieser Überarbeitung zwei weitere, unabhängige Bugs entdeckt und behoben: Prüfpunkt 26 las den zugreifenden Bausteinnamen aus dem immer leeren `Location.Name` statt `Location.ReferenceLocation`, und `find_source_child_by_name` fand Member nie, weil Kindknoten im Kreuzreferenzbaum mit dem DB-Namen als Präfix qualifiziert sind — beide behoben, zusätzlich ein Multiinstanz-Metaeintrag-Fehlalarm (`ReferenceType.InstanceType`) gefiltert. Prüfpunkt 26 meldet dadurch jetzt erstmals einen echten Treffer (`01PrgDb.lx_30M1StopGap`). Prüfpunkt 27 war ebenfalls seit Einführung wirkungslos (CrossReferenceService liefert am FB/FC keinen Member-Baum) — auf denselben XML-Mechanismus umgestellt (neue Hilfsfunktion `local_variable_write_counts()`, inkl. Pin-Rollen-Tabelle für FBD/LAD-Boxen wie Coil/Move/TON und SCL-Zuweisungserkennung), kreuzvalidiert gegen die alte Instanz-DB-Methode (`LSNTP_Server`: `status`/`error`/`statusID` je 4 Schreibzugriffe, exakte Übereinstimmung) und deckt jetzt erstmals auch FC ab. Besonderheiten bei Prüfpunkt 11, 26 und 27 entsprechend überarbeitet. |
+| 0.36 | 21.07.2026 | Prüfpunkte 12/12b/13 auf User-Auftrag hin überprüft (kein Bug gefunden, reine Untersuchung): Rohdaten-Dump und Skalen-Check gegen Salzmaschine zeigen, dass die Kreuzreferenz-Auswertung technisch korrekt ist (keine Meta-Eintrag-Artefakte wie bei den DB-Membern in Prüfpunkt 26, `Location.Access` liefert zuverlässig Read/Write) — die 0 Befunde bei allen drei Prüfpunkten sind kein Scan-Fehler. Auffällig dabei: Das Projekt hat insgesamt nur 42 PLC-Tags mit fester Hardware-Adresse (19 Eingänge, 7 Ausgänge, exakt passend zur Namenskonvention aus Prüfpunkt 6) — die eigentliche Prozess-I/O läuft offenbar größtenteils über ein I/O-Spiegel-Pattern (Hardware-Tags werden von einem Organisationsbaustein in Datenbaustein-Member kopiert, z. B. `I4805_33S1` als Static-Member von `01Prg`), die diese drei Prüfpunkte naturgemäß nicht erfassen, da sie ausschließlich Variablentabellen-Tags mit `%I`/`%Q`-Adresse durchlaufen. Auf Rückfrage entschied der User, den Geltungsbereich unverändert auf echte PLC-Tags zu beschränken — die Einschränkung wurde stattdessen in den Besonderheiten von Prüfpunkt 12/12b/13 dokumentiert. Keine Code-Änderung in dieser Runde. |

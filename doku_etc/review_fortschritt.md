@@ -2040,3 +2040,49 @@ liefert am FB keinen Member-Baum) gefunden und behoben — beide melden jetzt
 erstmals echte Treffer (26: 1, mit voller Standardkonfiguration; 27: 0, sauber
 für Anwendercode, 229 vor Bibliotheks-Ausschluss). Live kreuzvalidiert, pytest
 38/38 grün. Bereit für Doku-Review und Commit-Freigabe durch den User."
+
+## Runde 37 — Prüfpunkt 12/12b/13 überprüft (User-Auftrag, kein Bug gefunden)
+
+**Ausgangspunkt:** Nach dem offenen Punkt aus Runde 36 ("Prüfpunkte 12, 13
+noch nicht spezifisch re-geprüft") bat der User direkt: "schau dir Prüfpunkte
+12 und 13 auch nochmal an."
+
+**Untersuchung:** Anders als Prüfpunkt 26/27 arbeiten Prüfpunkt 12/12b/13
+direkt auf **PLC-Tags** (`cross_reference_locations(tag)`), nicht auf
+Bausteinen/DB-Membern — der in Runde 36 gefundene "kein Member-Baum am
+FB"-Fallstrick betrifft sie strukturell nicht, da ein PLC-Tag selbst das
+Abfrageobjekt ist (keine Dekomposition nötig).
+
+1. Rohdaten-Dump für mehrere reale I-/Q-Tags (`I4805_6S31`, `O4805_27Y51`
+   u. a.): Alle Locations sauber, `ReferenceType` durchgehend `UsedBy`, keine
+   `InstanceType`-Metaeinträge wie bei den Multiinstanz-Membern in Runde 36 —
+   `Location.Access` liefert zuverlässig Read/Write.
+2. Live-Lauf aller drei Prüfpunkte gegen Salzmaschine (Standardkonfiguration,
+   `ProjectBib` ausgeschlossen): **0 Befunde bei allen dreien.**
+3. Skalen-Check zur Abgrenzung "echtes sauberes Ergebnis" vs. "Scan erfasst
+   zu wenig": Das gesamte Projekt hat nur **42 PLC-Tags mit fester
+   Hardware-Adresse** (19 Eingänge, 7 Ausgänge) — exakt deckungsgleich mit
+   der Namenskonvention aus Prüfpunkt 6 (`name_matches_input=19,
+   name_input_with_addr=19`, ebenso bei Output). Kein Scan-Fehler, sondern
+   ein architektonisches Merkmal des Projekts: Die eigentliche Prozess-I/O
+   läuft größtenteils **nicht** über PLC-Tags, sondern über ein
+   I/O-Spiegel-Pattern (ein Organisationsbaustein kopiert Hardware-Tags in
+   DB-Member) — genau das Muster, das in Runde 36 bereits als unbenutztes
+   Static-Member `I4805_33S1` in `01Prg` auftauchte.
+
+**Ergebnis:** Prüfpunkt 12/12b/13 sind technisch korrekt und bugfrei — ihre
+Reichweite ist aber strukturell auf echte PLC-Tags beschränkt und erfasst die
+gespiegelten DB-Member nicht. Per `AskUserQuestion` rückgefragt, ob das
+genauer untersucht (Erkennung des Spiegel-Patterns) oder unverändert gelassen
+werden soll. User-Entscheidung: unverändert lassen, nur dokumentieren.
+
+**Dokumentiert:** `docs/Handbuch.md` Version 0.36 + Anhang-C-Eintrag,
+Besonderheiten bei Prüfpunkt 12/12b/13 um einen Hinweis auf die
+I/O-Spiegel-Einschränkung ergänzt. Keine Code-Änderung, `pytest` unverändert
+38/38 grün (nichts am Check-Code geändert).
+
+Letzter Stand: "Prüfpunkt 12/12b/13 auf Bug-Verdacht geprüft — keiner
+gefunden, Rohdaten und Check-Logik sind sauber. Das Projekt hat aber nur 42
+echte PLC-Tags insgesamt; die eigentliche I/O läuft über ein
+DB-Spiegel-Pattern, das diese drei Prüfpunkte naturgemäß nicht sehen. Auf
+User-Wunsch nur dokumentiert, nicht erweitert."
