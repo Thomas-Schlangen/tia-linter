@@ -486,25 +486,44 @@ def find_source_child_by_name(source_object: Any, name: str) -> Any | None:
     seines Bausteins/DBs anhand des Namens wiederfinden.
 
     ``name`` kommt aus ``interface_section_members()`` (XML-Export der
-    Interface-Section, unquotierte Namen) — ``child.Name`` aus dem
-    Kreuzreferenzbaum kann dagegen für Namen, die keine gültigen "einfachen"
-    Bezeichner sind (z. B. Ziffernbeginn), quotiert sein (``"4805_15A1"``
-    statt ``4805_15A1`` — dasselbe, live an DB-Membern verifizierte Verhalten
-    wie bei ``ProjectTextComments``, siehe ``normalize_member_path``). Ohne
-    den Normalisierungs-Fallback würde ein solches Mitglied hier nie
-    gefunden, obwohl es existiert — betrifft Prüfpunkt 26
-    (``static_zugriff_extern``) und 27 (``output_mehrfach_beschrieben``).
+    Interface-Section, unquotierte, unqualifizierte Namen). ``child.Name``
+    aus dem Kreuzreferenzbaum trägt dagegen live verifiziert (Salzmaschine,
+    Instanz-DB ``01PrgDb``) immer den Namen des abgefragten Wurzelobjekts als
+    qualifizierendes Präfix — z. B. ``'"01PrgDb".lx_30M1StopGap'`` statt
+    ``'lx_30M1StopGap'`` (Präfix als ``"<Name>".`` oder ``<Name>.``, analog
+    zum bereits in Prüfpunkt 11 behandelten Fall bei
+    ``unused_cross_reference_leaf_names``). Ohne diesen Präfix-Abgleich fand
+    diese Funktion **kein einziges** einfaches (nicht verschachteltes)
+    Interface-Member — betraf Prüfpunkt 26 (``static_zugriff_extern``), das
+    dadurch trotz des separaten ``ReferenceLocation``-Fixes weiterhin nie
+    einen Treffer meldete. Für Namen, die keine gültigen "einfachen"
+    Bezeichner sind (z. B. Ziffernbeginn), ist der Rest nach dem Präfix
+    zusätzlich quotiert (``"4805_15A1"`` statt ``4805_15A1`` — dasselbe
+    Verhalten wie bei ``ProjectTextComments``, siehe ``normalize_member_path``),
+    daher zusätzlich der Normalisierungs-Fallback.
     """
-    for child in getattr(source_object, "Children", []) or []:
-        child_name = getattr(child, "Name", None)
-        if child_name == name or (
-            child_name is not None and normalize_member_path(child_name) == name
-        ):
-            return child
-        found = find_source_child_by_name(child, name)
-        if found is not None:
-            return found
-    return None
+    root_name = getattr(source_object, "Name", None) or ""
+    prefixes = (f'"{root_name}".', f"{root_name}.") if root_name else ()
+
+    def _strip_root_prefix(child_name: str) -> str:
+        for prefix in prefixes:
+            if child_name.startswith(prefix):
+                return child_name[len(prefix):]
+        return child_name
+
+    def _walk(node: Any) -> Any | None:
+        for child in getattr(node, "Children", []) or []:
+            child_name = getattr(child, "Name", None)
+            if child_name is not None:
+                candidate = _strip_root_prefix(child_name)
+                if candidate == name or normalize_member_path(candidate) == name:
+                    return child
+            found = _walk(child)
+            if found is not None:
+                return found
+        return None
+
+    return _walk(source_object)
 
 
 def interface_section_members(xml_root: Any, section_name: str) -> set[str]:
@@ -553,6 +572,199 @@ def interface_section_members(xml_root: Any, section_name: str) -> set[str]:
 
     _walk(xml_root)
     return names
+
+
+def local_variable_access_names(xml_root: Any) -> set[str]:
+    """Liefert die Namen aller eigenen Interface-Member (Input/Output/InOut/
+    Static/Temp), die im Netzwerk-Code eines Bausteins (FB/FC/OB) tatsächlich
+    referenziert werden — unabhängig von der Programmiersprache.
+
+    Live verifiziert (Salzmaschine, SCL-FB ``LSNTP_Server`` und FBD-FB
+    ``40Alm``): Ein Zugriff auf eine eigene Interface-Variable wird in SCL
+    *und* FBD/LAD identisch als ``<Access Scope="LocalVariable">
+    <Symbol><Component Name="..."/>...</Symbol></Access>`` exportiert — nur
+    der äußere Namespace (``StructuredText`` vs. ``FlgNet``) unterscheidet
+    sich. Ein Multiinstanz-FB-Aufruf referenziert seine Instanz (ein eigenes
+    Static-Member) dagegen über ``<Instance Scope="LocalVariable">
+    <Component Name="..."/></Instance>`` — ohne ``Symbol``-Zwischenelement,
+    aber mit demselben ``Scope``-Attribut (ebenfalls live verifiziert, FC
+    ``CtrFcParaRdWr``).
+
+    Bewusst **nicht** über einen naiven Text-/Regex-Scan der exportierten XML
+    gelöst: Ein Bausteinaufruf listet die Parameternamen des *aufgerufenen*
+    Bausteins (``<CallInfo><Parameter Name="..." Section="Input"/>``) — diese
+    haben kein ``Scope="LocalVariable"`` und würden bei einem Textvergleich
+    fälschlich als Verwendung einer gleichnamigen *eigenen* Variablen des
+    aufrufenden Bausteins zählen, sobald beide Bausteine zufällig ein Member
+    mit demselben Namen deklarieren. Nur ``Access``/``Instance``-Elemente mit
+    ``Scope="LocalVariable"`` zählen als echter interner Zugriff.
+
+    Nur die erste ``Component`` unter ``Symbol`` (bzw. direkt unter
+    ``Instance``) wird gezählt — das ist der Name des direkt deklarierten
+    Interface-Members; weitere, verschachtelte ``Component``-Elemente sind
+    Struct-/UDT-Unterfelder desselben Members (analog zur Granularität von
+    ``interface_section_members``)."""
+    if xml_root is None:
+        return set()
+    names: set[str] = set()
+
+    for compile_unit in iter_compile_units(xml_root):
+        for elem in compile_unit.iter():
+            tag = _local_name(elem.tag)
+            if elem.attrib.get("Scope") != "LocalVariable":
+                continue
+            if tag == "Access":
+                for symbol in elem:
+                    if _local_name(symbol.tag) != "Symbol":
+                        continue
+                    for component in symbol:
+                        if _local_name(component.tag) == "Component":
+                            name = component.attrib.get("Name")
+                            if name:
+                                names.add(name)
+                            break
+                    break
+            elif tag == "Instance":
+                for component in elem:
+                    if _local_name(component.tag) == "Component":
+                        name = component.attrib.get("Name")
+                        if name:
+                            names.add(name)
+                        break
+    return names
+
+
+def _first_symbol_component_name(access_elem: Any) -> str | None:
+    """Liefert den Namen der ersten ``Component`` unter ``Symbol`` eines
+    ``Access``-Elements (das direkt deklarierte Interface-Member, siehe
+    ``local_variable_access_names``)."""
+    for symbol in access_elem:
+        if _local_name(symbol.tag) != "Symbol":
+            continue
+        for component in symbol:
+            if _local_name(component.tag) == "Component":
+                return component.attrib.get("Name")
+        break
+    return None
+
+
+_FBD_WRITE_PIN_NAMES = frozenset({"operand", "out", "out1", "q", "et"})
+
+
+def _scan_scl_assignment_writes(elem: Any, counts: dict[str, int]) -> None:
+    """Rekursiver Teil von ``local_variable_write_counts`` für SCL: erkennt
+    Zuweisungsziele anhand der Token-Nachbarschaft eines ``Access``-Elements
+    (siehe Docstring dort für die live verifizierte Struktur)."""
+    children = list(elem)
+    parent_tag = _local_name(elem.tag)
+
+    def _next_non_blank(start: int) -> Any | None:
+        for i in range(start, len(children)):
+            if _local_name(children[i].tag) not in ("Blank", "NewLine"):
+                return children[i]
+        return None
+
+    def _prev_non_blank(start: int) -> Any | None:
+        for i in range(start, -1, -1):
+            if _local_name(children[i].tag) not in ("Blank", "NewLine"):
+                return children[i]
+        return None
+
+    for index, child in enumerate(children):
+        if _local_name(child.tag) == "Access" and child.attrib.get("Scope") == "LocalVariable":
+            is_write = False
+            following = _next_non_blank(index + 1)
+            if following is not None and _local_name(following.tag) == "Token" and following.attrib.get("Text") == ":=":
+                is_write = True  # einfache Zuweisung: Access direkt vor ":="
+            elif parent_tag == "Parameter":
+                preceding = _prev_non_blank(index - 1)
+                if preceding is not None and _local_name(preceding.tag) == "Token" and preceding.attrib.get("Text") == "=>":
+                    is_write = True  # Aufruf-Ausgangsparameter: Access nach "=>"
+            if is_write:
+                name = _first_symbol_component_name(child)
+                if name:
+                    counts[name] = counts.get(name, 0) + 1
+        _scan_scl_assignment_writes(child, counts)
+
+
+def local_variable_write_counts(xml_root: Any) -> dict[str, int]:
+    """Zählt, wie oft eigene Interface-Member (Input/Output/InOut/Static/Temp)
+    im Netzwerk-Code eines Bausteins (FB/FC/OB) tatsächlich **beschrieben**
+    (nicht nur gelesen) werden — sprachunabhängig (SCL und FBD/LAD).
+
+    Anders als ``local_variable_access_names`` (das nur "wird überhaupt
+    verwendet" beantwortet) ist hier die Lese-/Schreibrichtung nötig
+    (Prüfpunkt 27: mehrfach beschriebene Output-Parameter). Live an
+    Salzmaschine erarbeitet (FB ``LSNTP_Server``, FC ``CtrFcParaRdWr``,
+    OB1 ``OrgPrg``, FC ``DiagnosticErrorInterrupt`` als Move-Beispiel):
+
+    **FBD/LAD**: Eine ``Access Scope="LocalVariable"``-Referenz ist ein
+    Schreibzugriff, wenn sie über ihre ``IdentCon`` mit demselben ``Wire``
+    verbunden ist wie ein ``NameCon``, dessen ``Name``-Attribut ein
+    "schreibender" Pin ist (``operand`` bei Coil/SCoil/RCoil/PCoil/NCoil/
+    ResetIECTimerCoil, ``out``/``out1`` bei Logikgattern/Move/Vergleichs-
+    und Rechenboxen, ``q``/``et`` bei TON/TOF) — alle anderen Pins
+    (``in``/``in1``/``in2``/``bit``/``en``/...) sind lesend. Live bestätigt
+    an ``SCoil`` (Pin ``operand``, Beispiel ``CtrFcParaRdWr``), ``Coil``
+    unter einem AND-Gatter (``OrgPrg``) und ``Move`` (Pin ``out1``,
+    ``DiagnosticErrorInterrupt``). Diese Zuordnung ist auf die in diesem
+    Projekt tatsächlich vorkommenden Part-Typen begrenzt — ein hier nicht
+    gelisteter Part-Typ wird konservativ nicht als Schreibzugriff gewertet
+    (lieber ein Treffer zu wenig als ein Fehlalarm).
+
+    **SCL**: Ein ``Access Scope="LocalVariable"`` ist ein Schreibzugriff,
+    wenn es (a) als direktes Geschwisterelement unmittelbar vor einem
+    ``Token Text=":="`` steht (einfache Zuweisung, z. B. ``error := TRUE;``
+    — live an genau dieser Zeile in ``LSNTP_Server`` verifiziert), oder
+    (b) innerhalb eines ``Parameter``-Elements unmittelbar nach einem
+    ``Token Text="=>"`` steht (benannter Ausgangsparameter eines Aufrufs,
+    z. B. ``RD_SYS_T(OUT => tempSysTime)``). Der spiegelbildliche Fall
+    (``Token Text=":="`` gefolgt von ``Access`` innerhalb eines
+    ``Parameter``) ist ein *lesender* Eingangsparameter, kein Schreibzugriff.
+
+    Kreuzvalidiert gegen ``CrossReferenceService`` (``Location.Access ==
+    Write``) an ``LSNTP_ServerDb``: beide Wege liefern für ``status``,
+    ``error`` und ``statusID`` übereinstimmend je 4 Schreibzugriffe.
+    """
+    counts: dict[str, int] = {}
+    if xml_root is None:
+        return counts
+
+    for compile_unit in iter_compile_units(xml_root):
+        access_by_uid: dict[str, Any] = {}
+        for elem in compile_unit.iter():
+            if _local_name(elem.tag) == "Access" and elem.attrib.get("Scope") == "LocalVariable":
+                uid = elem.attrib.get("UId")
+                if uid:
+                    access_by_uid[uid] = elem
+
+        for wire in compile_unit.iter():
+            if _local_name(wire.tag) != "Wire":
+                continue
+            write_pin_present = False
+            ident_uids: list[str] = []
+            for endpoint in wire:
+                endpoint_tag = _local_name(endpoint.tag)
+                if endpoint_tag == "NameCon":
+                    if (endpoint.attrib.get("Name") or "").lower() in _FBD_WRITE_PIN_NAMES:
+                        write_pin_present = True
+                elif endpoint_tag == "IdentCon":
+                    uid = endpoint.attrib.get("UId")
+                    if uid:
+                        ident_uids.append(uid)
+            if not write_pin_present:
+                continue
+            for uid in ident_uids:
+                access = access_by_uid.get(uid)
+                if access is None:
+                    continue
+                name = _first_symbol_component_name(access)
+                if name:
+                    counts[name] = counts.get(name, 0) + 1
+
+        _scan_scl_assignment_writes(compile_unit, counts)
+
+    return counts
 
 
 def compile_unit_element_count(compile_unit: Any) -> int:

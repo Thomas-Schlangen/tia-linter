@@ -1898,3 +1898,145 @@ den irreführenden Wurzel-Phantom-Befund, verschluckte aber unbeabsichtigt die
 eigentlichen Treffer mit). Fix: rekursive Children-Traversierung mit Array-Skip
 (analog Prüfpunkt 1). Live verifiziert (DiagCpu.DNNmode korrekt erkannt, 5 → 3.210
 Befunde projektweit nach Skalen-Rückfrage beim User), pytest 38/38 grün."
+
+## Runde 36 — Grundlegende Überarbeitung Prüfpunkt 11 (Instanz-DBs raus, XML-Scan
+rein), dabei zwei weitere stumme Bugs bei Prüfpunkt 26/27 entdeckt und behoben
+
+**Ausgangspunkt (User-Einwand, nicht Fehlermeldung):** "Es macht doch keinen Sinn,
+die Cross Reference eines Instanzdatenbausteins zu überprüfen. Da drin sind doch nur
+die Variablen des FBs. [...] Wir beschränken uns also hier definitiv auf die interne
+Verwendung, wenn möglich" — der User stellte das Grunddesign von Prüfpunkt 11 (Runde
+33–35) infrage: Eine Instanz-DB hat keine eigene Logik, ob ein Member "benutzt" ist,
+entscheidet sich im Code des FB. `CrossReferenceService.GetCrossReferences
+(UnusedObjects)` an der Instanz-DB zählt aber jede Referenz mit, auch externe
+Direktzugriffe von außen — genau solche sind unerwünscht und werden separat von
+Prüfpunkt 26 gemeldet.
+
+**Untersuchung, mehrstufig:**
+1. Direkte `CrossReferenceService`-Abfrage am FB/FC/OB selbst (statt an der
+   Instanz-DB) liefert **keinen Member-Baum** — live verifiziert an `LSNTP_Server`:
+   genau ein Root-Source (der FB selbst, `children=0`, 214 aggregierte
+   `References`/`Locations`). Der Member-Baum mit `.Children` existiert
+   nachweislich nur bei DB-Objekten.
+2. Selbst die aggregierten `References`/`Locations` dieses einen Root-Sources
+   verraten bei einem Zugriff auf ein *eigenes* Interface-Member weder über
+   `Location.Name` noch `Location.ReferencedAsName` (beide leer), welches Member
+   gemeint ist — nur bei Referenzen auf fremde, benannte Objekte ist `Location.Name`
+   gefüllt. Live an `LSNTP_Server`/`OrgPrg` verifiziert.
+3. Live an mehreren echten Beispielen (`PlcTimeDb.ot_PlcTime`, `01PrgDb.
+   lx_30M1StopGap`) bestätigt: Diese Member werden sowohl intern (im eigenen FB)
+   als auch extern (von einem anderen Baustein) referenziert — `UnusedObjects`
+   kann diese Fälle nicht unterscheiden, bestätigt den Einwand des Users.
+4. User-Entscheidung nach Rückfrage: Lösung für **alle** Bausteinarten (FB/FC/OB)
+   einheitlich über einen XML-Scan des eigenen Bausteincodes, statt
+   CrossReferenceService für FB und einen anderen Mechanismus für FC/OB.
+5. XML-Strukturuntersuchung (live an `LSNTP_Server` [SCL] und `40Alm`/`OrgPrg`
+   [FBD] verifiziert): Ein Zugriff auf eine eigene Interface-Variable wird in SCL
+   *und* FBD/LAD identisch als `<Access Scope="LocalVariable"><Symbol>
+   <Component Name="..."/></Symbol></Access>` exportiert; Multiinstanz-Aufrufe
+   entsprechend über `<Instance Scope="LocalVariable"><Component Name="..."/>
+   </Instance>`. Bewusst nicht per Text-/Regex-Scan gelöst: Ein Bausteinaufruf
+   listet die Parameternamen des *aufgerufenen* Bausteins (`<CallInfo><Parameter
+   Name="..." Section="Input"/>`) — ohne `Scope="LocalVariable"`, würde bei einem
+   Textvergleich sonst fälschlich als Verwendung einer gleichnamigen eigenen
+   Variablen zählen.
+
+**Fix (Prüfpunkt 11):**
+- Neue Hilfsfunktion `local_variable_access_names()` in `_tia_helpers.py`.
+- `UnbenutzteVariablenCheck` (`structure.py`): Instanz-DBs werden aus der
+  Global-/Array-DB-Schleife jetzt bewusst ausgeschlossen (`isinstance(db,
+  InstanceDB): continue`); neue dritte Schleife prüft FB/FC/OB direkt über
+  `interface_section_members()` (Input/Output/InOut/Static/Temp — Temp bewusst
+  mit eingeschlossen, abweichend von der Kommentar-Prüfpunkt-Konvention bei PP
+  1c/26/27, da OBs sonst praktisch nie geprüft würden) gegen
+  `local_variable_access_names()`.
+- Live verifiziert: **163 Befunde** (5 PLC-Tags, 140 Global-/Array-DB-Member
+  unverändert, **18 neue** FB/FC/OB-Member-Treffer, u. a. `OrgPrg > test`,
+  `OrgPrg > Initial_Call`/`Remanence` — Standard-OB1-Parameter, die nie
+  abgefragt werden). Stichprobenprüfung: keine der bekannten, stark genutzten
+  Variablen (`connID`, `hwID`, `status` etc.) taucht fälschlich als unbenutzt auf.
+
+**Nebenfund 1 — Prüfpunkt 26 seit Einführung stumm (Zwanzigster Bug):** Liest
+`Location.Name` als zugreifenden Bausteinnamen — live in jedem Fall (intern wie
+extern) `""`. Der echte Ort steht in `Location.ReferenceLocation`
+(`@<Bausteinname> ▶ NWn (...)` bzw. `@<Bausteinname> ▶ Ln: x Cl: y` für SCL).
+Fix: Bausteinname per Regex aus dem `@`-Präfix extrahiert.
+
+**Nebenfund 2 — `find_source_child_by_name` fand nie ein einfaches Member
+(Einundzwanzigster Bug):** Kindknoten im Kreuzreferenzbaum tragen den
+DB-/FB-Namen als qualifizierendes Präfix (`'"01PrgDb".lx_30M1StopGap'` statt
+`'lx_30M1StopGap'`) — der Namensabgleich verglich gegen den nackten Namen, ohne
+das Präfix zu entfernen. Fix direkt in der gemeinsam genutzten Helper-Funktion
+(Präfix wird vor dem Vergleich abgeschnitten). Mit beiden Fixes zusammen meldet
+Prüfpunkt 26 erstmals einen echten Treffer.
+
+**Nebenfund 3 — Multiinstanz-Metaeintrag-Fehlalarm (Zweiundzwanzigster Bug):**
+Live an `4805PrgManDb.Man4805_27M11` gefunden: Multiinstanz-Member tragen neben
+echten Nutzungsstellen (`ReferenceType.UsedBy`) einen Meta-Eintrag
+(`ReferenceType.InstanceType`, `ReferenceLocation` z. B. `@"4805PrgMan".
+Man4805_27M11 ▶ Data type`), der keine echte Codestelle ist, sondern nur die
+Typbeziehung beschreibt — ohne Filter wurde das als Zugriff von einem (nicht
+existierenden) Baustein mit diesem Namen fehlinterpretiert, ein Fehlalarm bei
+**jedem** Multiinstanz-Member (18 von 19 Treffern vor diesem Fix). Fix:
+Locations mit `ReferenceType.InstanceType` werden übersprungen.
+
+**Verifiziert (Prüfpunkt 26) gegen Salzmaschine:** Mit allen drei Fixes exakt
+**1 Befund** — `01PrgDb.lx_30M1StopGap`, extern zugegriffen von `01Vis` (der vom
+User über das ursprüngliche Explorationsskript bereits bestätigte Fall).
+
+**Nebenfund 4 — Prüfpunkt 27 seit Einführung ebenfalls stumm (Dreiundzwanzigster
+Bug):** Derselbe Root-Cause wie Punkt 1 oben — `CrossReferenceService` direkt am
+FB/FC liefert keinen Member-Baum, `find_source_child_by_name` fand dadurch nie
+ein Member. Auf Nachfrage entschied der User, das trotz des Mehraufwands
+vollständig zu reparieren (auch für FC, das keine Instanz-DB hat).
+
+**Untersuchung/Fix (Prüfpunkt 27):** Neue Hilfsfunktion
+`local_variable_write_counts()` in `_tia_helpers.py`, XML-basiert wie bei
+Prüfpunkt 11, aber mit Lese-/Schreibrichtung:
+- **SCL:** Ein `Access Scope="LocalVariable"` ist ein Schreibzugriff, wenn es
+  direkt vor einem `Token Text=":="` steht (einfache Zuweisung, live an
+  `error := TRUE;` in `LSNTP_Server` verifiziert: `Access` und `Token ":="` sind
+  flache Geschwisterelemente direkt unter `StructuredText`) oder innerhalb eines
+  `Parameter`-Elements direkt nach `Token Text="=>"` steht (Ausgangsparameter
+  eines Aufrufs, z. B. `RD_SYS_T(OUT => tempSysTime)`).
+- **FBD/LAD:** Pin-Rollen-Tabelle je nach `NameCon`-Namen im selben `Wire` wie
+  die `IdentCon` des Access-Elements — live verifiziert: `operand` bei
+  Coil/SCoil/RCoil (Beispiel `CtrFcParaRdWr`, `OrgPrg`), `out`/`out1` bei
+  Logikgattern und Move (Beispiel `DiagnosticErrorInterrupt`), alle
+  `in`/`in1`/`in2`/`bit`/`en`-Pins sind lesend. Auf die in diesem Projekt
+  tatsächlich vorkommenden Part-Typen begrenzt (Coil/SCoil/RCoil/Move/Gt/Eq/Ne/
+  Lt/Sr/Add/Ge/PBox/TON/Le/Sub/TOF/Div/Jump/NBox/Mul/Convert/Abs/Rs/Shl/Shr/
+  ResetIECTimerCoil/And/GEO2LOG) — ein nicht gelisteter Part-Typ zählt
+  konservativ nicht als Schreibzugriff.
+- **Kreuzvalidierung:** Neuer XML-Mechanismus gegen die (zu diesem Zeitpunkt
+  bereits reparierte) Instanz-DB-Methode gegengeprüft — beide Wege liefern für
+  `LSNTP_Server.status`/`.error`/`.statusID` übereinstimmend je **4**
+  Schreibzugriffe, exakte Übereinstimmung.
+- `OutputMehrfachBeschriebenCheck` (`libraries.py`) auf `local_variable_write_
+  counts()` umgestellt, CrossReferenceService komplett entfernt.
+
+**Verifiziert (Prüfpunkt 27) gegen Salzmaschine:** Roher Scan über das gesamte
+Projekt (alle Ordner): 229 Output-Member mit Mehrfachschreibzugriff — nahezu
+ausschließlich `LGF_*`-Bausteine (Siemens-Standardbibliothek) und
+`PrgBibAlpma`-Bausteine, alle unter `ProjectBib` (bereits projektweit
+ausgeschlossen). Mit der echten Standardkonfiguration (`ausgeschlossene_ordner:
+["ProjectBib"]`): **0 Befunde** — sauberes Ergebnis für den eigentlichen
+Anwendercode.
+
+**Verifiziert (gesamt):** `py_compile` fehlerfrei, `pytest` 38/38 grün,
+kombinierter Live-Lauf aller drei Checks ohne Exception (163/1/0 Befunde).
+
+**Dokumentiert:** `docs/Handbuch.md` Version 0.35 + Anhang-C-Eintrag,
+Besonderheiten bei Prüfpunkt 11, 26 und 27 überarbeitet (Instanz-DB-Ausschluss
+und XML-Mechanismus bei 11, Historie der beiden Stumm-Bugs bei 26, Historie und
+FC-Abdeckung bei 27).
+
+Letzter Stand: "Prüfpunkt 11 prüft Instanz-DBs nicht mehr eigenständig — FB-/FC-/
+OB-Interface-Member werden stattdessen direkt am Bausteincode geprüft (nur
+interne Verwendung zählt, sprachunabhängig für SCL/FBD/LAD). Dabei zwei weitere,
+seit Einführung stumme Bugs bei Prüfpunkt 26 (Location.Name immer leer,
+Kreuzreferenz-Präfix nie abgeglichen) und Prüfpunkt 27 (CrossReferenceService
+liefert am FB keinen Member-Baum) gefunden und behoben — beide melden jetzt
+erstmals echte Treffer (26: 1, mit voller Standardkonfiguration; 27: 0, sauber
+für Anwendercode, 229 vor Bibliotheks-Ausschluss). Live kreuzvalidiert, pytest
+38/38 grün. Bereit für Doku-Review und Commit-Freigabe durch den User."

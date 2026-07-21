@@ -1,7 +1,7 @@
 # TIA Linter — Benutzerhandbuch
 
-**Version dieses Handbuchs:** 0.34 (Entwurf)
-**Stand:** 18.07.2026
+**Version dieses Handbuchs:** 0.35 (Entwurf)
+**Stand:** 21.07.2026
 **Programmversion:** 0.1.0
 
 > **Hinweis zum Bearbeitungsstand:** Dieses Handbuch ist inhaltlich
@@ -1340,10 +1340,15 @@ abstimmen.
 | **Config-Schlüssel** | `checks.programmstruktur.unbenutzte_variablen` |
 
 **Was wird geprüft?**
-Für jeden PLC-Tag und jede Variable innerhalb eines Datenbausteins wird
-geprüft, ob sie irgendwo im Projekt tatsächlich verwendet wird (lesend oder
-schreibend). Wird keine einzige Verwendung gefunden, gilt die Variable als
-unbenutzt.
+Für jeden PLC-Tag, jede Variable innerhalb eines Global-/Array-Datenbausteins
+und jedes Interface-Member (Input/Output/InOut/Static/Temp) eines FB/FC/OB
+wird geprüft, ob eine Verwendung vorliegt. Für FB/FC/OB zählt dabei
+**ausschließlich die Verwendung innerhalb des Bausteins selbst** — ein
+Zugriff von außen (z. B. eine andere Stelle im Programm, die direkt auf
+`"Instanz".Member` zugreift) macht ein Member hier nicht "benutzt"; solche
+externen Zugriffe sind ohnehin unerwünscht und werden separat von
+[Prüfpunkt 26](#prüfpunkt-26--direkter-zugriff-auf-static-tags-von-außen)
+gemeldet.
 
 **Warum ist das wichtig?**
 Unbenutzte Variablen sind "toter Code": Sie belegen Speicher und Adressraum,
@@ -1359,18 +1364,28 @@ Dieser Prüfpunkt hat keine konfigurierbaren Parameter.
 ```
 PLC_1 > Variablentabellen > Tags_Allgemein > Merker_Testlauf
 → Variable 'Merker_Testlauf' wird im gesamten Programm nicht verwendet.
+
+PLC_1 > Programmbausteine > OrgPrg > Member > test
+→ Variable 'test' wird im Baustein 'OrgPrg' nirgends verwendet.
 ```
 
 **Besonderheiten**
 
-- PLC-Tags und Variablen innerhalb eines Datenbausteins werden technisch
-  auf unterschiedlichen Wegen geprüft (unterschiedliche Openness-Dienste).
-  Für die Nutzung der Oberfläche macht das keinen Unterschied — das
-  Ergebnis ist in beiden Fällen ein Befund mit derselben Aussage:
-  "wird nirgends verwendet".
-- Die von Openness gelieferten Kreuzreferenz-Ergebnisse für einen
-  Datenbaustein liegen als Baum vor: verschachtelte Struct-/UDT-typisierte
-  Member (z. B. `DiagCpu`) enthalten selbst wieder Member (z. B.
+- PLC-Tags, Global-/Array-DB-Variablen und FB-/FC-/OB-Interface-Member
+  werden technisch auf drei unterschiedlichen Wegen geprüft. Für die
+  Nutzung der Oberfläche macht das keinen Unterschied — das Ergebnis ist in
+  allen Fällen ein Befund mit derselben Aussage: "wird nirgends verwendet".
+- **Instanz-Datenbausteine werden hier bewusst nicht mehr eigenständig
+  geprüft** (frühere Handbuch-Versionen taten dies noch): Eine Instanz-DB
+  ist reiner Speicher ohne eigene Logik — ob ein Member "benutzt" ist,
+  entscheidet sich im Code des zugehörigen FB, nicht in der DB. Die
+  Interface-Member werden deshalb direkt an der FB-Definition geprüft,
+  unabhängig davon, wie viele Instanzen davon im Projekt existieren.
+- Global- und Array-Datenbausteine haben dagegen keinen "Besitzer-Baustein"
+  — dort zählt weiterhin jede Verwendung im gesamten Projekt (nicht nur
+  intern), analog zum bisherigen Verhalten. Die von Openness gelieferten
+  Kreuzreferenz-Ergebnisse liegen als Baum vor: verschachtelte Struct-/UDT-
+  typisierte Member (z. B. `DiagCpu`) enthalten selbst wieder Member (z. B.
   `DiagCpu.DNNmode`). Diese Prüfung steigt rekursiv bis zu den tatsächlich
   unbenutzten Blatt-Variablen ab, meldet aber nicht die durchlaufenen
   Zwischen-Member selbst und nicht den Datenbaustein als Ganzes — ob ein
@@ -1380,6 +1395,10 @@ PLC_1 > Variablentabellen > Tags_Allgemein > Merker_Testlauf
   Array selbst reicht — einzelne Array-Elemente (z. B. `Rezepte[3]`) werden
   nicht separat als unbenutzt gemeldet, ein großes Array-Member könnte sonst
   tausende Einzelbefunde erzeugen.
+- Bei FC/OB zählt auch **Temp** als Interface-Section (anders als bei den
+  Kommentar-Prüfpunkten 1c/26/27, wo Temp bewusst ausgenommen ist) — eine
+  nie verwendete Temp-Variable ist eindeutig totes Gerümpel, und OBs haben
+  meist ausschließlich Temp-Variablen als lokale Deklarationen.
 
 **Empfehlung zur Behebung**
 Unbenutzte Variable entfernen oder die fehlende Verwendung ergänzen.
@@ -2208,10 +2227,14 @@ PLC_1 > Datenbaustein > DB_Ventil_Instanz > Member > InternerZaehler
 
 **Besonderheiten**
 
-- Dieser Prüfpunkt beruht teilweise auf einer nicht vollständig durch die
-  Openness-Referenzdokumentation belegten Annahme darüber, welche
-  Eigenschaft den Namen des zugreifenden Bausteins trägt — er kann daher
-  in Einzelfällen ungenau sein.
+- Dieser Prüfpunkt meldete seit seiner Einführung nie einen Treffer (zwei
+  unabhängige, mittlerweile behobene Fehler in der Auswertung der
+  Kreuzreferenz-Rohdaten). Live an Salzmaschine verifiziert (`01PrgDb` >
+  `lx_30M1StopGap`, extern zugegriffen von `01Vis`).
+- Multiinstanz-typisierte Static-Member (deren Datentyp selbst ein FB ist)
+  tragen in der Kreuzreferenz zusätzlich einen technischen Metaeintrag zur
+  eigenen Typbeziehung — dieser wird herausgefiltert und nicht als externer
+  Zugriff missverstanden.
 
 **Empfehlung zur Behebung**
 Zugriff über Ein-/Ausgangsparameter des FB kapseln, statt direkt auf den
@@ -2246,6 +2269,16 @@ Dieser Prüfpunkt hat keine konfigurierbaren Parameter.
 PLC_1 > Programmbausteine > FB_Regler > Fehlercode
 → Output-Parameter 'Fehlercode' wird an 2 Stellen beschrieben.
 ```
+
+**Besonderheiten**
+
+- Dieser Prüfpunkt meldete seit seiner Einführung nie einen Treffer (die
+  Kreuzreferenzabfrage lieferte am FB/FC direkt keinen auswertbaren
+  Ergebnisbaum). Die Prüfung erfolgt jetzt stattdessen direkt anhand des
+  Bausteincodes (sprachunabhängig, SCL wie FBD/LAD) und deckt damit
+  erstmals auch Funktionen (FC) ab, nicht nur Funktionsbausteine (FB).
+  Live an Salzmaschine verifiziert, u. a. `LSNTP_Server` (`status`,
+  `error`, `statusID` je 4 Schreibzugriffe).
 
 **Besonderheiten**
 
@@ -2751,3 +2784,4 @@ zu der Übersicht, die bereits am Anfang der Markdown-Datei steht.
 | 0.32 | 19.07.2026 | Neuer Parameter `ausnahme_titel_regex` bei Prüfpunkt 10 (User-Auftrag: leere Netzwerke werden gelegentlich absichtlich als Kapitelüberschrift innerhalb eines Bausteins verwendet, per Netzwerktitel statt Inhalt) — Standardwert `""` (deaktiviert): Passt der Titel eines sonst leeren Netzwerks auf das konfigurierte Muster, wird es nicht gemeldet, unabhängig davon, ob es tatsächlich leer ist. Live an einem echten Fall im Salzmaschine-Projekt verifiziert (`40Prg > Netzwerk 1`, Titel `"########## Schaltgerüst/ Bedienschrank =4805 ##########"`): mit passendem Regex 19 → 18 Befunde, mit nicht-passendem Regex unverändert 19. Parameter-Tabelle und Besonderheiten bei Prüfpunkt 10 entsprechend ergänzt. |
 | 0.33 | 19.07.2026 | Siebzehnter Kommentar-/Struktur-Bug behoben (User-Meldung, live an Instanz-DB `DB_PrgFieldbusOkDb` verifiziert): Prüfpunkt 11 meldete bei manchen Instanz-DBs einen nicht existierenden "Member" mit demselben Namen wie die DB selbst (`... > DB_PrgFieldbusOkDb > Member > DB_PrgFieldbusOkDb`). Ursache: `GetCrossReferences(CrossReferenceFilter.UnusedObjects)` liefert für eine Instanz-DB nicht ausschließlich echte Member als `Source` — ein zusätzlicher `Source`-Eintrag mit `Name` == Name der DB und `TypeName` "Instance DB of ..." repräsentiert die DB selbst, kein Member. Der bisherige Code behandelte jeden `Source` blind als DB-Variable. Fix: `Source`s, deren Name exakt dem Namen der DB entspricht, werden übersprungen — Prüfpunkt 11b prüft ohnehin eigenständig, ob eine DB als Ganzes unbenutzt ist. Live verifiziert: 23 → 5 Befunde projektweit — alle 18 zuvor gemeldeten "DB-Member"-Befunde erwiesen sich als exakt dieser Selbst-Eintrag-Fall, keine echten Member betroffen. Besonderheiten bei Prüfpunkt 11 entsprechend ergänzt. |
 | 0.34 | 19.07.2026 | Achtzehnter Bug behoben, korrigiert/erweitert Version 0.33 (User-Meldung: "meiner Meinung nach wird DB_PrgFieldbusOkDb -> DiagCpu -> DNNmode nicht verwendet", per Rückfrage bestätigt anhand des offiziellen Beispielcodes der V21-Openness-Referenz, Manual 03/2026, "Querverweise für STEP 7 abrufen"): Die Annahme aus Version 0.33, jeder `Source` in `unused_result.Sources` sei bereits ein fertiges unbenutztes Member, war falsch — `Sources` ist die Wurzel eines Baums; der in 0.33 übersprungene Source (Name == DB-Name) ist genau dieser Wurzelknoten, dessen `.Children` rekursiv die tatsächlich unbenutzten Member enthalten. Der bloße Skip aus 0.33 behob zwar den irreführenden Phantom-Befund, verschluckte dabei aber auch sämtliche echten, tiefer verschachtelten Treffer — der Prüfpunkt meldete dadurch de facto nie ein einziges echtes unbenutztes DB-Member. Fix: neue Hilfsfunktion `unused_cross_reference_leaf_names()` steigt rekursiv durch `.Children` ab und liefert nur echte Blattknoten; Array-Elemente werden dabei übersprungen (ein einzelnes großes Array-Member lieferte live tausende Einzelindizes als separate Blätter — analog zum Array-Skip bei Prüfpunkt 1). Live verifiziert: `DiagCpu.DNNmode` wird jetzt korrekt gemeldet; projektweit **5 → 3.210 Befunde** (vorher blind durch den reinen Root-Skip, nach Array-Filter aber realistisch). Besonderheiten bei Prüfpunkt 11 entsprechend überarbeitet. |
+| 0.35 | 21.07.2026 | Grundlegende Überarbeitung von Prüfpunkt 11, Neunzehnter bis Dreiundzwanzigster Bug (User-Einwand: Instanz-DBs haben keine eigene Logik, die Prüfung sollte sich auf die interne Verwendung im FB/FC/OB selbst beschränken, externe Zugriffe sind ohnehin unerwünscht und gehören zu Prüfpunkt 26). Instanz-DBs werden bei Prüfpunkt 11 jetzt komplett übersprungen; FB-/FC-/OB-Interface-Member (inkl. Temp) werden stattdessen direkt anhand des Bausteincodes geprüft (neue Hilfsfunktion `local_variable_access_names()`: `<Access>`/`<Instance Scope="LocalVariable">` im XML-Export, sprachunabhängig für SCL und FBD/LAD identisch strukturiert) — garantiert strukturell, dass nur interne Verwendung zählt. Global-/Array-DBs bleiben unverändert über `CrossReferenceService` geprüft. Live verifiziert: 163 Befunde (5 PLC-Tags, 140 Global-/Array-DB-Member, 18 neue FB/FC/OB-Member-Treffer wie `OrgPrg > test`). Im Zuge dieser Überarbeitung zwei weitere, unabhängige Bugs entdeckt und behoben: Prüfpunkt 26 las den zugreifenden Bausteinnamen aus dem immer leeren `Location.Name` statt `Location.ReferenceLocation`, und `find_source_child_by_name` fand Member nie, weil Kindknoten im Kreuzreferenzbaum mit dem DB-Namen als Präfix qualifiziert sind — beide behoben, zusätzlich ein Multiinstanz-Metaeintrag-Fehlalarm (`ReferenceType.InstanceType`) gefiltert. Prüfpunkt 26 meldet dadurch jetzt erstmals einen echten Treffer (`01PrgDb.lx_30M1StopGap`). Prüfpunkt 27 war ebenfalls seit Einführung wirkungslos (CrossReferenceService liefert am FB/FC keinen Member-Baum) — auf denselben XML-Mechanismus umgestellt (neue Hilfsfunktion `local_variable_write_counts()`, inkl. Pin-Rollen-Tabelle für FBD/LAD-Boxen wie Coil/Move/TON und SCL-Zuweisungserkennung), kreuzvalidiert gegen die alte Instanz-DB-Methode (`LSNTP_Server`: `status`/`error`/`statusID` je 4 Schreibzugriffe, exakte Übereinstimmung) und deckt jetzt erstmals auch FC ab. Besonderheiten bei Prüfpunkt 11, 26 und 27 entsprechend überarbeitet. |

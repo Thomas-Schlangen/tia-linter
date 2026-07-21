@@ -1,17 +1,15 @@
 """Prüfpunkte 23-35: Bibliotheken & Typen sowie Siemens Styleguide & Best Practices.
 
 Gegen die TIA Portal V21 Openness-Referenz (Manual 03/2026, lokal unter
-~/Dokumente/ObsidianVault/Projekte/TiaOpenness/) geprüft. Checks 26/27 (Static-
-/Output-Zugriff auf einzelne Interface-Member) bleiben teilweise heuristisch,
-da die Referenz zwar bestätigt, dass Member als namenlose Kind-Objekte im
-Kreuzreferenzbaum ihres Bausteins/DBs auftauchen (siehe
-``_tia_helpers.find_source_child_by_name``), aber kein Codebeispiel zeigt,
-welche ``Location``-Eigenschaft den Namen des zugreifenden Bausteins trägt —
-siehe jeweiligen Klassen-Docstring.
+~/Dokumente/ObsidianVault/Projekte/TiaOpenness/) geprüft. Check 26 (Static-
+Zugriff auf einzelne Interface-Member von außen) nutzt ``Location.ReferenceLocation``
+(Format ``@<Bausteinname> ▶ ...``), um den zugreifenden Baustein zu bestimmen —
+live verifiziert (Salzmaschine), siehe ``StaticZugriffExternCheck``-Docstring.
 """
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from tia_linter.checks._tia_helpers import (
@@ -28,6 +26,7 @@ from tia_linter.checks._tia_helpers import (
     iter_data_blocks,
     iter_plc_software,
     iter_tag_tables,
+    local_variable_write_counts,
     read_comment,
     reference_language,
     tag_direction,
@@ -164,13 +163,47 @@ class StaticZugriffExternCheck(BaseCheck):
     nach einem Kind-Objekt mit passendem Namen durchsucht
     (``find_source_child_by_name`` — Member erscheinen dort laut Referenz als
     Kind-Objekte ohne ``UnderlyingObject``, aber mit Namens-Textinfo).
-    Welche ``Location``-Eigenschaft den Namen des zugreifenden Bausteins
-    trägt, zeigt kein Codebeispiel in der Referenz — hier wird
-    ``Location.Name`` verwendet (plausibelste der dokumentierten
-    Location-Eigenschaften), nicht gegen ein echtes Projekt verifiziert.
+
+    Zwanzigster Bug (im Rahmen der Prüfpunkt-11-Überarbeitung entdeckt, live
+    an Salzmaschine verifiziert): Dieser Check war seit Einführung faktisch
+    stumm — er las den zugreifenden Bausteinnamen aus ``Location.Name``, das
+    in jedem live getesteten Fall (egal ob interner oder externer Zugriff)
+    ``""`` ist. Der tatsächliche Ort steckt in ``Location.ReferenceLocation``,
+    Format ``@<Bausteinname> ▶ NWn (<Titel>)`` (grafische Sprachen) bzw.
+    ``@<Bausteinname> ▶ Ln: x   Cl: y`` (SCL) — z. B. live bestätigt an
+    ``PlcTimeDb.ot_PlcTime`` (u. a. referenziert von ``@01OrgPrg ▶ NW12``).
+    Fix: der Bausteinname wird jetzt per Regex aus dem ``@``-Präfix von
+    ``ReferenceLocation`` extrahiert.
+
+    Einundzwanzigster Bug (direkt danach entdeckt, ebenfalls live an
+    ``01PrgDb``/``lx_30M1StopGap`` verifiziert): Selbst mit dem
+    ``ReferenceLocation``-Fix blieb der Check stumm — ``find_source_child_by_name``
+    fand das Member gar nicht erst, weil ``child.Name`` im Kreuzreferenzbaum
+    immer mit dem DB-Namen als Präfix qualifiziert ist (``'"01PrgDb".lx_30M1StopGap'``
+    statt ``'lx_30M1StopGap'``). Fix direkt in ``find_source_child_by_name``
+    (``_tia_helpers.py``): das Präfix wird vor dem Namensabgleich entfernt.
+    Mit beiden Fixes zusammen meldet dieser Check live erstmals einen echten
+    Treffer (``01PrgDb.lx_30M1StopGap``, extern zugegriffen von ``01Vis``).
+
+    Zweiundzwanzigster Bug (direkt danach entdeckt, live an
+    ``4805PrgManDb.Man4805_27M11`` verifiziert — einem Multiinstanz-Member,
+    dessen Datentyp selbst ein FB ist): Neben echten Nutzungsstellen
+    (``ReferenceType.UsedBy``) liegt bei solchen Membern zusätzlich ein
+    Meta-Eintrag mit ``ReferenceType.InstanceType`` in den Locations, dessen
+    ``ReferenceLocation`` nicht auf eine echte Codestelle zeigt, sondern nur
+    die Typbeziehung beschreibt (``@"4805PrgMan".Man4805_27M11 ▶ Data type``)
+    — dasselbe Muster wie die bereits in Prüfpunkt 11 behandelte
+    Instanz-DB-Selbstreferenz (``@<DBName> ▶ Type``), nur hier auf
+    Member-Ebene. Ohne Filter wurde dieser Meta-Eintrag als Zugriff von einem
+    (nicht existierenden) Baustein namens ``'"4805PrgMan".Man4805_27M11'``
+    fehlinterpretiert — ein Fehlalarm bei **jedem** Multiinstanz-Member. Fix:
+    Locations mit ``ReferenceType.InstanceType`` werden übersprungen.
     """
 
+    _LOCATION_PREFIX = re.compile(r"^@([^\s▶]+)")
+
     def run(self, project: Any) -> list[CheckResult]:
+        from Siemens.Engineering.CrossReference import ReferenceType
         from Siemens.Engineering.SW.Blocks import FB, InstanceDB
 
         results: list[CheckResult] = []
@@ -199,7 +232,11 @@ class StaticZugriffExternCheck(BaseCheck):
                         continue
                     for reference in getattr(member_source, "References", []) or []:
                         for location in getattr(reference, "Locations", []) or []:
-                            accessor = str(getattr(location, "Name", "") or "")
+                            if getattr(location, "ReferenceType", None) == ReferenceType.InstanceType:
+                                continue  # Typbeziehungs-Metaeintrag, keine echte Codestelle
+                            reference_location = str(getattr(location, "ReferenceLocation", "") or "")
+                            match = self._LOCATION_PREFIX.match(reference_location)
+                            accessor = match.group(1) if match else ""
                             if accessor and accessor not in (owner_name, db.Name):
                                 results.append(
                                     self._make_result(
@@ -219,14 +256,29 @@ class StaticZugriffExternCheck(BaseCheck):
 class OutputMehrfachBeschriebenCheck(BaseCheck):
     """Prüfpunkt 27: VAR_OUTPUT-Parameter wird an mehreren Stellen beschrieben.
 
-    Wie Prüfpunkt 26: Output-Mitgliedernamen kommen aus dem XML-Export
-    (Interface-Section "Output"), die Kreuzreferenz wird direkt am FB/FC
-    abgefragt (bestätigt unterstützter Objekttyp) und pro gefundenem
-    Output-Mitglied werden ``Access``-Schreibzugriffe gezählt.
+    Dreiundzwanzigster Bug (im Rahmen der Prüfpunkt-11/26-Überarbeitung
+    entdeckt, live an Salzmaschine verifiziert): Der ursprüngliche Ansatz
+    (``CrossReferenceService`` direkt am FB/FC abfragen) war komplett
+    wirkungslos — anders als bei einem DB liefert ``GetCrossReferences``
+    dort **keinen** Member-Baum, sondern nur einen einzigen Root-Source (der
+    Baustein selbst, ``Children`` leer). ``find_source_child_by_name`` fand
+    dadurch nie ein Member, der Check meldete seit Einführung nichts.
+
+    Fix: Wie bei Prüfpunkt 11 wird stattdessen der XML-Export des Bausteins
+    direkt nach eigenen Schreibzugriffen durchsucht
+    (``local_variable_write_counts()``, siehe ``_tia_helpers.py``) —
+    funktioniert sprachunabhängig (SCL: Zuweisungsziel bzw.
+    Ausgangsparameter eines Aufrufs; FBD/LAD: Pin-Rollen-Analyse über die
+    ``Wire``-Verbindungen, z. B. ``operand`` bei Coils, ``out``/``out1`` bei
+    Logik-/Rechenboxen). Kreuzvalidiert gegen die alte, aber funktionierende
+    Instanz-DB-Methode (``CrossReferenceService`` an ``LSNTP_ServerDb``):
+    beide Wege liefern für ``status``/``error``/``statusID`` übereinstimmend
+    je 4 Schreibzugriffe. Deckt damit erstmals auch FC ab (keine Instanz-DB
+    nötig) — die alte Methode war ohnehin auf FB beschränkt gewesen, hätte
+    aber selbst dafür einen Umweg über die Instanz-DB gebraucht.
     """
 
     def run(self, project: Any) -> list[CheckResult]:
-        from Siemens.Engineering.CrossReference import Access
         from Siemens.Engineering.SW.Blocks import FB, FC
 
         results: list[CheckResult] = []
@@ -235,24 +287,15 @@ class OutputMehrfachBeschriebenCheck(BaseCheck):
                 if not isinstance(block, (FB, FC)):
                     continue
 
-                output_members = interface_section_members(export_block_xml(block), "Output")
+                xml_root = export_block_xml(block)
+                output_members = interface_section_members(xml_root, "Output")
                 if not output_members:
                     continue
 
-                root_source = cross_reference_root_source(block)
-                if root_source is None:
-                    continue
+                write_counts = local_variable_write_counts(xml_root)
 
                 for member_name in output_members:
-                    member_source = find_source_child_by_name(root_source, member_name)
-                    if member_source is None:
-                        continue
-                    write_count = sum(
-                        1
-                        for reference in getattr(member_source, "References", []) or []
-                        for location in getattr(reference, "Locations", []) or []
-                        if getattr(location, "Access", None) == Access.Write
-                    )
+                    write_count = write_counts.get(member_name, 0)
                     if write_count > 1:
                         results.append(
                             self._make_result(

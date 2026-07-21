@@ -22,11 +22,13 @@ from tia_linter.checks._tia_helpers import (
     export_block_xml,
     format_path,
     get_attribute,
+    interface_section_members,
     iter_blocks,
     iter_compile_units,
     iter_data_blocks,
     iter_plc_software,
     iter_tag_tables,
+    local_variable_access_names,
     reference_language,
     tag_direction,
     unused_cross_reference_leaf_names,
@@ -92,15 +94,17 @@ class LeereNetzwerkeCheck(BaseCheck):
 
 
 class UnbenutzteVariablenCheck(BaseCheck):
-    """Prüfpunkt 11: PLC-Tags ohne jegliche Referenz im Programm, sowie
-    unbenutzte DB-Variablen.
+    """Prüfpunkt 11: PLC-Tags ohne jegliche Referenz im Programm, unbenutzte
+    Global-/Array-DB-Variablen, sowie unbenutzte FB-/FC-/OB-Interface-Member
+    (nur interne Verwendung im Baustein selbst zählt).
 
     PLC-Tags: ``cross_reference_locations`` direkt am Tag (bestätigt
-    unterstützter Objekttyp) — leer bedeutet unbenutzt. DB-Variablen: da
-    Interface-Member selbst keinen ``CrossReferenceService`` bereitstellen,
-    wird ``CrossReferenceFilter.UnusedObjects`` am jeweiligen DB abgefragt
-    (DB ist bestätigt unterstützt) — die zurückgegebenen ``Sources`` sind
-    dann die unbenutzten Mitglieder dieses DBs.
+    unterstützter Objekttyp) — leer bedeutet unbenutzt.
+
+    Global-/Array-DB-Variablen: ``CrossReferenceFilter.UnusedObjects`` am
+    jeweiligen DB abgefragt (DB ist bestätigt unterstützt) — die
+    zurückgegebenen ``Sources`` sind die unbenutzten Mitglieder dieses DBs.
+    Instanz-DBs sind hiervon **bewusst ausgenommen** (siehe unten).
 
     Siebzehnter Bug (User-Meldung, live an Instanz-DB ``DB_PrgFieldbusOkDb``
     verifiziert): ``GetCrossReferences(CrossReferenceFilter.UnusedObjects)``
@@ -120,23 +124,58 @@ class UnbenutzteVariablenCheck(BaseCheck):
     war falsch — ``Sources`` ist die Wurzel eines Baums, kein flacher
     Treffer. Der Source aus dem "Siebzehnter Bug" (Name == DB-Name) ist
     genau dieser Wurzelknoten; seine ``.Children`` enthalten — rekursiv —
-    die tatsächlich unbenutzten Member (z. B. ``DB_PrgFieldbusOkDb`` →
-    ``DiagCpu`` (UDT-Struct, selbst kein Blatt) → ``DiagCpu.DNNmode``, echtes
-    unbenutztes Blatt-Member). Der bloße Skip aus dem "Siebzehnter Bug"
-    behob zwar den irreführenden Phantom-Befund, verschluckte dabei aber
-    auch sämtliche echten, tiefer verschachtelten Treffer — der Check
-    meldete dadurch de facto nie ein einziges echtes unbenutztes DB-Member.
-    Fix: ``unused_cross_reference_leaf_names()`` (siehe ``_tia_helpers.py``)
-    steigt rekursiv ab und liefert nur echte Blattknoten; Array-Elemente
-    werden dabei übersprungen (ein einzelnes großes Array-Member lieferte
-    live tausende Einzelindizes als separate Blätter, analog zum
-    Array-Skip bei Prüfpunkt 1). Der vom DB-Namen führende Pfadanteil wird
-    für eine lesbare Anzeige abgeschnitten (``DiagCpu.DNNmode`` statt
-    ``"DB_PrgFieldbusOkDb".DiagCpu.DNNmode``).
+    die tatsächlich unbenutzten Member. Fix: ``unused_cross_reference_leaf_names()``
+    (siehe ``_tia_helpers.py``) steigt rekursiv ab und liefert nur echte
+    Blattknoten; Array-Elemente werden dabei übersprungen (ein einzelnes
+    großes Array-Member lieferte live tausende Einzelindizes als separate
+    Blätter, analog zum Array-Skip bei Prüfpunkt 1). Der vom DB-Namen
+    führende Pfadanteil wird für eine lesbare Anzeige abgeschnitten
+    (``DiagCpu.DNNmode`` statt ``"DB_PrgFieldbusOkDb".DiagCpu.DNNmode``).
+
+    Neunzehnter Bug/Design-Entscheidung (User-Einwand, live verifiziert):
+    Die Instanz-DB eines FB ist reiner Speicher ohne eigene Logik — ob ein
+    Member "benutzt" ist, entscheidet sich im Code des FB (bzw. am
+    Aufrufer), nicht in der DB. ``UnusedObjects`` an der Instanz-DB zählt
+    dabei aber **jede** Referenz mit, auch externe Direktzugriffe von außen
+    (z. B. ``"Instanz".Member`` aus einem anderen Baustein) — genau solche
+    externen Zugriffe sind unerwünscht und werden bereits separat von
+    Prüfpunkt 26 (``static_zugriff_extern``) gemeldet. Live an
+    ``PlcTimeDb.ot_PlcTime`` und ``01PrgDb.lx_30M1StopGap`` verifiziert:
+    beide sind sowohl intern (im eigenen FB) als auch extern referenziert —
+    ``UnusedObjects`` kann diese beiden Fälle nicht unterscheiden.
+
+    Versuch, stattdessen direkt am FB/FC/OB abzufragen, scheiterte an einer
+    weiteren, live verifizierten Einschränkung: ``GetCrossReferences``
+    liefert dort **keinen** Member-Baum (nur einen einzigen Root-Source = der
+    Baustein selbst, ``Children`` leer) — der Member-Baum existiert
+    nachweislich nur bei DB-Objekten. Und selbst die aggregierten
+    ``References``/``Locations`` dieses einen Root-Sources verraten bei
+    einem Zugriff auf ein *eigenes* Interface-Member weder über
+    ``Location.Name`` noch ``Location.ReferencedAsName`` (beide leer), auf
+    welches Member sich die Zeile bezieht — nur bei Referenzen auf fremde,
+    benannte Objekte (z. B. eine andere DB) ist ``Location.Name`` gefüllt.
+
+    Fix: FB-/FC-/OB-Interface-Member (Input/Output/InOut/Static/Temp) werden
+    jetzt komplett unabhängig von CrossReferenceService/Instanz-DB geprüft —
+    stattdessen wird der XML-Export des Bausteins direkt nach eigenen
+    lokalen Variablenzugriffen durchsucht (``local_variable_access_names()``,
+    siehe ``_tia_helpers.py``): ``<Access Scope="LocalVariable">`` bzw.
+    ``<Instance Scope="LocalVariable">`` (Multiinstanz) — live identisch
+    verifiziert für SCL und FBD. Das garantiert strukturell, dass nur
+    *interne* Verwendung zählt (externe Zugriffe können in den eigenen
+    Netzwerken eines Bausteins gar nicht auftauchen), ohne auf
+    CrossReferenceServices projektweite, intern/extern nicht
+    unterscheidende Sicht angewiesen zu sein. Instanz-DBs werden von der
+    Global-/Array-DB-Schleife oben deshalb jetzt bewusst übersprungen — ihre
+    Member werden ausschließlich über die FB-Definition geprüft (unabhängig
+    davon, wie viele Instanzen es gibt).
     """
+
+    _INTERFACE_SECTIONS = ("Input", "Output", "InOut", "Static", "Temp")
 
     def run(self, project: Any) -> list[CheckResult]:
         from Siemens.Engineering.CrossReference import CrossReferenceFilter, CrossReferenceService
+        from Siemens.Engineering.SW.Blocks import FB, FC, OB, InstanceDB
 
         results: list[CheckResult] = []
         for plc_software in iter_plc_software(project):
@@ -152,6 +191,8 @@ class UnbenutzteVariablenCheck(BaseCheck):
                         )
 
             for db, group_path in iter_data_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
+                if isinstance(db, InstanceDB):
+                    continue  # geprüft über die FB-Definition weiter unten
                 try:
                     service = db.GetService[CrossReferenceService]()
                 except Exception:  # noqa: BLE001
@@ -178,6 +219,27 @@ class UnbenutzteVariablenCheck(BaseCheck):
                             path=format_path(plc_software.Name, "Datenbaustein", *group_path, db.Name, "Member", name),
                             description=f"DB-Variable '{name}' wird im gesamten Programm nicht verwendet.",
                             value=name,
+                        )
+                    )
+
+            for block, group_path in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
+                if not isinstance(block, (FB, FC, OB)):
+                    continue
+                xml_root = export_block_xml(block)
+                member_names: set[str] = set()
+                for section_name in self._INTERFACE_SECTIONS:
+                    member_names |= interface_section_members(xml_root, section_name)
+                if not member_names:
+                    continue
+                used_names = local_variable_access_names(xml_root)
+                for member_name in sorted(member_names - used_names):
+                    results.append(
+                        self._make_result(
+                            path=format_path(
+                                plc_software.Name, "Programmbausteine", *group_path, block.Name, "Member", member_name
+                            ),
+                            description=f"Variable '{member_name}' wird im Baustein '{block.Name}' nirgends verwendet.",
+                            value=member_name,
                         )
                     )
         return results
