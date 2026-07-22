@@ -2308,4 +2308,67 @@ wurde praktisch jeder verwendete DB im Projekt fälschlich als unbenutzt
 gemeldet (21 von 23 Befunden waren Fehlalarme). Fix nutzt dieselbe
 Member-Ebenen-Prüfung wie Prüfpunkt 11. FB/FC/Instanz-DB waren bereits
 korrekt und blieben unverändert. 23 → 2 Befunde, beide echte unbenutzte
-FCs. pytest 51/51 grün, Handbuch aktualisiert, noch nicht committet."
+FCs. pytest 51/51 grün, Handbuch aktualisiert. Committet und gepusht als
+`d1cfca1`."
+
+## Runde 40 — Siebenundzwanzigster Bug: Instanz-DB-Meta-Eintrag machte Prüfpunkt 11b für Instanz-DBs wirkungslos
+
+**Ausgangspunkt:** User hat gezielt einen Testfall angelegt, um den in Runde
+39 offen gelassenen Grenzfall zu prüfen: Instanz-DB `01TestOrgPrgDb` (FB
+`01OrgPrg`), deren FB nirgends per `CALL` aufgerufen wird, deren 2
+Static-Member aber extern in `01Org`/Netzwerk 6 zugegriffen werden.
+Erwartung: Prüfpunkt 11b sollte sie trotzdem als unbenutzt markieren (ein
+externer Member-Zugriff zählt laut User-Vorgabe aus Runde 39 nicht als
+"die Instanz wird benutzt", nur ein echter `CALL`). Tatsächlich wurde sie
+nicht markiert.
+
+**Verbindungsproblem, diesmal selbstverschuldet:** Erster Live-Skript-Lauf
+stürzte mit `UnicodeEncodeError` beim Ausgeben eines `▶`-Zeichens in
+`Location.ReferenceLocation` ab (`cp1252`-Konsole). Kein TIA-Problem,
+sondern reines Encoding — behoben mit `sys.stdout.reconfigure(encoding=
+"utf-8", errors="replace")` am Skriptanfang, danach erneut sauber
+verbunden.
+
+**Diagnose (Detail-Dump der `Location`-Objekte):** `01TestOrgPrgDb` liefert
+über `cross_reference_locations()` trotz fehlendem `CALL` genau **1**
+Eintrag: `ReferenceLocation = '@01TestOrgPrgDb ▶ Type'`, `ReferenceType =
+InstanceType`, `Access = InstanceDB`. Zum Vergleich liefert die
+tatsächlich per `CALL` verwendete Instanz-DB `DB_PrgFieldbusOkDb` **2**
+Einträge: denselben `InstanceType`-Meta-Eintrag **plus** einen echten
+Treffer (`ReferenceType = UsedBy`, `@OrgPrg ▶ NW12 (Aufruf Feldbus
+Diagnose)`). Der `InstanceType`-Eintrag ist also ein permanenter
+Selbstverweis jeder Instanz-DB auf ihre eigene FB (Typbeziehung), keine
+echte Codestelle — exakt dasselbe Muster, das in Runde 36 bereits bei
+Prüfpunkt 26 auf **Member**-Ebene gefiltert wurde (siehe
+`libraries.py::static_zugriff_extern`, Kommentar "Multiinstanz-
+Metaeintrag-Fehlalarm"), hier aber unbemerkt auf **Root**-Ebene der
+Instanz-DB selbst. `cross_reference_locations(instance_db)` war dadurch
+nie leer — Prüfpunkt 11b konnte für Instanz-DBs de facto nie einen
+Treffer melden, unabhängig davon, ob die FB tatsächlich aufgerufen wurde.
+
+**Fix:** Im Instanz-DB-Zweig von `UnbenutzteBausteineCheck` werden
+`Location`s mit `ReferenceType.InstanceType` jetzt vor der
+Verwendungsprüfung herausgefiltert — übrig bleiben nur echte
+Aufrufstellen. FB/FC/Global-/Array-DB-Zweige unverändert. Auf User-Wunsch
+zusätzlich die Befundmeldung für Instanz-DBs eigenständig formuliert
+(`"Baustein '<Name>' wird an keinem FB verwendet."` statt der generischen
+Meldung, die für FB/FC/Global-/Array-DB unverändert bleibt).
+
+**Live verifiziert:** `01TestOrgPrgDb` wird jetzt korrekt gemeldet, alle
+zuvor bestätigten Fälle (`DB_PrgFieldbusOkDb`, `BibVersion`,
+`LGF_Description`) unverändert. Kompletter PP11b-Lauf: **2 → 3 Befunde**.
+`pytest` weiterhin 51/51 grün.
+
+**Dokumentiert:** `docs/Handbuch.md` Version 0.39 (Besonderheiten bei
+Prüfpunkt 11b ergänzt, Anhang-C-Eintrag). Noch nicht committet — steht als
+Nächstes an.
+
+Letzter Stand: "Der in Runde 39 offen gelassene Grenzfall (Instanz-DB nur
+per externem Member-Zugriff berührt, nie per CALL) war tatsächlich ein
+Bug: Jede Instanz-DB trägt einen permanenten Meta-Eintrag
+(`ReferenceType.InstanceType`), der `cross_reference_locations()` nie leer
+werden ließ — Prüfpunkt 11b konnte für Instanz-DBs strukturell nie einen
+Treffer melden. Fix filtert diesen Meta-Eintrag heraus, echte Aufrufe
+(`ReferenceType.UsedBy`) bleiben erhalten. Live am vom User selbst
+angelegten Testfall `01TestOrgPrgDb` verifiziert, 2 → 3 Befunde. pytest
+51/51 grün, Handbuch aktualisiert, noch nicht committet."

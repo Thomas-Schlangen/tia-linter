@@ -341,9 +341,30 @@ class UnbenutzteBausteineCheck(BaseCheck):
     verifiziert: 23 → 2 Befunde (alle 21 Global-/Array-DB-Fehlalarme
     verschwunden, die verbleibenden 2 (``BibVersion``, ``LGF_Description``)
     sind echte unbenutzte FCs, z. B. ``BibVersion`` mit 0 Root-Referenzen).
+
+    Siebenundzwanzigster Bug (User-Meldung mit selbst angelegtem Testfall,
+    live an Instanz-DB ``01TestOrgPrgDb`` verifiziert — FB ``01OrgPrg`` nie
+    per ``CALL`` aufgerufen, aber 2 ihrer Static-Member werden extern in
+    ``01Org``/Netzwerk 6 zugegriffen): Jede Instanz-DB trägt in ihren
+    Root-``Locations`` unabhängig von echter Verwendung einen permanenten
+    Meta-Eintrag mit ``ReferenceType.InstanceType`` (``@<DBName> ▶ Type``),
+    der nur die Typbeziehung zur eigenen FB beschreibt, keine echte
+    Codestelle — dasselbe Muster, das in Runde 36 bereits bei Prüfpunkt 26
+    auf **Member**-Ebene gefiltert wurde (siehe ``libraries.py``,
+    ``static_zugriff_extern``), hier aber auf **Root**-Ebene der Instanz-DB
+    selbst und bislang ungefiltert. Live verifiziert: ``01TestOrgPrgDb``
+    (nie aufgerufen) liefert trotzdem genau 1 Root-Location — exakt dieser
+    Meta-Eintrag, kein echter Treffer — wodurch ``cross_reference_locations``
+    fälschlich nie leer war. Zum Vergleich liefert eine tatsächlich per
+    ``CALL`` verwendete Instanz-DB (``DB_PrgFieldbusOkDb``) 2 Locations: den
+    echten Aufruf (``ReferenceType.UsedBy``, ``@OrgPrg ▶ NW12 (Aufruf
+    Feldbus Diagnose)``) plus denselben Meta-Eintrag. Fix: Bei Instanz-DBs
+    werden ``InstanceType``-Locations vor der Verwendungsprüfung
+    herausgefiltert — übrig bleiben nur echte Aufrufstellen.
     """
 
     def run(self, project: Any) -> list[CheckResult]:
+        from Siemens.Engineering.CrossReference import ReferenceType
         from Siemens.Engineering.SW.Blocks import OB, DataBlock, InstanceDB
 
         results: list[CheckResult] = []
@@ -353,13 +374,22 @@ class UnbenutzteBausteineCheck(BaseCheck):
                     continue
                 if isinstance(block, DataBlock) and not isinstance(block, InstanceDB):
                     is_used = bool(cross_reference_referenced_top_level_names(block))
+                elif isinstance(block, InstanceDB):
+                    locations = cross_reference_locations(block)
+                    is_used = any(
+                        getattr(loc, "ReferenceType", None) != ReferenceType.InstanceType for loc in locations
+                    )
                 else:
                     is_used = bool(cross_reference_locations(block))
                 if not is_used:
+                    if isinstance(block, InstanceDB):
+                        description = f"Baustein '{block.Name}' wird an keinem FB verwendet."
+                    else:
+                        description = f"Baustein '{block.Name}' wird von keiner Stelle im Projekt referenziert."
                     results.append(
                         self._make_result(
                             path=format_path(plc_software.Name, "Programmbausteine", *group_path, block.Name),
-                            description=f"Baustein '{block.Name}' wird von keiner Stelle im Projekt referenziert.",
+                            description=description,
                             value=block.Name,
                         )
                     )
