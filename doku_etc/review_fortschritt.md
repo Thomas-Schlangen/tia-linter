@@ -2178,7 +2178,7 @@ zwei unabhängige Skripte, headless via `TiaConnectorV21`, rein lesend:**
    Feld-Granularität dort würde ohne die Pauschal-Ausnahme ein Vielfaches
    an Rauschen erzeugen.
 
-**Nachtrag, unmittelbar danach — Vierundzwanzigster Bug (User-Meldung mit
+**Nachtrag, unmittelbar danach — Fünfundzwanzigster Bug (User-Meldung mit
 konkretem Fall):** DB `V01St`, Variable `4805_27M11` (Typ `U_VisStFcFan`),
 komplett als Aufrufparameter von `CtrFcFan` in `01Prg`/Netzwerk 16
 verwendet — trotzdem meldete PP11 bei `unterelemente_pruefen: false` alle
@@ -2228,4 +2228,84 @@ der Doku korrigiert. Danach vom User an einem konkreten Fall (`V01St >
 4805_27M11`) ein Quotierungs-Bug gefunden und behoben, der die neue
 Pauschal-Ausnahme für praktisch jeden Ziffernbeginn-DB-Member wirkungslos
 gemacht hätte (132 → 12 DB-Befunde nach dem Fix). pytest 51/51 grün,
-Handbuch aktualisiert, noch nicht committet."
+Handbuch aktualisiert. Committet und gepusht als `e779670`."
+
+## Runde 39 — Sechsundzwanzigster Bug: Prüfpunkt 11b meldete jeden Global-/Array-DB fälschlich als unbenutzt
+
+**Ausgangspunkt:** Direkt im Anschluss an Runde 38 wandte sich der User
+Prüfpunkt 11b zu (schrieb "Prüfpunkt 12", meinte inhaltlich aber eindeutig
+11b — Eingangs-Tags haben nichts mit Bausteinaufrufen zu tun). Kernaussage:
+"Ein normaler DB wird niemals als Ganzes verwendet, immer nur die Items in
+ihm... Sobald auch nur eine einzige Variable in einem DB verwendet wird,
+wird er nicht mehr markiert." Zusätzlich zwei Anschlussfragen: sollen
+Instanz-DBs jetzt auch getestet werden (mit der Präzisierung, dass ein
+bloßer externer Member-Zugriff — an sich schon unerwünscht, siehe
+Prüfpunkt 26 — nicht als "die Instanz wird benutzt" zählen soll, nur ein
+echter `CALL`), und ist die Prüfung bei OB/FB/FC bereits korrekt.
+
+**Verbindungsproblem zuerst:** Der erste Live-Verbindungsversuch schlug
+fehl — das Projekt war noch vom User selbst in TIA Portal geöffnet
+(`tasklist` bestätigte laufende `Siemens.Automation.Portal`/`.Object`-
+Prozesse in der interaktiven Desktop-Session sowie `tia-linter.exe`).
+Nicht angetastet, stattdessen den User gebeten, TIA Portal zu schließen —
+danach klappte die headless-Verbindung.
+
+**Untersuchung (Live-Skript, vier Teile):**
+1. Kompletter PP11b-Lauf: 23 Befunde, **alle** außer zwei sind
+   Global-/Array-DBs (`SysDiagDb`, `OrgDb`, `FieldbusDb`,
+   `FieldbusArrayDb`, `ConfigDb`, `V01St`, `V40Alm` u. a. — 21 DB-Namen).
+2. Stichprobe von 7 bekannt intensiv genutzten Global-/Array-DBs: direkte
+   `cross_reference_locations(db)` liefert bei **allen** 0 Einträge —
+   trotz 4 bis 21 tatsächlich benutzter Top-Level-Member laut
+   `cross_reference_referenced_top_level_names()` (derselben
+   Hilfsfunktion aus Runde 38). Bestätigt die User-Hypothese: Verwendung
+   eines normalen DB registriert sich nie als direkte Referenz auf die
+   DB-Wurzel selbst, nur auf ihre Member (`.Children`).
+3. FB/FC-Stichprobe (10 Bausteine): Root-Referenzen korrelieren exakt mit
+   tatsächlicher Nutzung (`PrgFieldbusOk` 541, `CtrPos` 363, ... bis
+   `BibVersion` 0) — der bestehende Mechanismus funktioniert für FB/FC
+   korrekt, keine Änderung nötig. Bestätigt die User-Vermutung "bei OB, FB
+   und FC hast du das sowieso schon so gemacht".
+4. Instanz-DB-Stichprobe (11 DBs, alle mit genutzter FB-Instanz):
+   durchgängig exakt 2 Root-Referenzen — ein `CALL` referenziert die
+   Instanz-DB offenbar zuverlässig direkt. Keine konkrete Gegenprobe im
+   Projekt gefunden für den vom User beschriebenen Grenzfall (Instanz-DB
+   nur per externem Member-Zugriff berührt, nie per `CALL`) — Mechanismus
+   bleibt unverändert (dieselbe `cross_reference_locations`-Logik wie bei
+   FB/FC), da kein Hinweis auf ein Problem vorliegt.
+
+**Fix:** `UnbenutzteBausteineCheck` unterscheidet jetzt zwischen
+Instanz-DB/FB/FC (weiterhin `cross_reference_locations`, Root-Referenz) und
+Global-/Array-DB (neu: `cross_reference_referenced_top_level_names()` — DB
+gilt als verwendet, sobald irgendein Member irgendwo referenziert ist,
+dieselbe Hilfsfunktion, die Runde 38 für Prüfpunkt 11 gebaut hat). OBs
+bleiben wie bisher komplett ausgenommen (Einstiegspunkte, kein
+Anwendercode-Aufruf).
+
+**Live verifiziert (Fix erneut gegen Salzmaschine):** **23 → 2 Befunde**
+— alle 21 Global-/Array-DB-Fehlalarme verschwunden, verbleibend
+`BibVersion` und `LGF_Description` (beides echte unbenutzte FCs,
+`BibVersion` mit bestätigt 0 Root-Referenzen). `pytest` weiterhin 51/51
+grün (kein neuer struktureller Test, da `structure.py` mangels
+CLR-Unabhängigkeit nicht direkt unit-getestet wird).
+
+**Nebenkorrektur:** Bei der Dokumentation dieser Runde eine
+Nummerierungs-Kollision bei den fortlaufenden Bug-Ordinalzahlen bemerkt und
+rückwirkend korrigiert — die in Version 0.37 als "Zwanzigster" bzw.
+"Vierundzwanzigster" bezeichneten Punkte aus Runde 38 kollidierten mit den
+in Runde 36 bereits vergebenen Nummern 19–23. Rückwirkend umbenannt:
+`unterelemente_pruefen`-Feature = Vierundzwanzigster Bug, Quotierungs-Fix =
+Fünfundzwanzigster Bug — dieser PP11b-Fix ist entsprechend korrekt der
+Sechsundzwanzigste.
+
+**Dokumentiert:** `docs/Handbuch.md` Version 0.38 (Besonderheiten bei
+Prüfpunkt 11b ergänzt, Anhang-C-Eintrag inkl. Numerierungskorrektur). Noch
+nicht committet — steht als Nächstes an.
+
+Letzter Stand: "Prüfpunkt 11b prüfte Global-/Array-DBs über ein Signal
+(direkte Root-Referenz), das bei DBs strukturell nie auftritt — dadurch
+wurde praktisch jeder verwendete DB im Projekt fälschlich als unbenutzt
+gemeldet (21 von 23 Befunden waren Fehlalarme). Fix nutzt dieselbe
+Member-Ebenen-Prüfung wie Prüfpunkt 11. FB/FC/Instanz-DB waren bereits
+korrekt und blieben unverändert. 23 → 2 Befunde, beide echte unbenutzte
+FCs. pytest 51/51 grün, Handbuch aktualisiert, noch nicht committet."

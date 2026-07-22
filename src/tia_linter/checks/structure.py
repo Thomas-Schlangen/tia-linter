@@ -173,7 +173,7 @@ class UnbenutzteVariablenCheck(BaseCheck):
     Member werden ausschließlich über die FB-Definition geprüft (unabhängig
     davon, wie viele Instanzen es gibt).
 
-    Zwanzigster Bug/Feature (User-Auftrag, betriebliche Praxis): DB-Member
+    Vierundzwanzigster Bug/Feature (User-Auftrag, betriebliche Praxis): DB-Member
     vom Typ UDT/Struct werden bei diesem Anwender oft als Ganzes an einen
     anderen Baustein übergeben (z. B. ``MeinFb(duStruct := "MeinDb".MeinStruct)``)
     statt feldweise einzeln zugegriffen. ``CrossReferenceService`` markiert
@@ -259,8 +259,8 @@ class UnbenutzteVariablenCheck(BaseCheck):
                     # referenziert (z. B. als Ganzes an einen anderen
                     # Baustein übergeben), gilt es als "verwendet" — seine
                     # weiterhin einzeln unbenutzten Unterfelder werden dann
-                    # nicht gemeldet (siehe Klassendocstring, "Zwanzigster
-                    # Bug/Feature").
+                    # nicht gemeldet (siehe Klassendocstring,
+                    # "Vierundzwanzigster Bug/Feature").
                     used_top_level = cross_reference_referenced_top_level_names(db)
                     unused_names = [
                         name for name in unused_names if name.split(".", 1)[0] not in used_top_level
@@ -315,17 +315,47 @@ class UnbenutzteBausteineCheck(BaseCheck):
     bestätigt unterstützte Objekttypen) — leer bedeutet unbenutzt. OBs werden
     ausgenommen, da sie als Einstiegspunkte vom Betriebssystem und nicht von
     anderem Anwendercode aufgerufen werden.
+
+    Sechsundzwanzigster Bug (User-Einwand, live an 7 bekannt intensiv
+    genutzten Global-/Array-DBs verifiziert): ``cross_reference_locations``
+    liest nur die ``References``, die direkt am Root-``SourceObject`` des
+    abgefragten Objekts hängen. Bei FB/FC/Instanz-DB entspricht das genau
+    dem gewünschten Signal, weil ein Aufruf (``CALL``) den Baustein/die
+    Instanz-DB selbst als Ziel referenziert — live bestätigt (z. B. FB
+    ``PrgFieldbusOk`` 541, FC ``BibVersion`` 0 Root-Referenzen, exakt
+    passend zu tatsächlicher Verwendung; Instanz-DBs durchgängig 2
+    Root-Referenzen bei genutzten FB-Instanzen). Bei einem **normalen**
+    Global-/Array-DB gibt es aber keine "Aufruf"-Semantik — eine Verwendung
+    bedeutet dort immer Lesen/Schreiben einzelner Member, was in der
+    Openness-Baumstruktur ausschließlich unter ``.Children`` auftaucht, nie
+    als direkte ``Reference`` auf das Root-``SourceObject`` der DB selbst.
+    ``cross_reference_locations(db)`` lieferte dadurch für **jeden**
+    Global-/Array-DB immer 0 Einträge, unabhängig von der tatsächlichen
+    Nutzung — live an 7 Stichproben verifiziert (u. a. ``V01St`` mit 17
+    tatsächlich benutzten Top-Level-Membern, trotzdem 0 Root-Referenzen).
+    Dieser Prüfpunkt hätte dadurch **jeden** Global-/Array-DB im Projekt
+    als unbenutzt gemeldet. Fix: Global-/Array-DBs (nicht Instanz-DBs)
+    werden stattdessen über ``cross_reference_referenced_top_level_names()``
+    geprüft (dieselbe Hilfsfunktion wie bei Prüfpunkt 11) — ein DB gilt als
+    verwendet, sobald irgendein Member irgendwo referenziert ist. Live
+    verifiziert: 23 → 2 Befunde (alle 21 Global-/Array-DB-Fehlalarme
+    verschwunden, die verbleibenden 2 (``BibVersion``, ``LGF_Description``)
+    sind echte unbenutzte FCs, z. B. ``BibVersion`` mit 0 Root-Referenzen).
     """
 
     def run(self, project: Any) -> list[CheckResult]:
-        from Siemens.Engineering.SW.Blocks import OB
+        from Siemens.Engineering.SW.Blocks import OB, DataBlock, InstanceDB
 
         results: list[CheckResult] = []
         for plc_software in iter_plc_software(project):
             for block, group_path in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
                 if isinstance(block, OB):
                     continue
-                if not cross_reference_locations(block):
+                if isinstance(block, DataBlock) and not isinstance(block, InstanceDB):
+                    is_used = bool(cross_reference_referenced_top_level_names(block))
+                else:
+                    is_used = bool(cross_reference_locations(block))
+                if not is_used:
                     results.append(
                         self._make_result(
                             path=format_path(plc_software.Name, "Programmbausteine", *group_path, block.Name),
