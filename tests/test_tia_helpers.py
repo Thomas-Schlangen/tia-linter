@@ -10,13 +10,18 @@ from __future__ import annotations
 
 import pytest
 
+import xml.etree.ElementTree as ET
+
 from tia_linter.checks._tia_helpers import (
     find_source_child_by_name,
+    interface_section_member_paths,
     iter_blocks,
     iter_tag_tables,
+    local_variable_access_paths,
     multilingual_text,
     normalize_member_path,
     read_comment,
+    strip_cross_reference_prefix,
 )
 
 
@@ -322,6 +327,111 @@ class TestFindSourceChildByName:
     def test_returns_none_when_not_found(self) -> None:
         root = FakeSourceObject("root", [FakeSourceObject("Foo")])
         assert find_source_child_by_name(root, "Bar") is None
+
+
+class TestStripCrossReferencePrefix:
+    """Prüfpunkt 11 (DB-Zweig): das DB-Namenspräfix, das SourceObject.Name im
+    Kreuzreferenzbaum gegenüber dem unqualifizierten Namen trägt."""
+
+    def test_strips_unquoted_prefix(self) -> None:
+        assert strip_cross_reference_prefix("DB_X.DiagCpu.DNNmode", "DB_X") == "DiagCpu.DNNmode"
+
+    def test_strips_quoted_prefix(self) -> None:
+        assert strip_cross_reference_prefix('"01PrgDb".lx_30M1StopGap', "01PrgDb") == "lx_30M1StopGap"
+
+    def test_leaves_unmatched_name_unchanged(self) -> None:
+        assert strip_cross_reference_prefix("Foo", "DB_X") == "Foo"
+
+    def test_empty_root_name_leaves_name_unchanged(self) -> None:
+        assert strip_cross_reference_prefix("DB_X.Foo", "") == "DB_X.Foo"
+
+
+class TestInterfaceSectionMemberPaths:
+    """Prüfpunkt 11 (FB/FC/OB-Zweig, ``unterelemente_pruefen``): vollständige
+    Blattpfad-Auflösung je Top-Level-Member aus der Interface-Deklaration."""
+
+    def test_scalar_member_is_its_own_single_leaf(self) -> None:
+        xml_root = ET.fromstring(
+            "<Document><Interface><Sections>"
+            '<Section Name="Static"><Member Name="Scalar"/></Section>'
+            "</Sections></Interface></Document>"
+        )
+        assert interface_section_member_paths(xml_root, "Static") == {"Scalar": ["Scalar"]}
+
+    def test_nested_struct_member_resolves_dotted_leaf_paths(self) -> None:
+        xml_root = ET.fromstring(
+            "<Document><Interface><Sections><Section Name=\"Static\">"
+            '<Member Name="Scalar"/>'
+            '<Member Name="MyStruct"><Sections><Section Name="Static">'
+            '<Member Name="a"/>'
+            '<Member Name="b"><Sections><Section Name="Static">'
+            '<Member Name="c"/>'
+            "</Section></Sections></Member>"
+            "</Section></Sections></Member>"
+            "</Section></Sections></Interface></Document>"
+        )
+        result = interface_section_member_paths(xml_root, "Static")
+        assert result == {
+            "Scalar": ["Scalar"],
+            "MyStruct": ["MyStruct.a", "MyStruct.b.c"],
+        }
+
+    def test_ignores_other_sections(self) -> None:
+        xml_root = ET.fromstring(
+            "<Document><Interface><Sections>"
+            '<Section Name="Input"><Member Name="InVar"/></Section>'
+            '<Section Name="Static"><Member Name="StaticVar"/></Section>'
+            "</Sections></Interface></Document>"
+        )
+        assert interface_section_member_paths(xml_root, "Static") == {"StaticVar": ["StaticVar"]}
+
+    def test_none_xml_root_returns_empty_dict(self) -> None:
+        assert interface_section_member_paths(None, "Static") == {}
+
+
+class TestLocalVariableAccessPaths:
+    """Prüfpunkt 11 (FB/FC/OB-Zweig): dotted Zugriffspfade auf beliebiger
+    Verschachtelungstiefe aus verschachtelten ``Component``-Zugriffsketten."""
+
+    def test_scalar_access_yields_top_level_name(self) -> None:
+        xml_root = ET.fromstring(
+            "<Document><SW.Blocks.CompileUnit><NetworkSource><StructuredText>"
+            '<Access Scope="LocalVariable"><Symbol><Component Name="Scalar"/></Symbol></Access>'
+            "</StructuredText></NetworkSource></SW.Blocks.CompileUnit></Document>"
+        )
+        assert local_variable_access_paths(xml_root) == {"Scalar"}
+
+    def test_nested_struct_access_yields_dotted_path(self) -> None:
+        """Live an FB ``PrgFieldbusOk`` verifiziert: TIA exportiert
+        ``DiagCpu.SubordinateIOState`` als Geschwister-``Component``-Elemente
+        direkt unter ``Symbol``, nicht ineinander verschachtelt."""
+        xml_root = ET.fromstring(
+            "<Document><SW.Blocks.CompileUnit><NetworkSource><StructuredText>"
+            '<Access Scope="LocalVariable"><Symbol>'
+            '<Component Name="MyStruct"/><Component Name="a"/>'
+            "</Symbol></Access>"
+            "</StructuredText></NetworkSource></SW.Blocks.CompileUnit></Document>"
+        )
+        assert local_variable_access_paths(xml_root) == {"MyStruct.a"}
+
+    def test_multi_instance_call_yields_instance_name(self) -> None:
+        xml_root = ET.fromstring(
+            "<Document><SW.Blocks.CompileUnit><NetworkSource><StructuredText>"
+            '<Instance Scope="LocalVariable"><Component Name="lu_Inst"/></Instance>'
+            "</StructuredText></NetworkSource></SW.Blocks.CompileUnit></Document>"
+        )
+        assert local_variable_access_paths(xml_root) == {"lu_Inst"}
+
+    def test_ignores_non_local_variable_scope(self) -> None:
+        xml_root = ET.fromstring(
+            "<Document><SW.Blocks.CompileUnit><NetworkSource><StructuredText>"
+            '<Access Scope="GlobalVariable"><Symbol><Component Name="Tag"/></Symbol></Access>'
+            "</StructuredText></NetworkSource></SW.Blocks.CompileUnit></Document>"
+        )
+        assert local_variable_access_paths(xml_root) == set()
+
+    def test_none_xml_root_returns_empty_set(self) -> None:
+        assert local_variable_access_paths(None) == set()
 
 
 if __name__ == "__main__":

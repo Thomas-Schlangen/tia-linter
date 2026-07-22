@@ -473,6 +473,73 @@ def unused_cross_reference_leaf_names(sources: Iterable[Any]) -> Iterator[str]:
             yield name
 
 
+def strip_cross_reference_prefix(name: str, root_name: str) -> str:
+    """Entfernt das qualifizierende Präfix, das ``SourceObject.Name`` im
+    Kreuzreferenzbaum gegenüber dem unqualifizierten Namen aus dem
+    XML-Export/der Deklaration trägt (``'"01PrgDb".lx_30M1StopGap'`` bzw.
+    ``'DB_X.DiagCpu.DNNmode'`` statt ``lx_30M1StopGap``/``DiagCpu.DNNmode``
+    -- ``root_name`` ist der Name des abgefragten Wurzelobjekts, als
+    ``"<root_name>".`` oder ``<root_name>.`` quotiert oder unquotiert.
+    Extrahiert aus ``find_source_child_by_name`` (dort ursprünglich eine
+    lokale Closure), zusätzlich von ``cross_reference_referenced_top_level_names``
+    und Prüfpunkt 11 (``structure.py``) genutzt. Ohne Präfix-Treffer wird
+    ``name`` unverändert zurückgegeben."""
+    if root_name:
+        for prefix in (f'"{root_name}".', f"{root_name}."):
+            if name.startswith(prefix):
+                return name[len(prefix):]
+    return name
+
+
+def cross_reference_referenced_top_level_names(engineering_object: Any) -> set[str]:
+    """Liefert die (unqualifizierten) Namen aller direkten Kind-Member eines
+    DB/Bausteins, die laut ``CrossReferenceService`` irgendeine Referenz
+    tragen (``CrossReferenceFilter.ObjectsWithReferences`` -- laut
+    V21-Openness-Referenz das dokumentierte Gegenstück zu
+    ``CrossReferenceFilter.UnusedObjects``, siehe
+    ``unused_cross_reference_leaf_names``). Noch nicht live verifiziert
+    (weder die grundsätzliche Baumform noch, dass ``ObjectsWithReferences``
+    dieselbe Struktur wie ``UnusedObjects`` liefert).
+
+    Zwanzigster Bug/Feature (User-Auftrag, PP11 in der betrieblichen Praxis):
+    Wird eine UDT-/Struct-typisierte DB-Variable als Ganzes an einen anderen
+    Baustein übergeben (z. B. ``MeinFb(duStruct := "MeinDb".MeinStruct)``),
+    markiert ``CrossReferenceService`` typischerweise nur den Struct-Knoten
+    selbst als referenziert -- einzelne, nicht separat angefasste
+    Unterfelder bleiben in ``UnusedObjects`` weiterhin als "unbenutzt"
+    gelistet, obwohl die Variable in der Praxis sehr wohl verwendet wird
+    und ein Melden jedes einzelnen Unterfelds als Fehlalarm empfunden wird.
+    Diese Funktion liefert bewusst nur die **oberste** Ebene (keine
+    rekursive Blattauflösung) -- ist der Top-Level-Name hier vorhanden,
+    gilt die Variable als Ganzes als verwendet, unabhängig davon, auf
+    welcher Tiefe die tatsächliche Referenz saß. Für skalare (nicht
+    UDT-/Struct-typisierte) Variablen ist "oberste Ebene" gleichbedeutend
+    mit dem einzigen Blatt selbst -- eine explizite Typunterscheidung
+    UDT/Struct vs. Skalar ist deshalb beim Aufrufer nicht nötig, das
+    Verhalten reduziert sich für Skalare automatisch auf den bisherigen,
+    unveränderten Fall."""
+    from Siemens.Engineering.CrossReference import CrossReferenceFilter, CrossReferenceService
+
+    try:
+        service = engineering_object.GetService[CrossReferenceService]()
+    except Exception:  # noqa: BLE001 — Service evtl. für diesen Objekttyp nicht verfügbar
+        return set()
+    if service is None:
+        return set()
+    result = service.GetCrossReferences(CrossReferenceFilter.ObjectsWithReferences)
+    names: set[str] = set()
+    for source in getattr(result, "Sources", None) or []:
+        root_name = getattr(source, "Name", None) or ""
+        for child in getattr(source, "Children", None) or []:
+            child_name = getattr(child, "Name", None)
+            if not child_name:
+                continue
+            name = normalize_member_path(strip_cross_reference_prefix(child_name, root_name))
+            if name and name != root_name:
+                names.add(name)
+    return names
+
+
 def find_source_child_by_name(source_object: Any, name: str) -> Any | None:
     """Durchsucht rekursiv ``SourceObject.Children`` nach einem Kind mit
     gegebenem Namen.
@@ -503,19 +570,12 @@ def find_source_child_by_name(source_object: Any, name: str) -> Any | None:
     daher zusätzlich der Normalisierungs-Fallback.
     """
     root_name = getattr(source_object, "Name", None) or ""
-    prefixes = (f'"{root_name}".', f"{root_name}.") if root_name else ()
-
-    def _strip_root_prefix(child_name: str) -> str:
-        for prefix in prefixes:
-            if child_name.startswith(prefix):
-                return child_name[len(prefix):]
-        return child_name
 
     def _walk(node: Any) -> Any | None:
         for child in getattr(node, "Children", []) or []:
             child_name = getattr(child, "Name", None)
             if child_name is not None:
-                candidate = _strip_root_prefix(child_name)
+                candidate = strip_cross_reference_prefix(child_name, root_name)
                 if candidate == name or normalize_member_path(candidate) == name:
                     return child
             found = _walk(child)
@@ -572,6 +632,56 @@ def interface_section_members(xml_root: Any, section_name: str) -> set[str]:
 
     _walk(xml_root)
     return names
+
+
+def interface_section_member_paths(xml_root: Any, section_name: str) -> dict[str, list[str]]:
+    """Wie ``interface_section_members``, aber mit vollständiger
+    Blattpfad-Auflösung je direktem Member: liefert ``{membername:
+    [blattpfad, ...]}`` -- bei einem skalaren Member ist das genau
+    ``[membername]`` selbst, bei einem UDT-/Multiinstanz-typisierten Member
+    die dotted Pfade aller (rekursiv) verschachtelten Blattfelder (z. B.
+    ``{"MeinStruct": ["MeinStruct.a", "MeinStruct.b.c"]}``), gelesen aus dem
+    verschachtelten ``<Sections>`` innerhalb des ``<Member>``-Elements
+    selbst (siehe ``interface_section_members``, Absatz zu
+    Multiinstanz-/UDT-Membern -- dort bewusst übersprungen, hier gezielt
+    ausgewertet). Grundlage für Prüfpunkt 11s Unterelement-Detailprüfung
+    bei FB/FC/OB (``unterelemente_pruefen``, siehe ``structure.py``)."""
+    if xml_root is None:
+        return {}
+    result: dict[str, list[str]] = {}
+
+    def _leaf_paths(member_elem: Any, prefix: str) -> list[str]:
+        leaves: list[str] = []
+        for child in member_elem:
+            if _local_name(child.tag) != "Sections":
+                continue
+            for section in child:
+                if _local_name(section.tag) != "Section":
+                    continue
+                for sub_member in section:
+                    if _local_name(sub_member.tag) != "Member":
+                        continue
+                    sub_name = sub_member.attrib.get("Name")
+                    if sub_name:
+                        leaves.extend(_leaf_paths(sub_member, f"{prefix}.{sub_name}"))
+        return leaves or [prefix]
+
+    def _walk(elem: Any) -> None:
+        for child in elem:
+            tag = _local_name(child.tag)
+            if tag == "Member":
+                continue  # nicht in verschachtelte Sub-Interfaces absteigen
+            if tag == "Section" and child.attrib.get("Name") == section_name:
+                for member in child:
+                    if _local_name(member.tag) != "Member":
+                        continue
+                    name = member.attrib.get("Name")
+                    if name:
+                        result[name] = _leaf_paths(member, name)
+            _walk(child)
+
+    _walk(xml_root)
+    return result
 
 
 def local_variable_access_names(xml_root: Any) -> set[str]:
@@ -632,6 +742,72 @@ def local_variable_access_names(xml_root: Any) -> set[str]:
                             names.add(name)
                         break
     return names
+
+
+def _symbol_component_chain(symbol_or_instance_elem: Any) -> list[str]:
+    """Liest die Namen aller direkten ``Component``-Kinder von ``Symbol``
+    (bzw. ``Instance``) in Dokumentreihenfolge.
+
+    Live an FB ``PrgFieldbusOk`` verifiziert: TIA exportiert einen
+    mehrstufigen Struct-/UDT-Zugriff (z. B. ``DiagCpu.SubordinateIOState``)
+    **nicht** wie ursprünglich angenommen als ineinander verschachtelte
+    ``Component``-Elemente, sondern als flache Geschwister-Liste direkt
+    unter ``Symbol``::
+
+        <Symbol>
+          <Component Name="DiagCpu" />
+          <Component Name="SubordinateIOState" />
+        </Symbol>
+
+    (analog auch an FC ``CtrFcParaRdWr`` bestätigt, z. B. ``lx_Step.Sc``).
+    Fortsetzung von ``_first_symbol_component_name``, das bewusst nur die
+    erste ``Component`` lieferte (siehe ``local_variable_access_names``);
+    Grundlage für ``local_variable_access_paths`` (Prüfpunkt 11s
+    Unterelement-Detailprüfung)."""
+    return [
+        name
+        for component in symbol_or_instance_elem
+        if _local_name(component.tag) == "Component" and (name := component.attrib.get("Name"))
+    ]
+
+
+def local_variable_access_paths(xml_root: Any) -> set[str]:
+    """Wie ``local_variable_access_names``, aber mit voller Pfadtiefe:
+    liefert dotted Zugriffspfade auf beliebiger Verschachtelungstiefe (z. B.
+    ``"DiagCpu.SubordinateIOState"`` statt nur ``"DiagCpu"``) für
+    Prüfpunkt 11s Unterelement-Detailprüfung bei FB/FC/OB
+    (``unterelemente_pruefen: true`` in der Config, siehe ``structure.py``).
+    Ein Zugriff auf ein UDT-/Struct-Member als Ganzes (z. B. als
+    Aufrufparameter einer anderen Bausteininstanz) liefert nur den
+    kürzeren Pfad bis zu dieser Tiefe -- tiefer verschachtelte, dabei nicht
+    separat angefasste Blattfelder erscheinen dann nicht als eigener,
+    längerer Pfad (bewusst exakt, ohne Ableitung "Elternpfad zugegriffen
+    => Kind auch", analog zur echten Feld-Granularität von
+    ``CrossReferenceService`` bei DB-Variablen). Live an FB
+    ``PrgFieldbusOk``/FC ``CtrFcParaRdWr`` verifiziert, siehe
+    ``_symbol_component_chain``."""
+    if xml_root is None:
+        return set()
+    paths: set[str] = set()
+
+    for compile_unit in iter_compile_units(xml_root):
+        for elem in compile_unit.iter():
+            tag = _local_name(elem.tag)
+            if elem.attrib.get("Scope") != "LocalVariable":
+                continue
+            if tag == "Access":
+                for symbol in elem:
+                    if _local_name(symbol.tag) != "Symbol":
+                        continue
+                    chain = _symbol_component_chain(symbol)
+                    if chain:
+                        paths.add(".".join(chain))
+                    break
+            elif tag == "Instance":
+                chain = _symbol_component_chain(elem)
+                if chain:
+                    paths.add(".".join(chain))
+    return paths
 
 
 def _first_symbol_component_name(access_elem: Any) -> str | None:

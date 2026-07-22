@@ -214,6 +214,15 @@ checks:
     unbenutzte_variablen:
       enabled: true
       severity: warning
+      # UDT-/Struct-typisierte Member (in DBs wie in FB/FC/OB) werden bei
+      # false (Standard) als Ganzes gewertet: Ist irgendein Unterfeld
+      # referenziert (z. B. weil die Variable komplett an einen anderen
+      # Baustein übergeben wird), gilt sie als verwendet und einzelne,
+      # weiterhin ungenutzte Unterfelder werden nicht gemeldet. Ist die
+      # Variable dagegen komplett unbenutzt, werden die Unterfelder trotzdem
+      # einzeln gemeldet. Bei true werden immer alle Unterfelder einzeln
+      # geprüft, ganz ohne diese Pauschal-Ausnahme (bisheriges Verhalten).
+      unterelemente_pruefen: false
 
     # Prüfpunkt 11b — FB/FC/DB wird von keiner Stelle im Projekt
     # aufgerufen/referenziert.

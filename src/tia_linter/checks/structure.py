@@ -19,17 +19,20 @@ from tia_linter.checks._tia_helpers import (
     compile_unit_element_count,
     compile_unit_multilingual_text,
     cross_reference_locations,
+    cross_reference_referenced_top_level_names,
     export_block_xml,
     format_path,
     get_attribute,
-    interface_section_members,
+    interface_section_member_paths,
     iter_blocks,
     iter_compile_units,
     iter_data_blocks,
     iter_plc_software,
     iter_tag_tables,
-    local_variable_access_names,
+    local_variable_access_paths,
+    normalize_member_path,
     reference_language,
+    strip_cross_reference_prefix,
     tag_direction,
     unused_cross_reference_leaf_names,
 )
@@ -158,7 +161,7 @@ class UnbenutzteVariablenCheck(BaseCheck):
     Fix: FB-/FC-/OB-Interface-Member (Input/Output/InOut/Static/Temp) werden
     jetzt komplett unabhängig von CrossReferenceService/Instanz-DB geprüft —
     stattdessen wird der XML-Export des Bausteins direkt nach eigenen
-    lokalen Variablenzugriffen durchsucht (``local_variable_access_names()``,
+    lokalen Variablenzugriffen durchsucht (``local_variable_access_paths()``,
     siehe ``_tia_helpers.py``): ``<Access Scope="LocalVariable">`` bzw.
     ``<Instance Scope="LocalVariable">`` (Multiinstanz) — live identisch
     verifiziert für SCL und FBD. Das garantiert strukturell, dass nur
@@ -169,6 +172,42 @@ class UnbenutzteVariablenCheck(BaseCheck):
     Global-/Array-DB-Schleife oben deshalb jetzt bewusst übersprungen — ihre
     Member werden ausschließlich über die FB-Definition geprüft (unabhängig
     davon, wie viele Instanzen es gibt).
+
+    Zwanzigster Bug/Feature (User-Auftrag, betriebliche Praxis): DB-Member
+    vom Typ UDT/Struct werden bei diesem Anwender oft als Ganzes an einen
+    anderen Baustein übergeben (z. B. ``MeinFb(duStruct := "MeinDb".MeinStruct)``)
+    statt feldweise einzeln zugegriffen. ``CrossReferenceService`` markiert
+    dabei typischerweise nur den Struct-Knoten selbst als referenziert —
+    einzelne, nicht separat angefasste Unterfelder erschienen bislang
+    trotzdem als "unbenutzt" in ``UnusedObjects``, was in der Praxis als
+    Fehlalarm-Rauschen empfunden wurde. Neuer Parameter
+    ``unterelemente_pruefen`` (Standard ``false``): Ist ein UDT-/Struct-
+    typisiertes Top-Level-Member irgendwo referenziert (auf beliebiger
+    Tiefe — ``cross_reference_referenced_top_level_names()``, Filter
+    ``CrossReferenceFilter.ObjectsWithReferences``), gilt die Variable als
+    Ganzes als verwendet und ihre einzelnen (evtl. weiterhin ungenutzten)
+    Unterfelder werden **nicht** gemeldet. Ist sie dagegen komplett
+    unbenutzt (kein einziges Unterfeld referenziert), werden die
+    Unterfelder trotzdem einzeln gemeldet — unabhängig vom Parameter, weil
+    in diesem Fall die Detailinformation, welche Felder betroffen sind,
+    nicht durch eine pauschale Übergabe abgedeckt sein kann. Bei ``true``
+    bleibt es beim bisherigen, feldgranularen Verhalten ohne diese
+    Pauschal-Ausnahme. Da ein skalares Member ohnehin nur ein einziges
+    Blatt (sich selbst) hat, ist dafür keine UDT/Struct-vs-Skalar-
+    Typunterscheidung nötig — das Verhalten reduziert sich für Skalare
+    automatisch auf den bisherigen, unveränderten Fall.
+
+    Dieselbe Pauschal-Ausnahme gilt jetzt auch für UDT-/Struct-typisierte
+    FB-/FC-/OB-Interface-Member, dort aber neu über den XML-Export gelöst
+    (``interface_section_member_paths()``/``local_variable_access_paths()``):
+    anders als bei DBs kannte der bisherige XML-Scan nur Top-Level-Member
+    (``local_variable_access_names()`` nahm ohnehin nur die erste
+    ``Component`` unter ``Symbol`` — Unterfeld-Granularität existierte für
+    FB/FC/OB bislang gar nicht). Beide neuen Funktionen lösen die
+    verschachtelte ``<Sections>``-Deklaration bzw. verschachtelte
+    ``Component``-Zugriffsketten rekursiv bis auf Blattebene auf und sind
+    noch **nicht** live an einem echten verschachtelten UDT-/Struct-Zugriff
+    verifiziert (siehe Docstrings in ``_tia_helpers.py``).
     """
 
     _INTERFACE_SECTIONS = ("Input", "Output", "InOut", "Static", "Temp")
@@ -176,6 +215,8 @@ class UnbenutzteVariablenCheck(BaseCheck):
     def run(self, project: Any) -> list[CheckResult]:
         from Siemens.Engineering.CrossReference import CrossReferenceFilter, CrossReferenceService
         from Siemens.Engineering.SW.Blocks import FB, FC, OB, InstanceDB
+
+        check_sub_items = bool(self.definition.params.get("unterelemente_pruefen", False))
 
         results: list[CheckResult] = []
         for plc_software in iter_plc_software(project):
@@ -201,19 +242,31 @@ class UnbenutzteVariablenCheck(BaseCheck):
                     continue
                 unused_result = service.GetCrossReferences(CrossReferenceFilter.UnusedObjects)
                 sources = getattr(unused_result, "Sources", []) or []
+                unused_names: list[str] = []
                 for raw_name in unused_cross_reference_leaf_names(sources):
                     # Blattnamen sind mit dem DB-Namen als Pfadpräfix
                     # qualifiziert (z. B. '"DB_X".DiagCpu.DNNmode' oder
                     # 'DB_X.DiagCpu.DNNmode') — für eine lesbare Anzeige
                     # abschneiden, analog zum bereits an anderer Stelle
                     # üblichen Member-Pfad-Format.
-                    name = raw_name
-                    for prefix in (f'"{db.Name}".', f"{db.Name}."):
-                        if name.startswith(prefix):
-                            name = name[len(prefix):]
-                            break
+                    name = normalize_member_path(strip_cross_reference_prefix(raw_name, db.Name))
                     if not name or name == db.Name:
                         continue
+                    unused_names.append(name)
+
+                if not check_sub_items and unused_names:
+                    # Ist ein Top-Level-Member auf irgendeiner Tiefe
+                    # referenziert (z. B. als Ganzes an einen anderen
+                    # Baustein übergeben), gilt es als "verwendet" — seine
+                    # weiterhin einzeln unbenutzten Unterfelder werden dann
+                    # nicht gemeldet (siehe Klassendocstring, "Zwanzigster
+                    # Bug/Feature").
+                    used_top_level = cross_reference_referenced_top_level_names(db)
+                    unused_names = [
+                        name for name in unused_names if name.split(".", 1)[0] not in used_top_level
+                    ]
+
+                for name in unused_names:
                     results.append(
                         self._make_result(
                             path=format_path(plc_software.Name, "Datenbaustein", *group_path, db.Name, "Member", name),
@@ -226,22 +279,32 @@ class UnbenutzteVariablenCheck(BaseCheck):
                 if not isinstance(block, (FB, FC, OB)):
                     continue
                 xml_root = export_block_xml(block)
-                member_names: set[str] = set()
+                declared_paths: dict[str, list[str]] = {}
                 for section_name in self._INTERFACE_SECTIONS:
-                    member_names |= interface_section_members(xml_root, section_name)
-                if not member_names:
+                    declared_paths.update(interface_section_member_paths(xml_root, section_name))
+                if not declared_paths:
                     continue
-                used_names = local_variable_access_names(xml_root)
-                for member_name in sorted(member_names - used_names):
-                    results.append(
-                        self._make_result(
-                            path=format_path(
-                                plc_software.Name, "Programmbausteine", *group_path, block.Name, "Member", member_name
-                            ),
-                            description=f"Variable '{member_name}' wird im Baustein '{block.Name}' nirgends verwendet.",
-                            value=member_name,
+                used_paths = local_variable_access_paths(xml_root)
+
+                for member_name, leaf_paths in sorted(declared_paths.items()):
+                    if check_sub_items:
+                        unused_leaves = [path for path in leaf_paths if path not in used_paths]
+                    else:
+                        member_used = member_name in used_paths or any(
+                            path.startswith(f"{member_name}.") for path in used_paths
                         )
-                    )
+                        unused_leaves = [] if member_used else leaf_paths
+
+                    for leaf_path in unused_leaves:
+                        results.append(
+                            self._make_result(
+                                path=format_path(
+                                    plc_software.Name, "Programmbausteine", *group_path, block.Name, "Member", leaf_path
+                                ),
+                                description=f"Variable '{leaf_path}' wird im Baustein '{block.Name}' nirgends verwendet.",
+                                value=leaf_path,
+                            )
+                        )
         return results
 
 

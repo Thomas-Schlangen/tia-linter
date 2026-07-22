@@ -2086,3 +2086,146 @@ gefunden, Rohdaten und Check-Logik sind sauber. Das Projekt hat aber nur 42
 echte PLC-Tags insgesamt; die eigentliche I/O läuft über ein
 DB-Spiegel-Pattern, das diese drei Prüfpunkte naturgemäß nicht sehen. Auf
 User-Wunsch nur dokumentiert, nicht erweitert."
+
+## Runde 38 — Neuer Parameter `unterelemente_pruefen` bei Prüfpunkt 11 (User-Auftrag, betriebliche Praxis)
+
+**Ausgangspunkt:** User testet PP11 erneut, hat aber Änderungswünsche: In der
+Praxis werden DB-Variablen vom Typ UDT/Struct oft **als Ganzes** an einen
+anderen Baustein übergeben (z. B. `MeinFb(duStruct := "MeinDb".MeinStruct)`)
+statt feldweise einzeln zugegriffen. `CrossReferenceService` markiert dabei
+typischerweise nur den Struct-Knoten selbst als referenziert — einzelne,
+nicht separat angefasste Unterfelder blieben bislang trotzdem als
+"unbenutzt" gemeldet, was als Fehlalarm-Rauschen empfunden wurde.
+User-Auftrag: neuer Parameter (Default `false`), der ein UDT-/Struct-Member
+als Ganzes wertet — nur wenn es *komplett* unbenutzt ist, sollen die
+Unterfelder trotzdem einzeln geprüft werden (unabhängig vom Parameter);
+dieselbe Logik soll auch für FB/FC/OB-Member gelten.
+
+**Rückfrage vor der Umsetzung** (`AskUserQuestion`, zwei offene
+Designentscheidungen): (1) FB/FC/OB hat aktuell *gar keine*
+Unterfeld-Granularität (nur die erste `Component` unter `Symbol` wird
+erkannt) — soll das volle Detail-Verhalten (`true`) dort jetzt neu gebaut
+werden, oder reicht vorerst nur die DB-Seite? User: **beides jetzt bauen.**
+(2) Für die DB-Erkennung "als Ganzes verwendet" sollte zusätzlich
+`CrossReferenceFilter.ObjectsWithReferences` abgefragt werden (laut
+Referenzhandbuch das dokumentierte Gegenstück zu `UnusedObjects`), noch
+nicht live verifiziert. User: **einverstanden.**
+
+**Umsetzung:**
+- Neue Hilfsfunktion `cross_reference_referenced_top_level_names()`
+  (`_tia_helpers.py`): fragt `ObjectsWithReferences` am DB ab, liefert die
+  Namen aller Top-Level-Member mit mindestens einer Referenz auf
+  beliebiger Tiefe. Keine UDT/Struct-vs-Skalar-Typunterscheidung nötig —
+  für Skalare ist "oberste Ebene" ohnehin gleichbedeutend mit dem einzigen
+  Blatt, das Verhalten reduziert sich dort automatisch auf den Ist-Zustand.
+- `UnbenutzteVariablenCheck` (DB-Zweig): unbenutzte Blattnamen werden nach
+  Top-Level-Namen gruppiert; bei `unterelemente_pruefen: false` (Default)
+  werden Blätter unterdrückt, deren Top-Level-Name in der
+  "referenziert"-Menge auftaucht.
+- Zwei neue Hilfsfunktionen für FB/FC/OB, die es vorher nicht gab:
+  `interface_section_member_paths()` (löst die verschachtelte
+  `<Sections>`-Deklaration eines Members rekursiv zu dotted Blattpfaden
+  auf, analog zu `interface_section_members`, aber mit voller Tiefe) und
+  `local_variable_access_paths()` (löst tatsächliche Code-Zugriffe
+  entsprechend auf). `UnbenutzteVariablenCheck` (FB/FC/OB-Zweig) komplett
+  auf diese beiden umgestellt — vorher gab es dort nur Top-Level-Vergleich
+  ohne jede Unterfeld-Auflösung.
+- Extrahierte Hilfsfunktion `strip_cross_reference_prefix()` (vorher eine
+  lokale Closure in `find_source_child_by_name`), jetzt auch in
+  `cross_reference_referenced_top_level_names()` und im DB-Zweig von PP11
+  wiederverwendet.
+- 13 neue Unit-Tests für die reinen XML-/String-Hilfsfunktionen
+  (`tests/test_tia_helpers.py`), `pytest` 51/51 grün.
+
+**Live-Verifikation gegen Salzmaschine (auf User-Bitte von mir statt vom
+User durchgeführt, Zeitdruck — "möchte bis zum Wochenende fertig sein"),
+zwei unabhängige Skripte, headless via `TiaConnectorV21`, rein lesend:**
+
+1. **DB-Baumform bestätigt:** `ObjectsWithReferences` liefert exakt dieselbe
+   Baumform wie `UnusedObjects` (`Sources[0]` = DB-Wurzel, `.Children` =
+   Top-Level-Member, rekursiv) — an 6 realen Global-/Array-DBs
+   (`SysDiagDb`, `OrgDb`, `FieldbusDb`, `FieldbusArrayDb`, `ConfigDb`,
+   `V40Alm`) verglichen. Bei `FieldbusArrayDb` zusätzlich beobachtet: die
+   Top-Level-Member `NetActive`/`NetAlm` tauchen in **beiden** Filtern auf
+   (teils benutzte, teils unbenutzte Array-Indizes) — betrifft die neue
+   Logik hier nicht, weil Array-Elemente bereits vorher über den
+   `"["`-Skip aus `unused_cross_reference_leaf_names()` herausgefiltert
+   werden, bevor die neue Gruppierung überhaupt ansetzt.
+2. **FB/FC/OB-Annahme war falsch, noch vor Dokumentation korrigiert:**
+   Erste Implementierung nahm an, TIA exportiere mehrstufige
+   Struct-Zugriffe als ineinander verschachtelte `<Component>`-Elemente
+   (`<Component><Component/></Component>`). Live-Dump der rohen XML an FB
+   `PrgFieldbusOk` (`DiagCpu.SubordinateIOState`, `DiagCpu.SubordinateState`)
+   und FC `CtrFcParaRdWr` (`lx_Step.Sc`) zeigt stattdessen eine **flache
+   Geschwister-Liste** direkt unter `Symbol`:
+   `<Symbol><Component Name="DiagCpu"/><Component Name="SubordinateIOState"/></Symbol>`.
+   `_symbol_component_chain()` entsprechend vereinfacht (liest jetzt alle
+   direkten `Component`-Geschwister statt zu rekursieren) — dadurch sogar
+   kürzerer Code als die ursprüngliche (falsche) Annahme.
+3. **End-to-End-Bestätigung:** `interface_section_member_paths()` liefert
+   für FB `PrgFieldbusOk`, Member `DiagCpu`, korrekt drei Blattpfade
+   (`DiagCpu.SubordinateState`, `DiagCpu.SubordinateIOState`,
+   `DiagCpu.DNNmode`); `local_variable_access_paths()` findet davon zwei
+   tatsächlich zugegriffen (`DiagCpu.SubordinateIOState`,
+   `DiagCpu.SubordinateState`) plus einen direkten Zugriff auf `DiagCpu`
+   selbst — `DiagCpu.DNNmode` bleibt unbenutzt (deckungsgleich mit dem
+   bereits aus Runde 35 bekannten Befund am gleichnamigen DB-Member).
+   Kompletter `UnbenutzteVariablenCheck`-Lauf gegen das ganze Projekt:
+   `unterelemente_pruefen: false` → **174 Befunde** (5 Tags, 132
+   DB-Member, 37 FB/FC/OB-Member), `true` → **8.023 Befunde** (5 Tags, 140
+   DB-Member, 7.878 FB/FC/OB-Member). Der große Sprung bei FB/FC/OB
+   bestätigt praktisch, warum `false` als Default sinnvoll ist — die neue
+   Feld-Granularität dort würde ohne die Pauschal-Ausnahme ein Vielfaches
+   an Rauschen erzeugen.
+
+**Nachtrag, unmittelbar danach — Vierundzwanzigster Bug (User-Meldung mit
+konkretem Fall):** DB `V01St`, Variable `4805_27M11` (Typ `U_VisStFcFan`),
+komplett als Aufrufparameter von `CtrFcFan` in `01Prg`/Netzwerk 16
+verwendet — trotzdem meldete PP11 bei `unterelemente_pruefen: false` alle
+Sub-Member als unbenutzt, die Pauschal-Ausnahme griff also nicht.
+
+**Diagnose** (Live-Debug-Skript, gezielt an `V01St`/`4805_27M11`): Die neue
+`cross_reference_referenced_top_level_names()` fand `4805_27M11` korrekt in
+der "referenziert"-Menge (bestätigt per Direktabfrage). Der Fehler lag in
+der Vergleichsseite: Der DB-Zweig von `UnbenutzteVariablenCheck` übernahm
+den von `CrossReferenceService` gelieferten Blattnamen nach dem
+Präfix-Abschneiden ungefiltert weiter — für ein Ziffernbeginn-Segment wie
+`4805_27M11` liefert TIA dabei `"4805_27M11".M` (mit Anführungszeichen um
+das Segment, siehe die schon länger bekannte Quotierungsregel bei
+`normalize_member_path()`/`find_source_child_by_name`). Der neue
+Top-Level-Vergleich `name.split(".", 1)[0] not in used_top_level` verglich
+dadurch `'"4805_27M11"'` (mit Anführungszeichen) gegen `used_top_level`,
+das über `cross_reference_referenced_top_level_names()` bereits normalisiert
+(unquotiert) befüllt wird — ein struktureller Mismatch, der für **jeden**
+Ziffernbeginn-Namen im Projekt griff, nicht nur für diesen einen Fall.
+
+**Fix:** `normalize_member_path()` wird im DB-Zweig jetzt direkt nach
+`strip_cross_reference_prefix()` angewendet — behebt den Vergleich und
+säubert als Nebeneffekt auch die angezeigten Pfade (keine störenden
+Anführungszeichen mehr in den Befund-Pfaden).
+
+**Live erneut verifiziert:** `unterelemente_pruefen: false` sinkt von 174
+auf **54 Befunde** insgesamt (DB-Member 132 → 12 — die meisten der 132 waren
+also selbst falsch-positiv durch genau diesen Quotierungs-Bug, nicht nur
+`4805_27M11`); `V01St > 4805_27M11` erzeugt jetzt korrekt keinen Treffer
+mehr. `unterelemente_pruefen: true` unverändert bei 8.023 Befunden, zeigt
+weiterhin korrekt alle sieben tatsächlich unbenutzten Blätter unter
+`4805_27M11.M` (z. B. `4805_27M11.M.FcPI.StWord`) — der Detailmodus war nie
+betroffen, da er nicht über `used_top_level` filtert. `pytest` weiterhin
+51/51 grün (kein Test deckte diesen Vergleichspfad ab, da `structure.py`
+mangels CLR-Unabhängigkeit nicht direkt unit-getestet wird — nur live
+gefunden).
+
+**Dokumentiert:** `docs/Handbuch.md` Version 0.37/Anhang-C-Eintrag um den
+Bugfix ergänzt. Noch nicht committet — steht als Nächstes an.
+
+Letzter Stand: "Neuer Parameter `unterelemente_pruefen` (Default `false`)
+bei Prüfpunkt 11 fertig implementiert, für DB **und** FB/FC/OB, inkl. neuer
+Unterfeld-Granularität bei FB/FC/OB, die es vorher gar nicht gab. Zwei
+Kernannahmen live gegen Salzmaschine verifiziert — eine davon (verschachtelte
+vs. Geschwister-Component-Elemente) war ursprünglich falsch und wurde vor
+der Doku korrigiert. Danach vom User an einem konkreten Fall (`V01St >
+4805_27M11`) ein Quotierungs-Bug gefunden und behoben, der die neue
+Pauschal-Ausnahme für praktisch jeden Ziffernbeginn-DB-Member wirkungslos
+gemacht hätte (132 → 12 DB-Befunde nach dem Fix). pytest 51/51 grün,
+Handbuch aktualisiert, noch nicht committet."
