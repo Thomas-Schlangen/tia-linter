@@ -484,19 +484,44 @@ class AusgaengeMehrfachSchreibenCheck(BaseCheck):
 
 
 class AwlCodeCheck(BaseCheck):
-    """Prüfpunkt 14: Bausteine, die noch in AWL/STL programmiert sind."""
+    """Prüfpunkt 14: Bausteine, die noch in AWL/STL programmiert sind.
+
+    Ein Baustein, dessen Grundsprache KOP/FUP ist, kann trotzdem einzelne
+    Netzwerke enthalten, die (z. B. per Copy&Paste) in AWL umgeschaltet
+    wurden — ``block.ProgrammingLanguage`` bleibt dabei auf der
+    Grundsprache stehen und meldet nichts. Prüfpunkt 15
+    (``GemischteSprachenCheck``) erkennt genau diesen Fall bereits über den
+    XML-Export je ``CompileUnit``; dieselbe Abfrage wird hier wiederverwendet,
+    um auch einzelne AWL-Netzwerke innerhalb eines sonst nicht-AWL-Bausteins
+    zu melden.
+    """
 
     def run(self, project: Any) -> list[CheckResult]:
         results: list[CheckResult] = []
         for plc_software in iter_plc_software(project):
             for block, group_path in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
-                if get_attribute(block, "ProgrammingLanguage") == "STL":
+                block_language = get_attribute(block, "ProgrammingLanguage")
+                if block_language == "STL":
                     results.append(
                         self._make_result(
                             path=format_path(plc_software.Name, "Programmbausteine", *group_path, block.Name),
                             description=f"Baustein '{block.Name}' ist in AWL (STL) programmiert.",
                         )
                     )
+                    continue
+                if block_language == "SCL":
+                    continue
+                xml_root = export_block_xml(block)
+                for index, compile_unit in enumerate(iter_compile_units(xml_root), start=1):
+                    if compile_unit_attribute(compile_unit, "ProgrammingLanguage") == "STL":
+                        results.append(
+                            self._make_result(
+                                path=format_path(
+                                    plc_software.Name, "Programmbausteine", *group_path, block.Name, f"Netzwerk {index}"
+                                ),
+                                description=f"Netzwerk {index} in Baustein '{block.Name}' ist in AWL (STL) programmiert.",
+                            )
+                        )
         return results
 
 

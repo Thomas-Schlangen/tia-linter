@@ -2372,3 +2372,57 @@ Treffer melden. Fix filtert diesen Meta-Eintrag heraus, echte Aufrufe
 (`ReferenceType.UsedBy`) bleiben erhalten. Live am vom User selbst
 angelegten Testfall `01TestOrgPrgDb` verifiziert, 2 → 3 Befunde. pytest
 51/51 grün, Handbuch aktualisiert, noch nicht committet."
+
+## Runde 41 — Achtundzwanzigster Bug: Prüfpunkt 14 sah kein einzelnes AWL-Netzwerk in einem sonst nicht-AWL-Baustein
+
+**Ausgangspunkt:** User arbeitet sich Prüfpunkt für Prüfpunkt durch die
+Salzmaschine durch ("einige Prüfpunkte waren ok. bin jetzt bei PP14.").
+Hat gezielt ein AWL-Netzwerk in `01OrgPrg`/Netzwerk 16 eingefügt (Baustein
+ist sonst KOP/FUP) — Prüfpunkt 14 hat es nicht gefunden/markiert.
+
+**Diagnose:** `AwlCodeCheck` prüfte bislang ausschließlich
+`block.ProgrammingLanguage == "STL"`, also die Grundsprache des ganzen
+Bausteins. TIA Portal erlaubt aber, wie bei Prüfpunkt 10 und 15 bereits
+bekannt, einzelne Netzwerke innerhalb eines Bausteins mit anderer
+Grundsprache auf AWL umzuschalten — die Baustein-Grundsprache bleibt dabei
+unverändert (`01OrgPrg` blieb z. B. weiterhin als FBD/KOP geführt), sodass
+der reine Attribut-Check das AWL-Netzwerk strukturell nie sehen konnte.
+Prüfpunkt 15 (`GemischteSprachenCheck`) löst exakt dasselbe Problem bereits
+korrekt über den XML-Export je `CompileUnit`
+(`compile_unit_attribute(cu, "ProgrammingLanguage")`) — derselbe
+Mechanismus wurde für Prüfpunkt 14 übernommen.
+
+**Fix:** Bausteine mit Grundsprache STL werden weiterhin komplett als ein
+Befund gemeldet (unverändertes Verhalten). Bausteine mit Grundsprache SCL
+werden übersprungen (kein netzwerkbasierter AWL-Umschalt-Fall möglich).
+Für alle übrigen Bausteine (KOP/FUP/GRAPH) wird jetzt zusätzlich der
+XML-Export durchsucht: jedes `CompileUnit`, dessen eigene
+`ProgrammingLanguage` "STL" ist, wird einzeln mit Netzwerknummer gemeldet
+(`src/tia_linter/checks/structure.py:486-521`).
+
+**Verbindungsproblem vor der Verifikation:** `tasklist` zeigte
+`Siemens.Automation.ObjectFrame.FileStorage.Server.exe` (PID 11516) in der
+interaktiven Konsolensitzung mit ~1 GB Speicher — ein möglicherweise
+offenes TIA-Portal-Projekt. Nachgefragt statt direkt beendet; User
+bestätigte "ich habe nichts offen. bitte killen" — danach beendet, keine
+weiteren Siemens-Prozesse in der Konsolensitzung übrig (nur reguläre
+Hintergrunddienste in Session 0).
+
+**Live verifiziert:** `git stash` des Fixes für eine Vorher/Nachher-Messung
+(wie im Standardvorgehen). Vorher (unveränderter Code): **0 Befunde**.
+Nachher (mit Fix): **2 Befunde** — `01OrgPrg`/Netzwerk 16 (der vom User
+gemeldete Testfall) sowie zusätzlich ein bislang unentdeckter echter Fall
+in `CtrFcParaRdWr`/Netzwerk 4 (`ProjectBib > PrgBibAlpma > General`).
+`pytest` weiterhin 51/51 grün.
+
+**Dokumentiert:** `docs/Handbuch.md` Version 0.40 (Besonderheiten bei
+Prüfpunkt 14 ergänzt, Anhang-C-Eintrag). Noch nicht committet.
+
+Letzter Stand: "Prüfpunkt 14 prüfte bislang nur die Grundsprache des
+Bausteins, nicht die Sprache einzelner Netzwerke — ein per Copy&Paste auf
+AWL umgeschaltetes Einzelnetzwerk in einem sonst KOP/FUP-Baustein
+(`01OrgPrg`/NW16, vom User gezielt eingefügt) blieb dadurch unentdeckt.
+Fix übernimmt denselben CompileUnit-Sprach-Check, den Prüfpunkt 15 bereits
+nutzt. Live verifiziert: 0 → 2 Befunde (der gemeldete Testfall plus ein
+bislang unbekannter echter Fall in `CtrFcParaRdWr`/NW4). pytest 51/51
+grün, Handbuch aktualisiert, noch nicht committet."
