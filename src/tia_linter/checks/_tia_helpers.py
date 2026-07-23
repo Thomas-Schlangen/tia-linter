@@ -991,3 +991,26 @@ def compile_unit_element_count(compile_unit: Any) -> int:
         if _local_name(child.tag) in ("Part", "Call"):
             count += 1
     return count
+
+
+def compile_unit_scl_line_count(compile_unit: Any) -> int:
+    """Zählt die Code-Zeilen eines SCL-Netzwerks.
+
+    ``compile_unit_element_count`` zählt ausschließlich grafische
+    ``<Part>``/``<Call>``-Elemente und liefert für SCL-Text (der als Folge
+    von ``<Token>``/``<Access>``/``<NewLine>``-Elementen exportiert wird,
+    siehe ``_scan_scl_assignment_writes``) immer 0 — unabhängig von der
+    tatsächlichen Zeilenzahl. Diese Funktion zählt stattdessen die
+    ``<NewLine>``-Elemente: ``N`` Zeilenumbrüche ergeben ``N + 1`` Zeilen.
+    Ein Netzwerk ganz ohne Code (kein ``Token``/``Access``) gilt als leer
+    (``0``), nicht als eine Zeile.
+    """
+    newline_count = 0
+    has_content = False
+    for child in compile_unit.iter():
+        tag = _local_name(child.tag)
+        if tag == "NewLine":
+            newline_count += 1
+        elif tag in ("Token", "Access"):
+            has_content = True
+    return newline_count + 1 if has_content else 0

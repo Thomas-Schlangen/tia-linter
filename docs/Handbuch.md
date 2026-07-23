@@ -1,6 +1,6 @@
 # TIA Linter — Benutzerhandbuch
 
-**Version dieses Handbuchs:** 0.41 (Entwurf)
+**Version dieses Handbuchs:** 0.42 (Entwurf)
 **Stand:** 23.07.2026
 **Programmversion:** 0.1.0
 
@@ -1721,10 +1721,14 @@ Baustein auf eine einheitliche Programmiersprache vereinheitlichen.
 | **Config-Schlüssel** | `checks.programmstruktur.max_netzwerk_elemente` |
 
 **Was wird geprüft?**
-Für jedes Netzwerk wird die Anzahl der enthaltenen Programmelemente
-(Kontakte, Spulen, Bausteinaufrufe, Verknüpfungen usw.) gezählt und mit
-dem konfigurierten Schwellenwert verglichen. Wird der Schwellenwert
-überschritten, wird ein Befund erzeugt.
+Für jedes grafische Netzwerk (KOP/FUP/GRAPH) wird die Anzahl der
+enthaltenen Programmelemente (Kontakte, Spulen, Bausteinaufrufe,
+Verknüpfungen usw.) gezählt und mit dem konfigurierten Schwellenwert
+verglichen. Für SCL-Netzwerke (eigenständige SCL-Bausteine sowie einzelne
+SCL-Netzwerke innerhalb eines sonst grafischen Bausteins) wird stattdessen
+die Anzahl der Code-Zeilen gezählt und mit einem eigenen Schwellenwert
+verglichen. Wird der jeweilige Schwellenwert überschritten, wird ein
+Befund erzeugt.
 
 **Warum ist das wichtig?**
 Sehr umfangreiche Netzwerke sind auf einen Blick schwer zu erfassen und
@@ -1735,20 +1739,33 @@ Netzwerk gequetscht wurden, statt sie sinnvoll aufzuteilen.
 
 | Parameter | Standardwert | Bedeutung |
 |---|---|---|
-| `max_elemente` | `50` | Maximale Anzahl an Programmelementen je Netzwerk. |
+| `max_elemente` | `50` | Maximale Anzahl an Programmelementen je grafischem Netzwerk (KOP/FUP/GRAPH). |
+| `max_zeilen_scl` | `50` | Maximale Anzahl an Code-Zeilen je SCL-Netzwerk. |
 
 **Beispiel**
 
 ```
 PLC_1 > Programmbausteine > FB_Rezeptverwaltung > Netzwerk 2
 → Netzwerk hat 87 Elemente (Schwellenwert: 50).
+
+PLC_1 > Programmbausteine > FC_Berechnung > Netzwerk 1
+→ SCL-Netzwerk hat 74 Zeilen (Schwellenwert: 50).
 ```
 
 **Besonderheiten**
 
-- Gilt wie Prüfpunkt 10 und 15 nur für grafische Sprachen — SCL und
-  AWL/STL kennen kein Netzwerk mit einer "Elementanzahl" in diesem Sinn
-  und werden daher nicht geprüft.
+- AWL/STL wird weiterhin komplett nicht geprüft (gilt ohnehin als
+  veraltet, siehe Prüfpunkt 14) — auch nicht als einzelnes AWL-Netzwerk
+  innerhalb eines sonst nicht-AWL-Bausteins, da für Text-Netzwerke keine
+  sinnvolle "Elementanzahl" existiert und AWL zur Migration ansteht statt
+  weiter ausgebaut zu werden.
+- Bis Version 0.41 wurden SCL-Netzwerke (weder als eigenständiger
+  SCL-Baustein noch als einzelnes SCL-Netzwerk innerhalb eines sonst
+  grafischen Bausteins) überhaupt nicht auf Komplexität geprüft — die
+  Elementzählung liefert für SCL-Text immer 0. Seit Version 0.41 zählt ein
+  SCL-Netzwerk stattdessen seine Code-Zeilen. Live an Salzmaschine
+  verifiziert: 0 → 119 Befunde (Zeilenzahlen 50–459, überwiegend in der
+  Siemens-Standardbibliothek `PrgBibSiemens/LGF`).
 
 **Empfehlung zur Behebung**
 Netzwerk aufteilen oder die Teilfunktion in einen eigenen Baustein
@@ -2863,3 +2880,4 @@ zu der Übersicht, die bereits am Anfang der Markdown-Datei steht.
 | 0.39 | 22.07.2026 | Siebenundzwanzigster Bug behoben (User-Meldung mit selbst angelegtem Testfall: eine Instanz-DB, deren FB nirgends per `CALL` aufgerufen wird, deren 2 Static-Member aber extern von einem anderen Baustein zugegriffen werden — wurde von Prüfpunkt 11b trotzdem nicht als unbenutzt markiert): Jede Instanz-DB trägt unabhängig von echter Verwendung einen permanenten Meta-Eintrag in ihren Root-`Locations` (`ReferenceType.InstanceType`, `@<DBName> ▶ Type`), der nur die Typbeziehung zur eigenen FB beschreibt, keine echte Codestelle — dasselbe Muster, das in Version 0.35 bereits bei Prüfpunkt 26 auf Member-Ebene gefiltert wurde, hier aber auf Root-Ebene der Instanz-DB selbst und bislang ungefiltert. Live an der vom User angelegten Instanz-DB `01TestOrgPrgDb` (FB `01OrgPrg`, nie aufgerufen, aber 2 Member extern in `01Org`/Netzwerk 6 zugegriffen) verifiziert: `cross_reference_locations` lieferte trotzdem genau 1 Eintrag — exakt dieser Meta-Eintrag, kein echter Treffer —, wodurch die Instanz-DB fälschlich immer als "benutzt" galt. Zum Vergleich liefert eine tatsächlich per `CALL` verwendete Instanz-DB (`DB_PrgFieldbusOkDb`) 2 Locations: den echten Aufruf (`ReferenceType.UsedBy`) plus denselben Meta-Eintrag. Fix: Bei Instanz-DBs werden `InstanceType`-Locations vor der Verwendungsprüfung herausgefiltert. Live verifiziert: 2 → 3 Befunde (`01TestOrgPrgDb` kommt korrekt hinzu, alle zuvor bestätigten Fälle unverändert). Auf User-Wunsch zusätzlich die Befundmeldung für Instanz-DBs spezifischer formuliert: `"Baustein '<Name>' wird an keinem FB verwendet."` statt der generischen Meldung, die weiterhin bei FB/FC/Global-/Array-DB gilt. Besonderheiten bei Prüfpunkt 11b entsprechend ergänzt. |
 | 0.40 | 23.07.2026 | Achtundzwanzigster Bug behoben (User-Meldung: ein selbst eingefügtes AWL-Netzwerk in `01OrgPrg`/Netzwerk 16 wurde von Prüfpunkt 14 nicht erkannt): Prüfpunkt 14 prüfte bislang ausschließlich die Grundsprache des Bausteins (`block.ProgrammingLanguage`). TIA Portal erlaubt aber, innerhalb eines Bausteins mit anderer Grundsprache (z. B. KOP/FUP) einzelne Netzwerke auf AWL umzuschalten (dieselbe Grundmechanik, die Prüfpunkt 15 — `GemischteSprachenCheck` — bereits über den XML-Export je `CompileUnit` korrekt erkennt) — die Grundsprache des Bausteins bleibt dabei unverändert, sodass der bisherige Check ein solches Netzwerk nie sah. Fix: Für Bausteine, deren Grundsprache nicht STL/SCL ist, wird jetzt zusätzlich jedes Netzwerk einzeln per XML-Export auf `ProgrammingLanguage == "STL"` geprüft und bei Treffer mit Netzwerknummer gemeldet; komplette AWL-Bausteine (Grundsprache STL) werden wie bisher als Ganzes gemeldet. Live gegen Salzmaschine verifiziert: 0 → 2 Befunde (`01OrgPrg`/Netzwerk 16 wie vom User gemeldet, plus ein bislang unentdeckter echter Fall in `CtrFcParaRdWr`/Netzwerk 4). Besonderheiten bei Prüfpunkt 14 entsprechend ergänzt. |
 | 0.41 | 23.07.2026 | Neunundzwanzigster Bug behoben, direkt im Anschluss an Version 0.40 entdeckt (User-Auftrag: neuer Parameter `scl_in_fup_ignorieren` bei Prüfpunkt 15, da SCL-Netzwerke in FUP-Bausteinen betrieblich weit verbreitet sind — beim Testen des neuen Parameters live gegen Salzmaschine zeigte sich, dass er wirkungslos blieb, unabhängig vom eingestellten Wert). Root Cause: `GetAttribute("ProgrammingLanguage")` auf einem Baustein liefert kein `System.String`, sondern ein `Siemens.Engineering.SW.Blocks.ProgrammingLanguage`-.NET-Enum-Objekt (`repr` zeigt `<ProgrammingLanguage.FBD: 3>`) — jeder Vergleich wie `get_attribute(block, "ProgrammingLanguage") == "STL"` oder `in ("SCL", "STL")` war dadurch **immer** `False`, unabhängig von der tatsächlichen Sprache. Live bestätigt: `str(...)` liefert zuverlässig den reinen Namen (`"FBD"`, `"SCL"`, `"DB"`, ...), identisch zu den bereits als Text vorliegenden Netzwerk-eigenen `ProgrammingLanguage`-Werten aus dem XML-Export. Dasselbe Muster (.NET-Objekt statt Text an einer String-Vergleichsstelle) war bereits einmal bei `reference_language(project).Culture` aufgetreten und dort schon korrekt mit `str(...)` gelöst (siehe `SprachenKonsistentCheck`/`NetzwerkBeschreibungCheck`) — hier aber an fünf weiteren Stellen unbemerkt, weil im Salzmaschine-Projekt bislang kein Baustein existierte, dessen Grundsprache tatsächlich SCL oder STL ist (die betroffenen Skips liefen dadurch immer ins Leere, ohne dass es auffiel). Betraf Prüfpunkt 3, 10, 14, 15 und 16. Fix: neue zentrale Hilfsfunktion `block_programming_language()` (`_tia_helpers.py`) kapselt `str(get_attribute(block, "ProgrammingLanguage"))`, an allen fünf Stellen eingesetzt. Live gegen Salzmaschine vollständig neu verifiziert (alle fünf betroffenen Prüfpunkte, Vorher/Nachher): Prüfpunkt 3 **194 → 46** (reine SCL-Bausteine wurden bislang fälschlich mitgeprüft, jetzt korrekt ausgenommen), Prüfpunkt 10 unverändert 167 (hatte bereits einen funktionierenden Netzwerk-eigenen Fallback-Skip), Prüfpunkt 14 unverändert 2, Prüfpunkt 15 **70 → 2** (der neue Parameter `scl_in_fup_ignorieren` greift jetzt wie beabsichtigt), Prüfpunkt 16 unverändert 0. Besonderheiten bei Prüfpunkt 3 und Parameter-Tabelle/Besonderheiten bei Prüfpunkt 15 entsprechend ergänzt. |
+| 0.42 | 23.07.2026 | Neues Feature bei Prüfpunkt 16 (User-Frage im Anschluss an Prüfpunkt 15/16: "checkst du auch SCL Netzwerke mit zu vielen Code-Zeilen?" — Antwort war bislang nein): `compile_unit_element_count` zählt ausschließlich grafische `<Part>`/`<Call>`-Elemente und liefert für SCL-Text immer 0 — ein SCL-Netzwerk wurde dadurch unabhängig von seiner tatsächlichen Zeilenzahl nie gemeldet, egal ob als eigenständiger SCL-Baustein (bislang komplett übersprungen, da der Skip bislang auf `"SCL"` UND `"STL"` griff) oder als einzelnes SCL-Netzwerk innerhalb eines sonst grafischen Bausteins (nicht übersprungen, aber mit Elementanzahl 0 gezählt). Neuer Parameter `max_zeilen_scl` (Standard `50`, analog zu `max_elemente`): SCL-Netzwerke werden jetzt anhand ihrer Code-Zeilen geprüft — neue Hilfsfunktion `compile_unit_scl_line_count()` (`_tia_helpers.py`) zählt die `<NewLine>`-Elemente im XML-Export (N Zeilenumbrüche = N+1 Zeilen; ein Netzwerk ganz ohne `<Token>`/`<Access>`-Inhalt gilt als leer, nicht als eine Zeile). Der Skip in `MaxNetzwerkElementeCheck` greift jetzt nur noch bei `"STL"` (AWL bleibt bewusst komplett ausgenommen, siehe Prüfpunkt 14 — gilt als veraltet statt weiter ausgebaut zu werden); pro Netzwerk entscheidet die Netzwerk-eigene `ProgrammingLanguage`, ob Elementzählung oder Zeilenzählung greift. Beide YAML-Konfigurationsdateien (`default.yaml` und `project_settings.yaml`) um den neuen Parameter ergänzt. Live gegen Salzmaschine verifiziert: **0 → 119 Befunde** (Zeilenzahlen 50–459, weit überwiegend in der Siemens-Standardbibliothek `PrgBibSiemens/LGF`, einige in eigenen Bausteinen wie `PrgFieldbusOk`/Netzwerk 4 mit 256 Zeilen). `pytest` weiterhin 51/51 grün. Parameter-Tabelle und Besonderheiten bei Prüfpunkt 16 entsprechend ergänzt. |

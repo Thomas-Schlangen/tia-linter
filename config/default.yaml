@@ -275,6 +275,12 @@ checks:
       enabled: true
       severity: warning
       max_elemente: 50
+      # Gilt nur für grafische Netzwerke (KOP/FUP/GRAPH), gezählt anhand
+      # der Programmelemente (Kontakte, Spulen, Bausteinaufrufe, ...).
+      max_zeilen_scl: 50
+      # Gilt für SCL-Netzwerke (eigenständige SCL-Bausteine sowie einzelne
+      # SCL-Netzwerke innerhalb eines sonst grafischen Bausteins), gezählt
+      # anhand der Code-Zeilen.
 
   hardware:
     # Prüfpunkt 17 — Für einen I/O-Tag ist kein passendes, aktives

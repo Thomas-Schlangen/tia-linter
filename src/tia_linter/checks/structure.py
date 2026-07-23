@@ -19,6 +19,7 @@ from tia_linter.checks._tia_helpers import (
     compile_unit_attribute,
     compile_unit_element_count,
     compile_unit_multilingual_text,
+    compile_unit_scl_line_count,
     cross_reference_locations,
     cross_reference_referenced_top_level_names,
     export_block_xml,
@@ -569,25 +570,59 @@ class GemischteSprachenCheck(BaseCheck):
 
 
 class MaxNetzwerkElementeCheck(BaseCheck):
-    """Prüfpunkt 16: Netzwerke mit mehr Elementen als der Schwellenwert."""
+    """Prüfpunkt 16: Netzwerke mit mehr Elementen (KOP/FUP/GRAPH) bzw. mehr
+    Zeilen (SCL) als der jeweils konfigurierte Schwellenwert.
+
+    Neuer Parameter `max_zeilen_scl` (User-Frage: "checkst du auch SCL
+    Netzwerke mit zu vielen Code-Zeilen?" — Antwort war bislang nein):
+    ``compile_unit_element_count`` zählt ausschließlich grafische
+    ``<Part>``/``<Call>``-Elemente und liefert für SCL-Text immer 0 — ein
+    SCL-Netzwerk wurde dadurch unabhängig von seiner tatsächlichen
+    Zeilenzahl nie gemeldet, egal ob als eigenständiger SCL-Baustein
+    (bislang komplett übersprungen) oder als einzelnes SCL-Netzwerk
+    innerhalb eines sonst grafischen Bausteins (nicht übersprungen, aber
+    mit Elementanzahl 0 gezählt). Ein SCL-Netzwerk wird jetzt stattdessen
+    anhand seiner Zeilenzahl geprüft (``compile_unit_scl_line_count``,
+    zählt ``<NewLine>``-Elemente). STL/AWL bleibt unverändert komplett
+    ausgenommen (gilt ohnehin als veraltet, siehe Prüfpunkt 14) — dafür
+    reicht der bisherige Skip anhand der Baustein-Grundsprache nicht aus,
+    da ein einzelnes AWL-Netzwerk auch in einem sonst nicht-AWL-Baustein
+    vorkommen kann (siehe Prüfpunkt 14); ein solches Einzelnetzwerk fällt
+    hier weiterhin in die (für Text ungeeignete) Elementzählung, bleibt
+    also praktisch unbeobachtet — bewusst in Kauf genommen, da AWL zur
+    Migration ansteht statt weiter ausgebaut zu werden.
+    """
 
     def run(self, project: Any) -> list[CheckResult]:
         results: list[CheckResult] = []
         max_elements = int(self.definition.params.get("max_elemente", 50))
+        max_scl_lines = int(self.definition.params.get("max_zeilen_scl", 50))
 
         for plc_software in iter_plc_software(project):
             for block, group_path in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
-                if block_programming_language(block) in ("SCL", "STL"):
+                if block_programming_language(block) == "STL":
                     continue
                 xml_root = export_block_xml(block)
                 for index, compile_unit in enumerate(iter_compile_units(xml_root), start=1):
+                    network_path = format_path(
+                        plc_software.Name, "Programmbausteine", *group_path, block.Name, f"Netzwerk {index}"
+                    )
+                    if compile_unit_attribute(compile_unit, "ProgrammingLanguage") == "SCL":
+                        line_count = compile_unit_scl_line_count(compile_unit)
+                        if line_count > max_scl_lines:
+                            results.append(
+                                self._make_result(
+                                    path=network_path,
+                                    description=f"SCL-Netzwerk hat {line_count} Zeilen (Schwellenwert: {max_scl_lines}).",
+                                    value=str(line_count),
+                                )
+                            )
+                        continue
                     count = compile_unit_element_count(compile_unit)
                     if count > max_elements:
                         results.append(
                             self._make_result(
-                                path=format_path(
-                                    plc_software.Name, "Programmbausteine", *group_path, block.Name, f"Netzwerk {index}"
-                                ),
+                                path=network_path,
                                 description=f"Netzwerk hat {count} Elemente (Schwellenwert: {max_elements}).",
                                 value=str(count),
                             )

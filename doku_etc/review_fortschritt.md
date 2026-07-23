@@ -2533,3 +2533,83 @@ funktionierende Fallbacks oder waren folgenlos). Fix: neue Hilfsfunktion
 verifiziert: Prüfpunkt 3 194 → 46, Prüfpunkt 15 70 → 2 (Parameter greift
 jetzt korrekt), die übrigen drei Prüfpunkte unverändert. pytest 51/51
 grün, Handbuch aktualisiert, noch nicht committet."
+
+## Runde 43 — Neues Feature bei Prüfpunkt 16: SCL-Netzwerke werden jetzt auf Zeilenzahl geprüft
+
+**Ausgangspunkt:** User bittet um reinen Code-Review von Prüfpunkt 16 (ohne
+Live-Verbindung, da TIA Portal beim User gerade selbst offen lief):
+"checkst du auch SCL Netzwerke mit zu vielen Code-Zeilen?"
+
+**Code-Review-Ergebnis:** Nein, aus zwei Gründen. (1) Der Skip
+`block_programming_language(block) in ("SCL", "STL")` überspringt jeden
+Baustein, dessen Grundsprache SCL ist, komplett — keine Prüfung für reine
+SCL-Bausteine. (2) `compile_unit_element_count()` zählt ausschließlich
+grafische `<Part>`/`<Call>`-XML-Elemente; ein einzelnes SCL-Netzwerk
+innerhalb eines sonst grafischen Bausteins (z. B. `01OrgPrg`/NW3+8) wird
+zwar nicht übersprungen, aber sein `<StructuredText>`-Inhalt enthält keine
+`<Part>`/`<Call>`-Elemente — Elementanzahl also immer 0, unabhängig von
+der tatsächlichen Zeilenzahl.
+
+**User-Auftrag:** Erweitern mit zusätzlichem Parameter in der YAML, "bitte
+immer beide yaml Dateien erweitern" (`config/default.yaml` — die
+kommentierte Standard-Konfigurationsvorlage — sowie
+`config/project_settings.yaml`, die gitignorte, personalisierte
+Konfiguration des Users für sein reales Salzmaschine-Projekt mit
+identischer Schlüsselstruktur, aber eigenen Werten).
+
+**Implementierung:** Neue Hilfsfunktion `compile_unit_scl_line_count()` in
+`_tia_helpers.py` — zählt `<NewLine>`-Elemente im XML-Export eines
+Netzwerks (dieselbe Token-Struktur, mit der `_scan_scl_assignment_writes`
+bereits SCL-Zuweisungen erkennt: `<Token>`/`<Access>`/`<Blank>`/
+`<NewLine>`). N Zeilenumbrüche ergeben N+1 Zeilen; ein Netzwerk ganz ohne
+`<Token>`/`<Access>`-Inhalt gilt als leer (0), nicht als eine Zeile.
+
+`MaxNetzwerkElementeCheck` umgebaut: Der block-weite Skip greift jetzt nur
+noch bei `"STL"` (nicht mehr zusätzlich bei `"SCL"`) — SCL-Bausteine werden
+jetzt exportiert und geprüft. Pro Netzwerk entscheidet die
+Netzwerk-eigene `ProgrammingLanguage`: bei `"SCL"` zählt
+`compile_unit_scl_line_count()` gegen den neuen Schwellenwert
+`max_zeilen_scl` (Standard `50`, analog zu `max_elemente`), sonst wie
+bisher `compile_unit_element_count()` gegen `max_elemente`. AWL/STL bleibt
+bewusst komplett ausgenommen (auch als einzelnes AWL-Netzwerk in einem
+sonst nicht-AWL-Baustein) — gilt laut Prüfpunkt 14 ohnehin als veraltet,
+kein Ausbauinteresse.
+
+Beide YAML-Dateien um `max_zeilen_scl: 50` samt erklärendem Kommentar
+ergänzt (`default.yaml` und `project_settings.yaml`, wie vom User
+gefordert). `pytest` 51/51 grün nach der Implementierung.
+
+**Live verifiziert (`git stash` von `structure.py`/`_tia_helpers.py` für
+Vorher/Nachher, `project_settings.yaml` ist ohnehin nicht von Git
+verfolgt):** Vorher (SCL komplett übersprungen): **0 Befunde**. Nachher
+(mit Fix): **119 Befunde**, Zeilenzahlen zwischen 50 und 459 — weit
+überwiegend in der mitgelieferten Siemens-Standardbibliothek
+`PrgBibSiemens/LGF` (z. B. `LGF_SearchMinMax` mit 459 Zeilen,
+`LGF_AstroClock` mit 350), aber auch einzelne echte Treffer in eigenen
+Bausteinen (`PrgFieldbusOk`/Netzwerk 4 mit 256 Zeilen SCL,
+`4805PrgMan`/Netzwerk 10 mit 107 Zeilen). `pytest` weiterhin 51/51 grün.
+
+Mid-Round: Vor jeder Live-Verbindung `tasklist` geprüft — TIA Portal
+mehrfach zwischenzeitlich mit laufendem `tia-linter.exe` und
+`Siemens.Automation.Object` im Konsolen-Session interaktiv offen
+vorgefunden (vermutlich der User selbst); jeweils gewartet, bis die
+Prozesse von selbst verschwanden, bevor headless verbunden wurde. Nach
+jedem eigenen Skript-Lauf blieb regelmäßig ein verwaister
+`Siemens.Automation.Object`-Prozess zurück (Connector-`disconnect()`
+schließt das Projekt/disposed TiaPortal, der Kindprozess selbst beendet
+sich aber erst mit spürbarer Verzögerung) — jeweils vor dem nächsten Lauf
+per `taskkill` beendet.
+
+**Dokumentiert:** `docs/Handbuch.md` Version 0.42 (Parameter-Tabelle und
+Besonderheiten bei Prüfpunkt 16 ergänzt, Anhang-C-Eintrag). Noch nicht
+committet.
+
+Letzter Stand: "Prüfpunkt 16 prüfte SCL-Netzwerke bislang überhaupt nicht
+auf Komplexität — weder als eigenständiger SCL-Baustein (komplett
+übersprungen) noch als einzelnes SCL-Netzwerk in einem sonst grafischen
+Baustein (nicht übersprungen, aber mit der für Text ungeeigneten
+Elementzählung immer 0). Neuer Parameter `max_zeilen_scl` (Standard `50`)
+zählt jetzt stattdessen die Code-Zeilen eines SCL-Netzwerks anhand seiner
+`<NewLine>`-XML-Elemente. Beide YAML-Dateien ergänzt. Live verifiziert:
+0 → 119 Befunde, größtenteils in der Siemens-Standardbibliothek LGF.
+pytest 51/51 grün, Handbuch aktualisiert, noch nicht committet."
