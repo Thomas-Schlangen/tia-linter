@@ -15,6 +15,7 @@ import re
 from typing import Any
 
 from tia_linter.checks._tia_helpers import (
+    block_programming_language,
     compile_unit_attribute,
     compile_unit_element_count,
     compile_unit_multilingual_text,
@@ -22,7 +23,6 @@ from tia_linter.checks._tia_helpers import (
     cross_reference_referenced_top_level_names,
     export_block_xml,
     format_path,
-    get_attribute,
     interface_section_member_paths,
     iter_blocks,
     iter_compile_units,
@@ -74,7 +74,7 @@ class LeereNetzwerkeCheck(BaseCheck):
 
         for plc_software in iter_plc_software(project):
             for block, group_path in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
-                if get_attribute(block, "ProgrammingLanguage") in ("SCL", "STL"):
+                if block_programming_language(block) in ("SCL", "STL"):
                     continue
                 xml_root = export_block_xml(block)
                 for index, compile_unit in enumerate(iter_compile_units(xml_root), start=1):
@@ -500,7 +500,7 @@ class AwlCodeCheck(BaseCheck):
         results: list[CheckResult] = []
         for plc_software in iter_plc_software(project):
             for block, group_path in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
-                block_language = get_attribute(block, "ProgrammingLanguage")
+                block_language = block_programming_language(block)
                 if block_language == "STL":
                     results.append(
                         self._make_result(
@@ -526,13 +526,27 @@ class AwlCodeCheck(BaseCheck):
 
 
 class GemischteSprachenCheck(BaseCheck):
-    """Prüfpunkt 15: Innerhalb eines Bausteins werden mehrere Sprachen gemischt."""
+    """Prüfpunkt 15: Innerhalb eines Bausteins werden mehrere Sprachen gemischt.
+
+    Neuer Parameter `scl_in_fup_ignorieren` (User-Auftrag, betriebliche Praxis;
+    Standard `true`): SCL-Netzwerke innerhalb eines ansonsten in FUP (TIA-XML-
+    Wert ``"FBD"``) programmierten Bausteins sind bei diesem Anwender weit
+    verbreitet und gelten nicht als Problem. Ist die Baustein-Grundsprache FUP
+    und die gefundene Sprachmischung genau {FUP, SCL}, wird der Baustein bei
+    `true` nicht gemeldet. Jede andere Kombination (z. B. KOP+SCL, FUP+AWL,
+    oder mehr als zwei Sprachen) bleibt unabhängig vom Parameter gemeldet. Bei
+    `false` bleibt das bisherige Verhalten (jede Mischung wird gemeldet)
+    erhalten.
+    """
 
     def run(self, project: Any) -> list[CheckResult]:
         results: list[CheckResult] = []
+        ignore_scl_in_fup = bool(self.definition.params.get("scl_in_fup_ignorieren", True))
+
         for plc_software in iter_plc_software(project):
             for block, group_path in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
-                if get_attribute(block, "ProgrammingLanguage") in ("SCL", "STL"):
+                block_language = block_programming_language(block)
+                if block_language in ("SCL", "STL"):
                     continue
                 xml_root = export_block_xml(block)
                 languages = {
@@ -540,14 +554,17 @@ class GemischteSprachenCheck(BaseCheck):
                     for cu in iter_compile_units(xml_root)
                 }
                 languages.discard(None)
-                if len(languages) > 1:
-                    results.append(
-                        self._make_result(
-                            path=format_path(plc_software.Name, "Programmbausteine", *group_path, block.Name),
-                            description=f"Baustein '{block.Name}' mischt mehrere Sprachen: {', '.join(sorted(languages))}.",
-                            value=", ".join(sorted(languages)),
-                        )
+                if len(languages) <= 1:
+                    continue
+                if ignore_scl_in_fup and block_language == "FBD" and languages == {"FBD", "SCL"}:
+                    continue
+                results.append(
+                    self._make_result(
+                        path=format_path(plc_software.Name, "Programmbausteine", *group_path, block.Name),
+                        description=f"Baustein '{block.Name}' mischt mehrere Sprachen: {', '.join(sorted(languages))}.",
+                        value=", ".join(sorted(languages)),
                     )
+                )
         return results
 
 
@@ -560,7 +577,7 @@ class MaxNetzwerkElementeCheck(BaseCheck):
 
         for plc_software in iter_plc_software(project):
             for block, group_path in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
-                if get_attribute(block, "ProgrammingLanguage") in ("SCL", "STL"):
+                if block_programming_language(block) in ("SCL", "STL"):
                     continue
                 xml_root = export_block_xml(block)
                 for index, compile_unit in enumerate(iter_compile_units(xml_root), start=1):

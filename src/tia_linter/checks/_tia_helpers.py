@@ -185,6 +185,36 @@ def get_attribute(obj: Any, name: str, default: Any = None) -> Any:
     return default if value is None else value
 
 
+def block_programming_language(block: Any) -> str | None:
+    """Liefert die Baustein-Grundsprache (``GetAttribute("ProgrammingLanguage")``)
+    als reinen Python-String (``"FBD"``, ``"SCL"``, ``"STL"``, ...), oder
+    ``None`` wenn nicht ermittelbar.
+
+    Achtundzwanzigster Bug (live an Baustein ``OrgPrg`` verifiziert):
+    ``GetAttribute("ProgrammingLanguage")`` liefert kein
+    ``System.String``, sondern ein
+    ``Siemens.Engineering.SW.Blocks.ProgrammingLanguage``-.NET-Enum-Objekt
+    (``repr`` zeigt ``<ProgrammingLanguage.FBD: 3>``) — ein Vergleich wie
+    ``get_attribute(block, "ProgrammingLanguage") == "STL"`` oder
+    ``in ("SCL", "STL")`` ist dadurch **immer** ``False``, unabhängig von
+    der tatsächlichen Sprache. Live bestätigt: ``str(...)`` liefert
+    zuverlässig den reinen Namen (``"FBD"``, ``"SCL"``, ``"DB"``, ...),
+    identisch zu den bereits als Text vorliegenden Netzwerk-eigenen
+    ``ProgrammingLanguage``-Werten aus dem XML-Export
+    (``compile_unit_attribute``). Dasselbe Muster (.NET-Objekt statt
+    ``System.String`` an einer Stelle, die einen reinen Text erwartet) trat
+    bereits bei ``reference_language(project).Culture`` auf (siehe
+    ``comments.py``, ``SprachenKonsistentCheck``) — dort schon korrekt mit
+    ``str(...)`` behoben, hier aber lange unbemerkt, weil in diesem Projekt
+    (Salzmaschine) offenbar nie ein Baustein existierte, dessen Grundsprache
+    tatsächlich SCL oder STL ist (die betroffenen Skips liefen dadurch immer
+    ins Leere, ohne dass es auffiel) — betraf u. a. Prüfpunkt 10, 14, 15, 16
+    und den Kommentar-Check ``SprachenKonsistentCheck``.
+    """
+    value = get_attribute(block, "ProgrammingLanguage")
+    return None if value is None else str(value)
+
+
 def reference_language(project: Any) -> Any:
     """Liefert die Referenzsprache des Projekts (``Siemens.Engineering.Language``).
 

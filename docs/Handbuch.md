@@ -1,6 +1,6 @@
 # TIA Linter — Benutzerhandbuch
 
-**Version dieses Handbuchs:** 0.40 (Entwurf)
+**Version dieses Handbuchs:** 0.41 (Entwurf)
 **Stand:** 23.07.2026
 **Programmversion:** 0.1.0
 
@@ -944,6 +944,13 @@ PLC_1 > Programmbausteine > FB_Motor > Netzwerk 3
 - Der Netzwerktitel ist wie viele andere Text-Attribute in TIA
   mehrsprachig — gelesen wird gezielt der Text für die Referenzsprache des
   Projekts, nicht ein sprachunabhängiger Rohwert.
+- Der Ausschluss vollständig SCL-/STL-programmierter Bausteine (siehe
+  oben) war durch einen Vergleichsfehler bislang wirkungslos (der
+  Baustein-Grundsprachen-Vergleich prüfte gegen ein .NET-Enum-Objekt
+  statt gegen einen Text, siehe `docs/Handbuch.md` Anhang C, Version
+  0.41) — dadurch wurden reine SCL-Bausteine bislang fälschlich
+  mitgeprüft. Live an Salzmaschine verifiziert: 194 → 46 Befunde nach dem
+  Fix.
 
 **Empfehlung zur Behebung**
 Kurzen, prägnanten Netzwerktitel ergänzen, der zusammenfasst, was das
@@ -1679,7 +1686,10 @@ erschwert das Verständnis unnötig. Ein Baustein sollte durchgängig in
 einer Sprache programmiert sein.
 
 **Parameter**
-Dieser Prüfpunkt hat keine konfigurierbaren Parameter.
+
+| Parameter | Standardwert | Bedeutung |
+|---|---|---|
+| `scl_in_fup_ignorieren` | `true` | SCL-Netzwerke innerhalb eines ansonsten in FUP programmierten Bausteins sind in der betrieblichen Praxis weit verbreitet und gelten nicht als Problem. Ist die Baustein-Grundsprache FUP und die gefundene Sprachmischung genau FUP+SCL, wird der Baustein bei `true` nicht gemeldet. Jede andere Kombination (z. B. KOP+SCL, FUP+AWL, oder mehr als zwei Sprachen) bleibt unabhängig davon gemeldet. Bei `false` gilt das ursprüngliche Verhalten: jede Sprachmischung wird gemeldet. |
 
 **Beispiel**
 
@@ -1693,6 +1703,11 @@ PLC_1 > Programmbausteine > FB_Mischbetrieb
 - Wie bei Prüfpunkt 10 und 16 gilt auch dieser Prüfpunkt nur für Bausteine
   mit einzelnen Netzwerken (KOP/FUP/GRAPH). Bausteine, die komplett in SCL
   oder AWL/STL programmiert sind, werden automatisch nicht geprüft.
+- Mit dem Standardparameter `scl_in_fup_ignorieren: true` wird die
+  betrieblich übliche Kombination FUP+SCL nicht mehr gemeldet — live an
+  Salzmaschine verifiziert: 70 → 2 Befunde (die 2 verbleibenden sind
+  echte Mischfälle: ein Baustein mit drei Sprachen sowie ein Baustein mit
+  FUP+AWL).
 
 **Empfehlung zur Behebung**
 Baustein auf eine einheitliche Programmiersprache vereinheitlichen.
@@ -2847,3 +2862,4 @@ zu der Übersicht, die bereits am Anfang der Markdown-Datei steht.
 | 0.38 | 22.07.2026 | Sechsundzwanzigster Bug behoben (User-Einwand direkt im Anschluss an Prüfpunkt 11: "ein normaler DB wird niemals als Ganzes verwendet, immer nur die Items in ihm"): Prüfpunkt 11b prüfte FB/FC/DB bislang einheitlich über `cross_reference_locations` (direkte Kreuzreferenz auf den Baustein selbst) — das liest nur `References`, die direkt am Root-`SourceObject` hängen. Bei FB/FC/Instanz-DB ist das korrekt, weil ein `CALL` den Baustein/die Instanz selbst als Ziel referenziert (live bestätigt: FB `PrgFieldbusOk` 541, FC `BibVersion` 0 Root-Referenzen — exakt passend zur tatsächlichen Nutzung; genutzte Instanz-DBs durchgängig 2 Root-Referenzen). Bei einem **normalen** Global-/Array-DB gibt es aber keine "Aufruf"-Semantik — Verwendung bedeutet dort immer Lesen/Schreiben einzelner Member, was ausschließlich unter `.Children` auftaucht, nie als direkte Referenz auf die DB-Wurzel selbst. `cross_reference_locations(db)` lieferte dadurch für **jeden** Global-/Array-DB immer 0 Treffer, unabhängig von der tatsächlichen Nutzung — live an 7 Stichproben (u. a. `V01St` mit 17 tatsächlich benutzten Top-Level-Membern) mit durchgängig 0 Root-Referenzen bestätigt. Der Prüfpunkt hätte dadurch praktisch jeden Global-/Array-DB im Projekt fälschlich als unbenutzt gemeldet. Fix: Global-/Array-DBs (nicht Instanz-DBs) werden jetzt über dieselbe Hilfsfunktion wie Prüfpunkt 11 geprüft (`cross_reference_referenced_top_level_names()`) — ein DB gilt als verwendet, sobald irgendein Member irgendwo im Projekt referenziert ist. Live verifiziert: **23 → 2 Befunde** projektweit (alle 21 Global-/Array-DB-Fehlalarme verschwunden, die verbleibenden 2 — `BibVersion`, `LGF_Description` — sind echte unbenutzte FCs). Besonderheiten bei Prüfpunkt 11b entsprechend ergänzt. Im Zuge dieser Runde außerdem eine Nummerierungs-Kollision bei den fortlaufenden Bug-Ordinalzahlen korrigiert: die in Version 0.37 als "Zwanzigster" bzw. "Vierundzwanzigster" bezeichneten Bugs/Features kollidierten mit bereits in Version 0.35 vergebenen Nummern (19–23) — rückwirkend auf Vierundzwanzigster (`unterelemente_pruefen`-Feature) und Fünfundzwanzigster (Quotierungs-Fix) korrigiert, dieser PP11b-Fix ist entsprechend der Sechsundzwanzigste. |
 | 0.39 | 22.07.2026 | Siebenundzwanzigster Bug behoben (User-Meldung mit selbst angelegtem Testfall: eine Instanz-DB, deren FB nirgends per `CALL` aufgerufen wird, deren 2 Static-Member aber extern von einem anderen Baustein zugegriffen werden — wurde von Prüfpunkt 11b trotzdem nicht als unbenutzt markiert): Jede Instanz-DB trägt unabhängig von echter Verwendung einen permanenten Meta-Eintrag in ihren Root-`Locations` (`ReferenceType.InstanceType`, `@<DBName> ▶ Type`), der nur die Typbeziehung zur eigenen FB beschreibt, keine echte Codestelle — dasselbe Muster, das in Version 0.35 bereits bei Prüfpunkt 26 auf Member-Ebene gefiltert wurde, hier aber auf Root-Ebene der Instanz-DB selbst und bislang ungefiltert. Live an der vom User angelegten Instanz-DB `01TestOrgPrgDb` (FB `01OrgPrg`, nie aufgerufen, aber 2 Member extern in `01Org`/Netzwerk 6 zugegriffen) verifiziert: `cross_reference_locations` lieferte trotzdem genau 1 Eintrag — exakt dieser Meta-Eintrag, kein echter Treffer —, wodurch die Instanz-DB fälschlich immer als "benutzt" galt. Zum Vergleich liefert eine tatsächlich per `CALL` verwendete Instanz-DB (`DB_PrgFieldbusOkDb`) 2 Locations: den echten Aufruf (`ReferenceType.UsedBy`) plus denselben Meta-Eintrag. Fix: Bei Instanz-DBs werden `InstanceType`-Locations vor der Verwendungsprüfung herausgefiltert. Live verifiziert: 2 → 3 Befunde (`01TestOrgPrgDb` kommt korrekt hinzu, alle zuvor bestätigten Fälle unverändert). Auf User-Wunsch zusätzlich die Befundmeldung für Instanz-DBs spezifischer formuliert: `"Baustein '<Name>' wird an keinem FB verwendet."` statt der generischen Meldung, die weiterhin bei FB/FC/Global-/Array-DB gilt. Besonderheiten bei Prüfpunkt 11b entsprechend ergänzt. |
 | 0.40 | 23.07.2026 | Achtundzwanzigster Bug behoben (User-Meldung: ein selbst eingefügtes AWL-Netzwerk in `01OrgPrg`/Netzwerk 16 wurde von Prüfpunkt 14 nicht erkannt): Prüfpunkt 14 prüfte bislang ausschließlich die Grundsprache des Bausteins (`block.ProgrammingLanguage`). TIA Portal erlaubt aber, innerhalb eines Bausteins mit anderer Grundsprache (z. B. KOP/FUP) einzelne Netzwerke auf AWL umzuschalten (dieselbe Grundmechanik, die Prüfpunkt 15 — `GemischteSprachenCheck` — bereits über den XML-Export je `CompileUnit` korrekt erkennt) — die Grundsprache des Bausteins bleibt dabei unverändert, sodass der bisherige Check ein solches Netzwerk nie sah. Fix: Für Bausteine, deren Grundsprache nicht STL/SCL ist, wird jetzt zusätzlich jedes Netzwerk einzeln per XML-Export auf `ProgrammingLanguage == "STL"` geprüft und bei Treffer mit Netzwerknummer gemeldet; komplette AWL-Bausteine (Grundsprache STL) werden wie bisher als Ganzes gemeldet. Live gegen Salzmaschine verifiziert: 0 → 2 Befunde (`01OrgPrg`/Netzwerk 16 wie vom User gemeldet, plus ein bislang unentdeckter echter Fall in `CtrFcParaRdWr`/Netzwerk 4). Besonderheiten bei Prüfpunkt 14 entsprechend ergänzt. |
+| 0.41 | 23.07.2026 | Neunundzwanzigster Bug behoben, direkt im Anschluss an Version 0.40 entdeckt (User-Auftrag: neuer Parameter `scl_in_fup_ignorieren` bei Prüfpunkt 15, da SCL-Netzwerke in FUP-Bausteinen betrieblich weit verbreitet sind — beim Testen des neuen Parameters live gegen Salzmaschine zeigte sich, dass er wirkungslos blieb, unabhängig vom eingestellten Wert). Root Cause: `GetAttribute("ProgrammingLanguage")` auf einem Baustein liefert kein `System.String`, sondern ein `Siemens.Engineering.SW.Blocks.ProgrammingLanguage`-.NET-Enum-Objekt (`repr` zeigt `<ProgrammingLanguage.FBD: 3>`) — jeder Vergleich wie `get_attribute(block, "ProgrammingLanguage") == "STL"` oder `in ("SCL", "STL")` war dadurch **immer** `False`, unabhängig von der tatsächlichen Sprache. Live bestätigt: `str(...)` liefert zuverlässig den reinen Namen (`"FBD"`, `"SCL"`, `"DB"`, ...), identisch zu den bereits als Text vorliegenden Netzwerk-eigenen `ProgrammingLanguage`-Werten aus dem XML-Export. Dasselbe Muster (.NET-Objekt statt Text an einer String-Vergleichsstelle) war bereits einmal bei `reference_language(project).Culture` aufgetreten und dort schon korrekt mit `str(...)` gelöst (siehe `SprachenKonsistentCheck`/`NetzwerkBeschreibungCheck`) — hier aber an fünf weiteren Stellen unbemerkt, weil im Salzmaschine-Projekt bislang kein Baustein existierte, dessen Grundsprache tatsächlich SCL oder STL ist (die betroffenen Skips liefen dadurch immer ins Leere, ohne dass es auffiel). Betraf Prüfpunkt 3, 10, 14, 15 und 16. Fix: neue zentrale Hilfsfunktion `block_programming_language()` (`_tia_helpers.py`) kapselt `str(get_attribute(block, "ProgrammingLanguage"))`, an allen fünf Stellen eingesetzt. Live gegen Salzmaschine vollständig neu verifiziert (alle fünf betroffenen Prüfpunkte, Vorher/Nachher): Prüfpunkt 3 **194 → 46** (reine SCL-Bausteine wurden bislang fälschlich mitgeprüft, jetzt korrekt ausgenommen), Prüfpunkt 10 unverändert 167 (hatte bereits einen funktionierenden Netzwerk-eigenen Fallback-Skip), Prüfpunkt 14 unverändert 2, Prüfpunkt 15 **70 → 2** (der neue Parameter `scl_in_fup_ignorieren` greift jetzt wie beabsichtigt), Prüfpunkt 16 unverändert 0. Besonderheiten bei Prüfpunkt 3 und Parameter-Tabelle/Besonderheiten bei Prüfpunkt 15 entsprechend ergänzt. |

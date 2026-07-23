@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from tia_linter.checks._tia_helpers import (
+    block_programming_language,
     export_block_xml,
     format_path,
     get_attribute,
@@ -566,7 +567,7 @@ class NetzwerkBeschreibungCheck(BaseCheck):
 
         for plc_software in iter_plc_software(project):
             for block, group_path in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
-                if get_attribute(block, "ProgrammingLanguage") in ("SCL", "STL"):
+                if block_programming_language(block) in ("SCL", "STL"):
                     continue  # Netzwerk-Titel gibt es nur bei grafischen Sprachen (LAD/FBD/GRAPH)
 
                 xml_root = export_block_xml(block)

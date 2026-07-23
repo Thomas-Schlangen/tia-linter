@@ -2426,3 +2426,110 @@ Fix übernimmt denselben CompileUnit-Sprach-Check, den Prüfpunkt 15 bereits
 nutzt. Live verifiziert: 0 → 2 Befunde (der gemeldete Testfall plus ein
 bislang unbekannter echter Fall in `CtrFcParaRdWr`/NW4). pytest 51/51
 grün, Handbuch aktualisiert, noch nicht committet."
+
+## Runde 42 — Neuer Parameter bei Prüfpunkt 15 deckt Neunundzwanzigsten Bug auf: .NET-Enum-vs-String-Vergleich war projektweit an fünf Stellen wirkungslos
+
+**Ausgangspunkt:** User geht weiter Prüfpunkt für Prüfpunkt durch, bestätigt
+Prüfpunkt 15 als "gut programmiert, funktioniert so wie spezifiziert",
+möchte die Logik aber erweitern: SCL-Netzwerke innerhalb eines sonst in
+FUP programmierten Bausteins sind bei diesem Anwender betrieblich weit
+verbreitet und kein Problem. Neuer Parameter `scl_in_fup_ignorieren`
+(Standard `true`) gewünscht: bei `true` werden FUP-Bausteine mit
+SCL-Netzwerken nicht markiert, bei `false` bleibt das bisherige Verhalten.
+
+**Implementierung:** `GemischteSprachenCheck` liest den neuen Parameter
+(Standard `true`) und überspringt den Befund, wenn die Baustein-
+Grundsprache FUP ist und die gefundene Sprachmischung exakt {FUP, SCL}
+ist — jede andere Kombination (KOP+SCL, FUP+AWL, drei Sprachen, ...)
+bleibt unabhängig vom Parameter gemeldet. `config/default.yaml` um den
+Parameter ergänzt (Standard `true`). pytest 51/51 grün.
+
+**Live-Verifikation zeigt: Parameter wirkungslos.** Erster Lauf mit
+`scl_in_fup_ignorieren = true` und `= false` lieferte in beiden Fällen
+identisch 70 Befunde — keinerlei Unterschied. TIA Portal lief zu diesem
+Zeitpunkt beim User interaktiv offen (mehrere `Siemens.Automation.Portal`/
+`.Object`-Prozesse bis 3 GB plus laufendes `tia-linter.exe`); auf Nachfrage
+bestätigte der User "hab alles geschlossen. alles killen wenn noch was
+läuft" — verwaisten `Siemens.Automation.Object`-Prozess (PID 27612)
+beendet, danach headless verbunden.
+
+**Diagnose (Debug-Skript mit `repr()`/`str()`/`ToString()` an echten
+Blöcken):** `get_attribute(block, "ProgrammingLanguage")` liefert kein
+`System.String`, sondern ein
+`Siemens.Engineering.SW.Blocks.ProgrammingLanguage`-.NET-Enum-Objekt
+(`repr` zeigt `<ProgrammingLanguage.FBD: 3>`) — `block_language == "FBD"`
+ist dadurch **immer** `False`, unabhängig vom tatsächlichen Wert. Live
+bestätigt: `str(lang)` liefert zuverlässig den reinen Namen (z. B. `'FBD'`,
+`'SCL'`, `'DB'`), `ToString()` liefert identisch dasselbe. Die
+Netzwerk-eigene `ProgrammingLanguage` aus dem XML-Export
+(`compile_unit_attribute`) ist dagegen bereits ein echter Text-String und
+war nie betroffen.
+
+**Ausmaß:** Dasselbe Bug-Muster (.NET-Objekt statt Text an einer
+String-Vergleichsstelle) betraf `get_attribute(block,
+"ProgrammingLanguage")`-Vergleiche an **fünf** Stellen im Code, nicht nur
+im neuen PP15-Parameter:
+- Prüfpunkt 3 (`NetzwerkBeschreibungCheck`, `comments.py`)
+- Prüfpunkt 10 (`LeereNetzwerkeCheck`) — hatte bereits einen zusätzlichen,
+  funktionierenden Netzwerk-eigenen Fallback-Skip (Version 0.31),
+  praktisch also nicht beobachtbar betroffen
+- Prüfpunkt 14 (`AwlCodeCheck`) — der block-weite "ganzer Baustein ist
+  AWL"-Zweig aus Version 0.40 war ebenfalls nie erreichbar; durch den
+  neuen Netzwerk-Fallback aus derselben Runde aber ohnehin bereits über
+  den funktionierenden Pfad abgedeckt
+- Prüfpunkt 15 (`GemischteSprachenCheck`) — dieser Bug hier, jetzt entdeckt
+- Prüfpunkt 16 (`MaxNetzwerkElementeCheck`) — kein Fallback vorhanden,
+  praktisch aber folgenlos, da SCL/STL-Netzwerke ohnehin nie als "Part"/
+  "Call"-Elemente gezählt werden
+
+Bemerkenswert: Dasselbe grundsätzliche Muster (.NET-Objekt statt
+`System.String` an einer Stelle, die reinen Text erwartet) war bereits
+einmal bei `reference_language(project).Culture` aufgetreten und dort
+schon korrekt mit `str(...)` gelöst — nur an dieser `ProgrammingLanguage`-
+Attributstelle blieb es unbemerkt, mutmaßlich weil im Salzmaschine-Projekt
+bislang kein einziger Baustein existierte, dessen Grundsprache tatsächlich
+SCL oder STL ist (die betroffenen Skips liefen dadurch immer ins Leere,
+ohne dass es auffiel — erst der neue PP15-Parameter mit einem direkten
+Vorher/Nachher-Vergleich machte es sichtbar).
+
+**Fix:** Neue zentrale Hilfsfunktion `block_programming_language()` in
+`_tia_helpers.py` kapselt `str(get_attribute(block,
+"ProgrammingLanguage"))`. An allen fünf betroffenen Stellen eingesetzt
+(`comments.py::NetzwerkBeschreibungCheck`, `structure.py::
+LeereNetzwerkeCheck/AwlCodeCheck/GemischteSprachenCheck/
+MaxNetzwerkElementeCheck`). Der bisher ungenutzt gewordene Import
+`get_attribute` in `structure.py` entfernt (in `comments.py` weiterhin für
+andere Attribute gebraucht).
+
+**Live verifiziert (Vorher/Nachher, `git stash` der geänderten Dateien
+gegen den letzten Commit):**
+
+| Prüfpunkt | Vorher | Nachher |
+|---|---|---|
+| PP3 NetzwerkBeschreibungCheck | 194 | **46** |
+| PP10 LeereNetzwerkeCheck | 167 | 167 (unverändert, hatte Fallback) |
+| PP14 AwlCodeCheck | 2 | 2 (unverändert) |
+| PP15 GemischteSprachenCheck | 70 | **2** |
+| PP16 MaxNetzwerkElementeCheck | 0 | 0 (unverändert) |
+
+Prüfpunkt 15 zeigt jetzt genau die erwarteten 2 verbleibenden Fälle
+(`CtrFcParaRdWr`: drei Sprachen FBD+SCL+STL; `01OrgPrg`: FBD+STL, aus dem
+in Runde 41 eingefügten Testnetzwerk) — alle 68 reinen FUP+SCL-Mischungen
+korrekt unterdrückt. `pytest` weiterhin 51/51 grün.
+
+**Dokumentiert:** `docs/Handbuch.md` Version 0.41 (Parameter-Tabelle und
+Besonderheiten bei Prüfpunkt 15 ergänzt, Besonderheiten bei Prüfpunkt 3 um
+Bugfix-Hinweis ergänzt, Anhang-C-Eintrag). Noch nicht committet.
+
+Letzter Stand: "Der neue Parameter `scl_in_fup_ignorieren` bei Prüfpunkt 15
+zeigte beim ersten Live-Test keinerlei Wirkung — Ursache war ein
+.NET-Enum-vs-String-Vergleichsfehler: `GetAttribute(\"ProgrammingLanguage\")`
+liefert kein `System.String`, sondern ein .NET-Enum-Objekt, wodurch jeder
+Vergleich gegen einen Sprachcode wie `\"FBD\"` immer `False` war. Betraf
+fünf Stellen im Code (Prüfpunkt 3, 10, 14, 15, 16), aber nur bei
+Prüfpunkt 3 und 15 mit sichtbaren Auswirkungen (die anderen hatten bereits
+funktionierende Fallbacks oder waren folgenlos). Fix: neue Hilfsfunktion
+`block_programming_language()` mit `str(...)`-Konvertierung. Live
+verifiziert: Prüfpunkt 3 194 → 46, Prüfpunkt 15 70 → 2 (Parameter greift
+jetzt korrekt), die übrigen drei Prüfpunkte unverändert. pytest 51/51
+grün, Handbuch aktualisiert, noch nicht committet."

@@ -262,6 +262,12 @@ checks:
     gemischte_sprachen:
       enabled: true
       severity: warning
+      # SCL-Netzwerke in einem sonst in FUP programmierten Baustein sind
+      # betrieblich weit verbreitet und gelten nicht als Problem — bei
+      # true (Standard) wird genau diese Kombination (FUP+SCL) nicht
+      # gemeldet, jede andere Sprachmischung weiterhin schon. Bei false
+      # gilt wieder das bisherige Verhalten (jede Mischung wird gemeldet).
+      scl_in_fup_ignorieren: true
 
     # Prüfpunkt 16 — Netzwerk mit mehr Elementen als der konfigurierte
     # Schwellenwert.
