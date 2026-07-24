@@ -2755,3 +2755,74 @@ vom echten Zertifikatsstatus immer als 'kein Zertifikat vorhanden'
 gemeldet wurde. Ein-Zeilen-Fix, live an einem echten vorhandenen
 Zertifikat verifiziert (Status jetzt korrekt OK statt Fehler). pytest
 51/51 grün, Handbuch aktualisiert, noch nicht committet."
+
+## Runde 46 — Prüfpunkt 19: vollständige Feldliste ermittelt, Comment-Bug gefunden und behoben
+
+**Ausgangspunkt (User-Wunsch):** "Ich würde bei PP19 gerne noch mehr
+Felder prüfen. Mein TIA ist auf Deutsch, d. h. meine Namen in den
+Eigenschaften stimmen nicht mit den Strings überein, die ich hier
+eingeben müsste. Kannst du die komplette Liste an Möglichkeiten
+herausfinden und in den YAML-Dateien dokumentieren. Und natürlich auch in
+der weiteren Doku."
+
+**Untersuchung:** `project.GetAttributeInfos()` liefert live gegen ein
+echtes Projekt die vollständige, autoritative Liste aller 12 Top-Level-
+Projektattribute samt aktuellem Wert: `Author` ("Mukara"), `Copyright`
+(""), `CreationTime`, `Family` (""), `IsModified`, `IsPrimary`,
+`LastModified`, `LastModifiedBy` ("Schlangen"), `Name`, `Path`, `Size`,
+`Version` ("Ende Dev TBE"). Zusätzlich per Namensabgleich in der
+deutschen V21-Openness-Referenz (Manual 03/2026, Abschnitt
+"Projektbezogene Attribute lesen") die offizielle deutsche Bedeutung
+jedes Feldes bestätigt — u. a. auch `Comment` (Kommentar des Projekts),
+das `GetAttributeInfos()` selbst nicht zurückgab, laut Referenz aber
+existiert.
+
+Live-Test von `Comment` deckte einen bislang unbemerkten Bug auf:
+`get_attribute(project, "Comment")` (der generische `GetAttribute`-Aufruf,
+den `PflichtfelderCheck` bislang einheitlich für jedes Feld verwendete)
+liefert dafür `None` — nicht das erwartete Objekt. Der korrekte Zugriff
+ist die typisierte Property `project.Comment`, die ein
+`Siemens.Engineering.MultilingualText`-Objekt liefert (`str(...)` davon
+ergibt nur `"Siemens.Engineering.MultilingualText"`, kein Text) — exakt
+dieselbe Fallstrick-Klasse wie beim mehrfach behobenen `Comment`-Attribut
+auf Baustein-/Tag-Ebene (Runde 13/14/15), hier aber am Projekt-Objekt
+selbst und bislang nie aufgefallen, weil `Comment` bisher nicht Teil der
+Standard-`felder`-Liste war. Ein Nutzer, der `Comment` naiv zu `felder`
+hinzugefügt hätte, hätte es **immer** als leer gemeldet bekommen,
+unabhängig vom tatsächlichen Inhalt.
+
+**Fix:** `PflichtfelderCheck` (`metadata.py`) behandelt `Comment` jetzt
+als Sonderfall (`_MULTILINGUAL_FIELDS`-Set) und liest es über die
+bereits bestehenden, an anderer Stelle schon bewährten Hilfsfunktionen
+`read_comment()`/`reference_language()` — dieselbe Infrastruktur, die den
+ursprünglichen Comment-Bug bei Bausteinen/Tags bereits löst. Bei der
+Konfiguration selbst ist keine Sonderbehandlung nötig, `Comment` wird wie
+jedes andere Feld einfach in `felder` eingetragen.
+
+**Verifiziert:** `pytest` weiterhin 51/51 grün. Live gegen
+`S7T0159_V21_NoHW` mit `felder: ["Author", "Comment", "Copyright",
+"Family", "Version"]`: 3 Befunde (`Comment`, `Copyright`, `Family` leer
+gemeldet — passend zum live beobachteten Projektzustand), `Author`
+("Mukara") und `Version` ("Ende Dev TBE") korrekt als gefüllt erkannt,
+keine Exception beim `Comment`-Zugriff. Ein echter Positivfall für ein
+gefülltes `Comment`-Feld stand in keinem der beiden Testprojekte zur
+Verfügung (beide leer) — die Korrektheit der Textextraktion selbst ist
+aber durch die Wiederverwendung der bereits mehrfach live verifizierten
+`read_comment()`-Funktion abgesichert.
+
+**Dokumentiert:** Beide YAML-Dateien (`default.yaml`, `project_settings.yaml`)
+um die vollständige Feldliste als Kommentar ergänzt; `project_settings.yaml`
+zusätzlich auf Wunsch direkt um die drei neuen Felder erweitert
+(`felder: ["Author", "Version", "Comment", "Copyright", "Family"]`).
+`docs/Handbuch.md` Version 0.45 (vollständige Attributtabelle inkl.
+Eignung als Pflichtfeld sowie Comment-Sonderfall bei Prüfpunkt 19
+ergänzt, Anhang-C-Eintrag). Noch nicht committet.
+
+Letzter Stand: "Komplette Liste der 12 Openness-Projektattribute per
+`GetAttributeInfos()` live ermittelt und mit der deutschen V21-Referenz
+abgeglichen. Dabei nebenbei einen weiteren Comment-MultilingualText-Bug
+gefunden (`GetAttribute('Comment')` liefert `None`, korrekter Zugriff ist
+`project.Comment` + `read_comment()`) und in `PflichtfelderCheck` behoben,
+bevor er einem Nutzer beim Hinzufügen von `Comment` zu `felder` aufgefallen
+wäre. Beide YAML-Dateien und Handbuch entsprechend dokumentiert. pytest
+51/51 grün, noch nicht committet."

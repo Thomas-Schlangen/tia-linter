@@ -310,8 +310,29 @@ checks:
   projektmetadaten:
     # Prüfpunkt 19 — Konfiguriertes Pflichtfeld in den Top-Level-
     # Projekteigenschaften ist leer. Wichtig: 'felder' muss die echten
-    # (englischen) Openness-Attributnamen enthalten, z. B. 'Author', nicht
-    # die deutsche GUI-Bezeichnung 'Autor'.
+    # (englischen) Openness-Attributnamen enthalten, nicht die deutsche
+    # GUI-Bezeichnung, wie sie im TIA-Portal-Dialog "Projekteigenschaften"
+    # angezeigt wird (z. B. 'Author', nicht 'Autor').
+    #
+    # Vollständige Liste aller von der Openness-API als Projekt-Attribute
+    # gelieferten Felder (live per project.GetAttributeInfos() geprüft,
+    # V21-Referenz Manual 03/2026, Abschnitt "Projektbezogene Attribute
+    # lesen"). Als Text-Pflichtfeld sinnvoll nutzbar:
+    #   - "Author"    -> Autor des Projekts
+    #   - "Comment"   -> Kommentar des Projekts (mehrsprachig — wird intern
+    #                    automatisch über die Referenzsprache aufgelöst,
+    #                    keine Besonderheit bei der Config nötig)
+    #   - "Copyright" -> Copyright-Hinweis des Projekts
+    #   - "Family"    -> Familie des Projekts
+    #   - "Version"   -> Version des Projekts
+    # Weitere von der API gelieferte Attribute (CreationTime, IsModified,
+    # LanguageSettings, LastModified, LastModifiedBy, Name, Path, Size)
+    # sind entweder automatisch gesetzte/technische Werte (nie leer, daher
+    # als Pflichtfeld wirkungslos) oder keine Textfelder — hier nicht
+    # verwenden. Hinweis: "Copyright" und "Family" tauchen im TIA-Portal-
+    # Standarddialog "Projekteigenschaften" u. U. gar nicht als editierbares
+    # Feld auf — vorher in TIA prüfen, ob sich das Feld überhaupt befüllen
+    # lässt, bevor es hier als Pflichtfeld eingetragen wird.
     pflichtfelder:
       enabled: true
       severity: warning

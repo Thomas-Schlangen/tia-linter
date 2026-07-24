@@ -1,6 +1,6 @@
 # TIA Linter — Benutzerhandbuch
 
-**Version dieses Handbuchs:** 0.44 (Entwurf)
+**Version dieses Handbuchs:** 0.45 (Entwurf)
 **Stand:** 23.07.2026
 **Programmversion:** 0.1.0
 
@@ -2009,7 +2009,7 @@ handelt.
 
 | Parameter | Standardwert | Bedeutung |
 |---|---|---|
-| `felder` | `["Author", "Version"]` | Liste der zu prüfenden Projekteigenschaften-Felder. |
+| `felder` | `["Author", "Version"]` | Liste der zu prüfenden Projekteigenschaften-Felder (echte Openness-Attributnamen, siehe Tabelle unten). |
 
 **Beispiel**
 
@@ -2026,6 +2026,41 @@ Projekt > Eigenschaften > Author
   der TIA-Portal-Oberfläche angezeigt wird. Ein falsch geschriebener
   Feldname wird stillschweigend als leer gewertet und meldet dauerhaft
   einen Befund.
+- **Vollständige Liste** der von der Openness-API als Top-Level-
+  Projektattribute gelieferten Felder (live per `project.GetAttributeInfos()`
+  gegen ein echtes Projekt geprüft, deutsche Bezeichnung laut V21-Referenz,
+  Manual 03/2026, Abschnitt "Projektbezogene Attribute lesen"):
+
+  | Attributname (für `felder`) | Deutsche Bedeutung | Als Pflichtfeld geeignet? |
+  |---|---|---|
+  | `Author` | Autor des Projekts | Ja (Standard) |
+  | `Comment` | Kommentar des Projekts | Ja — mehrsprachig, wird intern automatisch aufgelöst (siehe unten) |
+  | `Copyright` | Copyright-Hinweis des Projekts | Ja, falls im Projekt genutzt (siehe Hinweis unten) |
+  | `Family` | Familie des Projekts | Ja, falls im Projekt genutzt (siehe Hinweis unten) |
+  | `Version` | Version des Projekts | Ja (Standard) |
+  | `CreationTime` | Erstellungszeitpunkt | Nein — technisch, von TIA automatisch gesetzt, nie leer |
+  | `LastModified` | Zeitpunkt der letzten Änderung | Nein — technisch, von TIA automatisch gesetzt, nie leer |
+  | `LastModifiedBy` | Autor der letzten Änderung | Nein — technisch, von TIA automatisch gesetzt |
+  | `Name` | Projektname | Nein — kann in TIA gar nicht leer sein |
+  | `Path` | Absoluter Projektpfad | Nein — kein Textfeld (`FileInfo`-Objekt) |
+  | `Size` | Projektgröße in KB | Nein — kein Textfeld (Zahl) |
+  | `IsModified` | Projekt seit letztem Speichern geändert? | Nein — kein Textfeld (Wahrheitswert) |
+  | `LanguageSettings` | Sprachverwaltung des Projekts | Nein — kein Textfeld (eigenes Objekt, siehe Prüfpunkt 20) |
+
+  `Copyright` und `Family` tauchen im TIA-Portal-Standarddialog
+  "Projekteigenschaften" möglicherweise gar nicht als editierbares Feld
+  auf — vor Aufnahme in `felder` in TIA prüfen, ob sich das Feld
+  überhaupt befüllen lässt (sonst meldet der Prüfpunkt dauerhaft einen
+  nicht behebbaren Befund).
+- `Comment` wird — anders als die übrigen Textfelder — nicht direkt als
+  `System.String` geliefert, sondern als mehrsprachiges
+  `Siemens.Engineering.MultilingualText`-Objekt (`GetAttribute("Comment")`
+  liefert dafür sogar `None`). Der Prüfpunkt behandelt `Comment` deshalb
+  intern als Sonderfall und liest den Text der Projekt-Referenzsprache
+  über dieselbe Hilfsfunktion, die bereits für mehrsprachige
+  Kommentarfelder auf Baustein-/Tag-Ebene verwendet wird — bei der
+  Konfiguration selbst ist dadurch keine Sonderbehandlung nötig, `Comment`
+  wird wie jedes andere Feld einfach in `felder` eingetragen.
 
 **Empfehlung zur Behebung**
 Pflichtfeld in den Projekteigenschaften ausfüllen.
@@ -2898,3 +2933,4 @@ zu der Übersicht, die bereits am Anfang der Markdown-Datei steht.
 | 0.42 | 23.07.2026 | Neues Feature bei Prüfpunkt 16 (User-Frage im Anschluss an Prüfpunkt 15/16: "checkst du auch SCL Netzwerke mit zu vielen Code-Zeilen?" — Antwort war bislang nein): `compile_unit_element_count` zählt ausschließlich grafische `<Part>`/`<Call>`-Elemente und liefert für SCL-Text immer 0 — ein SCL-Netzwerk wurde dadurch unabhängig von seiner tatsächlichen Zeilenzahl nie gemeldet, egal ob als eigenständiger SCL-Baustein (bislang komplett übersprungen, da der Skip bislang auf `"SCL"` UND `"STL"` griff) oder als einzelnes SCL-Netzwerk innerhalb eines sonst grafischen Bausteins (nicht übersprungen, aber mit Elementanzahl 0 gezählt). Neuer Parameter `max_zeilen_scl` (Standard `50`, analog zu `max_elemente`): SCL-Netzwerke werden jetzt anhand ihrer Code-Zeilen geprüft — neue Hilfsfunktion `compile_unit_scl_line_count()` (`_tia_helpers.py`) zählt die `<NewLine>`-Elemente im XML-Export (N Zeilenumbrüche = N+1 Zeilen; ein Netzwerk ganz ohne `<Token>`/`<Access>`-Inhalt gilt als leer, nicht als eine Zeile). Der Skip in `MaxNetzwerkElementeCheck` greift jetzt nur noch bei `"STL"` (AWL bleibt bewusst komplett ausgenommen, siehe Prüfpunkt 14 — gilt als veraltet statt weiter ausgebaut zu werden); pro Netzwerk entscheidet die Netzwerk-eigene `ProgrammingLanguage`, ob Elementzählung oder Zeilenzählung greift. Beide YAML-Konfigurationsdateien (`default.yaml` und `project_settings.yaml`) um den neuen Parameter ergänzt. Live gegen Salzmaschine verifiziert: **0 → 119 Befunde** (Zeilenzahlen 50–459, weit überwiegend in der Siemens-Standardbibliothek `PrgBibSiemens/LGF`, einige in eigenen Bausteinen wie `PrgFieldbusOk`/Netzwerk 4 mit 256 Zeilen). `pytest` weiterhin 51/51 grün. Parameter-Tabelle und Besonderheiten bei Prüfpunkt 16 entsprechend ergänzt. |
 | 0.43 | 24.07.2026 | Dreißigster Bug behoben (User-Meldung anhand eines eigens angelegten Testprojekts `S7T0159_V21_NoHW`, das nur eine CPU ohne jede zusätzliche I/O-Hardware enthalten sollte: "warum läuft PP17 hier trotz fehlender Hardware ohne Probleme durch?"): Prüfpunkt 17 zählte bislang schlicht `len(device.DeviceItems)` und meldete nur bei `<= 1`. `device.DeviceItems` enthält aber neben der CPU immer weitere, von TIA automatisch angelegte Strukturelemente — den Baugruppenträger (`Rack_0`) sowie bei ET200SP-Stationen zusätzlich genau einen Busadapter/Schnittstellenmodul und genau ein Server-/Abschlussmodul (physisch zwingend als letztes Modul im Baugruppenträger). Live an der Salzmaschine-CPU (ET200SP, `pn4805-15a1`) bestätigt: `device.DeviceItems` liefert 10 Einträge (Rack + CPU + 6 echte I/O-Module + Server-Modul + Busadapter) — der Schwellenwert `<= 1` konnte bei dieser Stationsart dadurch **grundsätzlich nie** unterschritten werden, selbst bei einer PLC komplett ohne I/O-Hardware. Fix: neue Hilfsfunktion `count_additional_hardware_modules()` (`_tia_helpers.py`) rechnet Baugruppenträger (`TypeIdentifier` beginnt mit `"System:Rack"`), CPU selbst sowie bei ET200SP den Busadapter (erkennbar an der für diesen Zweck immer festen `PositionNumber == 127`, unabhängig vom konkreten Adaptertyp/Bestellnummer) und das Server-/Abschlussmodul (immer die höchste "normale" Positionsnummer unterhalb 127) heraus; die Prüfung greift jetzt bei `module_count == 0`. Live verifiziert (isolierter Vergleich, ohne die eigentliche Prüfpunkt-17-Meldung auszulösen, da beide Test- und Originalprojekt tatsächlich dieselben 6 I/O-Module enthielten — User-Fehler beim Anlegen des Testprojekts, kein Linter-Bug): Modulzahl korrekt von 10 auf 6 reduziert (nur die echten I/O-Module verbleiben), Rack/Busadapter/Server-Modul zuverlässig herausgerechnet. `pytest` weiterhin 51/51 grün. Besonderheiten bei Prüfpunkt 17 entsprechend ergänzt. |
 | 0.44 | 24.07.2026 | Einunddreißigster Bug behoben, direkt im Anschluss an Version 0.43 am selben Testprojekt `S7T0159_V21_NoHW` gefunden (User hatte die CPU dort gegen eine F-CPU getauscht und zunächst PP18b getestet — dabei stellte sich per Rückfrage heraus, dass die F-Fähigkeit in TIA noch nicht aktiviert war, `Failsafe_FCapabilityActivated == False`, wodurch `SafetyAdministration` korrekterweise `None` lieferte; kein Linter-Bug, sondern ein noch fehlender TIA-Konfigurationsschritt. Nach Aktivierung der F-Fähigkeit funktionierte PP18b wie erwartet. User meldete danach: "PP18c leider nicht. Es ist ein Zertifikat vorhanden ... wird auch im Kommunikationsmodus verwendet. Aber trotzdem wird PP18c als Fehler markiert."): `ZertifikatCheck` importierte `LocalCertificateManager` bislang aus `Siemens.Engineering.SW.Security` — laut Typenverzeichnis der installierten `Siemens.Engineering.Base.xml` (V21) liegt die Klasse aber unter `Siemens.Engineering.Security`, ohne `SW`-Zwischen-Namespace. Der resultierende `ModuleNotFoundError` wurde von der bewusst breiten Fehlerbehandlung (`except Exception: cert_manager = None`, gedacht für "Dienst evtl. nicht verfügbar/keine Lizenz") stillschweigend verschluckt — `cert_manager` war dadurch **projektweit und unabhängig vom tatsächlichen Zertifikatsstatus immer `None`**, jede PLC wurde als "kein Zertifikat vorhanden" (Fehler) gemeldet, selbst wenn (wie hier) ein gültiges Zertifikat existierte und aktiv genutzt wurde. Root Cause per Reflection über die geladenen Assemblies gefunden (Suche nach `"CertificateManager"` über alle Typen brachte zunächst nichts, weil der Import schlicht nie geklappt hatte — erst der Namensabgleich in der XML-Dokumentation zeigte den korrekten Namespace). Fix: Import auf `Siemens.Engineering.Security` korrigiert. Live gegen `S7T0159_V21_NoHW` und zur Kontrolle zusätzlich gegen das Original-Salzmaschine-Projekt verifiziert: beide liefern jetzt identisch 1 Befund `[OK] pn4805-15a1 > Zertifikate > 2: Zertifikat ist gültig (gültig bis 2057-10-28)` — exakt das vom User genannte Zertifikat `pn4805-15a1/Communication-1`, ID 2. `pytest` weiterhin 51/51 grün. Besonderheiten bei Prüfpunkt 18c entsprechend ergänzt. |
+| 0.45 | 24.07.2026 | Neues Feature bei Prüfpunkt 19 (User-Wunsch: "ich würde bei PP19 gerne noch mehr Felder prüfen. Mein TIA ist auf Deutsch, d. h. meine Namen in den Eigenschaften stimmen nicht mit den Strings überein"): Vollständige Liste aller von der Openness-API als Top-Level-Projektattribute gelieferten Felder ermittelt — live per `project.GetAttributeInfos()` gegen ein echtes Projekt (12 Attribute) sowie per Namensabgleich mit der deutschen V21-Referenz (Manual 03/2026, Abschnitt "Projektbezogene Attribute lesen"). Dabei zusätzlichen, bislang unbemerkten Bug gefunden: `Comment` (Kommentar des Projekts) wird nicht als `System.String` geliefert, sondern als mehrsprachiges `Siemens.Engineering.MultilingualText`-Objekt — dieselbe Fallstrick-Klasse wie beim mehrfach behobenen `Comment`-Attribut auf Baustein-/Tag-Ebene (siehe u. a. Runde 13/14/15), hier aber am Projekt-Objekt selbst und bislang nie aufgefallen, weil `Comment` bisher nicht Teil der Standard-`felder`-Liste war. `GetAttribute("Comment")` liefert dafür sogar direkt `None` statt des Objekts — ein generischer `str(get_attribute(...))`-Zugriff (wie ihn `PflichtfelderCheck` bislang einheitlich für alle Felder verwendete) hätte `Comment` dadurch **immer** als leer gemeldet, unabhängig vom tatsächlichen Inhalt, sobald ein Nutzer es zu `felder` hinzugefügt hätte. Fix: `PflichtfelderCheck` behandelt `Comment` jetzt als Sonderfall und liest es über die bereits bestehenden Hilfsfunktionen `read_comment()`/`reference_language()` (dieselbe Infrastruktur, die den ursprünglichen Comment-Bug an anderer Stelle bereits gelöst hat) — bei der Konfiguration selbst ist keine Sonderbehandlung nötig, `Comment` wird wie jedes andere Feld einfach in `felder` eingetragen. Live gegen `S7T0159_V21_NoHW` verifiziert: mit `felder: ["Author", "Comment", "Copyright", "Family", "Version"]` liefert der Check 3 Befunde (`Comment`, `Copyright`, `Family` leer — `Author`="Mukara", `Version`="Ende Dev TBE" korrekt erkannt als gefüllt), keine Exception beim `Comment`-Zugriff. `project_settings.yaml` auf Wunsch direkt um die drei neuen Felder erweitert (`felder: ["Author", "Version", "Comment", "Copyright", "Family"]`); `default.yaml` unverändert bei den bisherigen zwei Standardfeldern, aber beide Dateien um die vollständige Feldliste als Kommentar ergänzt. `pytest` weiterhin 51/51 grün. Parameter-Tabelle und Besonderheiten bei Prüfpunkt 19 um die vollständige Attributtabelle (inkl. Eignung als Pflichtfeld) und den Comment-Sonderfall ergänzt. |

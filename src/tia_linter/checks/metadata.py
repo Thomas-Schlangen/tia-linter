@@ -4,9 +4,24 @@ from __future__ import annotations
 
 from typing import Any
 
-from tia_linter.checks._tia_helpers import format_path, get_attribute, iter_plc_software
+from tia_linter.checks._tia_helpers import (
+    format_path,
+    get_attribute,
+    iter_plc_software,
+    read_comment,
+    reference_language,
+)
 from tia_linter.checks.base import BaseCheck
 from tia_linter.models import CheckResult, CheckStatus
+
+# Attribut, das als Siemens.Engineering.MultilingualText geliefert wird statt
+# als System.String (siehe Openness-Referenz, Abschnitt "Projektbezogene
+# Attribute lesen") — GetAttribute("Comment") liefert dafür sogar direkt
+# None statt des Objekts, ein generischer str(get_attribute(...))-Zugriff
+# hätte das Feld also immer als leer gemeldet, unabhängig vom tatsächlichen
+# Inhalt (dieselbe Klasse von Bug wie beim mehrfach behobenen
+# Comment-Attribut auf PlcBlock/PlcTag).
+_MULTILINGUAL_FIELDS = {"Comment"}
 
 
 class PflichtfelderCheck(BaseCheck):
@@ -15,7 +30,10 @@ class PflichtfelderCheck(BaseCheck):
     def run(self, project: Any) -> list[CheckResult]:
         results: list[CheckResult] = []
         for field in self.definition.params.get("felder", []):
-            value = str(get_attribute(project, field, "") or "").strip()
+            if field in _MULTILINGUAL_FIELDS:
+                value = read_comment(project, reference_language(project))
+            else:
+                value = str(get_attribute(project, field, "") or "").strip()
             if not value:
                 results.append(
                     self._make_result(
