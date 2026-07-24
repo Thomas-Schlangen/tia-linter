@@ -268,7 +268,7 @@ class StaticZugriffExternCheck(BaseCheck):
 
 
 class OutputMehrfachBeschriebenCheck(BaseCheck):
-    """Prüfpunkt 26: VAR_OUTPUT-Parameter wird an mehreren Stellen beschrieben.
+    """Prüfpunkt 26: VAR_OUTPUT-/VAR_IN_OUT-Parameter wird an mehreren Stellen beschrieben.
 
     Dreiundzwanzigster Bug (im Rahmen der Prüfpunkt-11/25-Überarbeitung
     entdeckt, live an Salzmaschine verifiziert): Der ursprüngliche Ansatz
@@ -290,6 +290,14 @@ class OutputMehrfachBeschriebenCheck(BaseCheck):
     je 4 Schreibzugriffe. Deckt damit erstmals auch FC ab (keine Instanz-DB
     nötig) — die alte Methode war ohnehin auf FB beschränkt gewesen, hätte
     aber selbst dafür einen Umweg über die Instanz-DB gebraucht.
+
+    User-Wunsch (24.07.2026): Dieselbe Prüfung gilt genauso für
+    VAR_IN_OUT-Parameter (Interface-Section ``"InOut"``, bereits an anderer
+    Stelle im Projekt als Sektionsname bestätigt, siehe
+    ``comments.py``/``structure.py``) — auch ein InOut-Parameter sollte
+    innerhalb eines Bausteins nur an einer Stelle beschrieben werden. Beide
+    Sections werden jetzt gleichermaßen geprüft, die Meldung nennt die
+    jeweilige Parameterart (Output/InOut).
     """
 
     def run(self, project: Any) -> list[CheckResult]:
@@ -303,23 +311,25 @@ class OutputMehrfachBeschriebenCheck(BaseCheck):
 
                 xml_root = export_block_xml(block)
                 output_members = interface_section_members(xml_root, "Output")
-                if not output_members:
+                inout_members = interface_section_members(xml_root, "InOut")
+                if not output_members and not inout_members:
                     continue
 
                 write_counts = local_variable_write_counts(xml_root)
 
-                for member_name in output_members:
-                    write_count = write_counts.get(member_name, 0)
-                    if write_count > 1:
-                        results.append(
-                            self._make_result(
-                                path=format_path(
-                                    plc_software.Name, "Programmbausteine", *group_path, block.Name, member_name
-                                ),
-                                description=f"Output-Parameter '{member_name}' wird an {write_count} Stellen beschrieben.",
-                                value=str(write_count),
+                for label, members in (("Output", output_members), ("InOut", inout_members)):
+                    for member_name in members:
+                        write_count = write_counts.get(member_name, 0)
+                        if write_count > 1:
+                            results.append(
+                                self._make_result(
+                                    path=format_path(
+                                        plc_software.Name, "Programmbausteine", *group_path, block.Name, member_name
+                                    ),
+                                    description=f"{label}-Parameter '{member_name}' wird an {write_count} Stellen beschrieben.",
+                                    value=str(write_count),
+                                )
                             )
-                        )
         return results
 
 

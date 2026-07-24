@@ -1,6 +1,6 @@
 # TIA Linter — Benutzerhandbuch
 
-**Version dieses Handbuchs:** 0.49 (Entwurf)
+**Version dieses Handbuchs:** 0.50 (Entwurf)
 **Stand:** 23.07.2026
 **Programmversion:** 0.1.0
 
@@ -2377,7 +2377,7 @@ PLC_1 > Datenbaustein > DB_Ventil_Instanz > Member > InternerZaehler
 Zugriff über Ein-/Ausgangsparameter des FB kapseln, statt direkt auf den
 Instanz-DB zuzugreifen.
 
-#### Prüfpunkt 26 — Output-Tag pro Zyklus nur einmal beschrieben
+#### Prüfpunkt 26 — Output-/InOut-Tag pro Zyklus nur einmal beschrieben
 
 | | |
 |---|---|
@@ -2386,15 +2386,15 @@ Instanz-DB zuzugreifen.
 | **Config-Schlüssel** | `checks.styleguide.output_mehrfach_beschrieben` |
 
 **Was wird geprüft?**
-Für jeden VAR_OUTPUT-Parameter eines Funktionsbausteins oder einer
-Funktion wird gezählt, an wie vielen Stellen **innerhalb** des Bausteins er
-beschrieben wird. Wird er an mehr als einer Stelle beschrieben, wird ein
-Befund erzeugt.
+Für jeden VAR_OUTPUT- **und** VAR_IN_OUT-Parameter eines Funktionsbausteins
+oder einer Funktion wird gezählt, an wie vielen Stellen **innerhalb** des
+Bausteins er beschrieben wird. Wird er an mehr als einer Stelle
+beschrieben, wird ein Befund erzeugt.
 
 **Warum ist das wichtig?**
 Analog zu [Prüfpunkt 13](#prüfpunkt-13-ausgänge-maximal-einmal-geschrieben)
-bei Ausgangs-Tags führt das mehrfache Beschreiben desselben
-Output-Parameters innerhalb eines Bausteins zu unvorhersehbarem Verhalten,
+bei Ausgangs-Tags führt das mehrfache Beschreiben desselben Output- bzw.
+InOut-Parameters innerhalb eines Bausteins zu unvorhersehbarem Verhalten,
 das von der internen Ausführungsreihenfolge abhängt.
 
 **Parameter**
@@ -2416,11 +2416,14 @@ PLC_1 > Programmbausteine > FB_Regler > Fehlercode
   erstmals auch Funktionen (FC) ab, nicht nur Funktionsbausteine (FB).
   Live an Salzmaschine verifiziert, u. a. `LSNTP_Server` (`status`,
   `error`, `statusID` je 4 Schreibzugriffe).
-
-**Besonderheiten**
-
 - Der Standard-Schweregrad ist hier **Fehler** statt Warnung — wie beim
   eng verwandten Prüfpunkt 13.
+- Auf Nutzerwunsch werden neben VAR_OUTPUT- auch VAR_IN_OUT-Parameter
+  geprüft (dieselbe Logik gilt hier gleichermaßen: ein InOut-Parameter, der
+  intern an mehreren Stellen überschrieben wird, hat dasselbe
+  Ausführungsreihenfolge-Problem). Die Meldung unterscheidet die
+  Parameterart im Text (`Output-Parameter '...'` bzw.
+  `InOut-Parameter '...'`).
 
 **Empfehlung zur Behebung**
 Schreibzugriffe auf den Output-Parameter auf eine Stelle im Baustein
@@ -2938,3 +2941,4 @@ zu der Übersicht, die bereits am Anfang der Markdown-Datei steht.
 | 0.47 | 24.07.2026 | Zweiunddreißigster Bug behoben, direkt im Anschluss an Version 0.46 gefunden (User-Meldung: "kannst du checken warum meine 2 Parameter in PP21 nicht greifen?", mit den beiden vollständigen, live aus TIA kopierten Meldungstexten). Live-Recompile des Testprojekts `S7T0159_V21_NoHW` bestätigte zunächst, dass die in `project_settings.yaml` hinterlegten Muster Zeichen für Zeichen exakt mit den echten Compiler-Meldungen übereinstimmen (per `repr()`-Vergleich verifiziert) — der Fehler lag also nicht an falsch abgetippten Mustern. Ursache stattdessen im Regex-Mechanismus selbst: Beide (und, wie sich zeigte, auch das schon vorher aktive dritte Muster `"Compiling finished (errors: 0; warnings: 0)"`) enthalten literale, unescapte Klammern — als Regex sind `(`/`)` aber Gruppierungs-Metazeichen, keine literalen Zeichen. Isoliert nachgewiesen: Selbst ein Muster gegen den exakt eigenen Wortlaut als Suchtext (`re.search(muster, muster)`) liefert `False`, sobald eine echte Klammer enthalten ist — der Abgleich schlägt komplett stillschweigend fehl, ohne Fehlermeldung, unabhängig davon, wie exakt der Meldungstext übernommen wurde. Sowohl `default.yaml` als auch `project_settings.yaml` waren betroffen, da beide dieselbe Regex-Semantik dokumentierten. Fix: `ignorierte_meldungen` von Regex-Matching (`re.search`) auf reinen, case-insensitiven Teiltext-Abgleich (`text.casefold() in description.casefold()`) umgestellt — der praktische Anwendungsfall (eine konkrete, bekannte Meldung dauerhaft unterdrücken) braucht ohnehin nie Wildcards, reiner Teiltext ist hier robuster als Regex. `re`-Import in `metadata.py` entsprechend entfernt (nicht mehr benötigt). Live erneut mit allen 5 hinterlegten Mustern gegen die beiden problematischen Meldungen sowie drei weitere Beispielmeldungen getestet: alle 5 Muster treffen jetzt zuverlässig, eine unbeteiligte Beispielmeldung bleibt unverändert erhalten. `pytest` weiterhin 51/51 grün. Beide YAML-Dateien (Kommentar von "Regex-Muster" auf "literale Teiltexte, kein Regex" korrigiert) sowie Parameter-Tabelle und Besonderheiten bei Prüfpunkt 21 entsprechend aktualisiert. |
 | 0.48 | 24.07.2026 | Prüfpunkt 22 ("Projektversion vorhanden") komplett entfernt und alle nachfolgenden Prüfpunkte um 1 nach vorne verschoben (User-Auftrag im Anschluss an eine Nachfrage zu Prüfpunkt 22: "Ist der nicht mit PP19 schon erschlagen?" — bestätigt: `ProjektversionCheck` prüfte lediglich, ob `project.Version` leer ist, exakt dieselbe Prüfung, die Prüfpunkt 19 bereits über sein `felder`-Array abdeckt, sobald `"Version"` darin steht — was seit jeher der Standardwert ist. "Option 4": Prüfpunkt 22 ersatzlos streichen statt ihn auszubauen oder Prüfpunkt 19 einzuschränken). Betraf durchgängig Code, beide YAML-Dateien und Handbuch: `ProjektversionCheck`-Klasse und Registry-Eintrag entfernt (`metadata.py`, `registry.py`); alle Prüfpunkt-Nummern 23–35 in Docstrings/Kommentaren um 1 verringert (22–34), betroffen `registry.py`, `libraries.py` (Modul- und Klassen-Docstrings, inkl. Kreuzverweise wie "Prüfpunkt-11/26-Überarbeitung" → "11/25"), `structure.py` und `_tia_helpers.py` (Kreuzverweise auf die verschobenen Styleguide-Prüfpunkte 25–27 → 24–26). Beide YAML-Dateien: `projektversion`-Konfigurationsblock entfernt, alle Kommentare der Kategorien Bibliotheken/Styleguide neu nummeriert, Kopfkommentar "35 Prüfpunkte" → "34". Handbuch: Abschnitt 10.5 (jetzt "Prüfpunkte 19-21") um Prüfpunkt 22 gekürzt, Abschnitte 10.6/10.7 samt aller Unterüberschriften, internen Anker-Links (u. a. auf den ehemaligen Prüfpunkt 26) und der Übersichtstabelle am Kapitelanfang neu nummeriert; alle "35 Prüfpunkte"-Erwähnungen (Kapitelübersicht, Abschlusshinweis, Besonderheiten bei Prüfpunkt 1b/1c) auf "34" korrigiert. Auf Nutzerwunsch zusätzlich die ursprüngliche, außerhalb des Code-Repos liegende Checkliste `doku_etc/Pruefpunkte.md` (in `tia-linter/doku_etc/`, nicht `tia-linter/code/`) identisch angepasst, damit die Nummerierung projektweit konsistent bleibt. Datierte Änderungshistorien-Einträge in Anhang C sowie die Runden-Historie in `doku_etc/review_fortschritt.md` bleiben als Zeitpunkt-Aufzeichnungen bewusst bei der zum jeweiligen Zeitpunkt gültigen Nummerierung. `pytest` weiterhin 51/51 grün; Config-Ladetest bestätigt 43 statt 44 Checks und das Fehlen von `projektmetadaten.projektversion` in beiden YAML-Dateien. |
 | 0.49 | 24.07.2026 | Verbesserung bei Prüfpunkt 25 (User-Feedback: "Funktioniert hervorragend. Eine Verbesserung hätte ich noch ... Hast du zu dem Zeitpunkt evtl. auch aus welchem Netzwerk heraus? So dass du schreiben könntest: 01Org / NW6?"): Die Meldung nannte bislang nur den zugreifenden Baustein, nicht die Netzwerk-/Codestelle darin. Die Information steckte bereits im selben `ReferenceLocation`-String (Format `@<Baustein> ▶ <Ort>`), wurde bisher aber nach dem `▶`-Zeichen verworfen. Live an 5 verschiedenen Bausteinen/187 Kreuzreferenz-Einträgen des Salzmaschine-Projekts die tatsächlich vorkommenden Formate gesammelt: `NW6` bzw. `NW6 (<Netzwerktitel>)` bei grafischen Netzwerken, `Ln: x   Cl: y` bei einem eigenständigen SCL-Baustein ohne Netzwerkgliederung (z. B. `LSNTP_Server`), sowie `NW 10   Ln: x   Cl: y` bei einem einzelnen SCL-Netzwerk innerhalb eines sonst grafischen Bausteins (z. B. `4805PrgMan`/NW10). Fix: `_LOCATION_PREFIX`-Regex erweitert, um zusätzlich zum Bausteinnamen auch den Text zwischen `▶` und einer eventuellen Titel-Klammer zu erfassen (Mehrfach-Leerzeichen dabei auf eines reduziert); der Netzwerktitel selbst wird bewusst nicht mit ausgegeben. Live verifiziert: Meldung für `01TestOrgPrgDb`/`lx_xx` lautet jetzt exakt wie vom User gewünscht `'01Org / NW6'` (vorher nur `'01Org'`), zweiter Treffer `01PrgDb`/`lx_30M1StopGap` entsprechend `'01Vis / NW5'`. `pytest` weiterhin 51/51 grün. Beispiel und Besonderheiten bei Prüfpunkt 25 entsprechend ergänzt. |
+| 0.50 | 24.07.2026 | Erweiterung bei Prüfpunkt 26 (User-Auftrag: "Funktioniert auch, aber ich brauch auch hier noch eine Erweiterung. Es gibt innerhalb von FBs und FCs sowohl Output-Tags als auch InputOutput-Tags. Bei denen müsste die gleiche Prüfung durchgeführt werden. Darf nur 1x beschrieben werden."): `OutputMehrfachBeschriebenCheck` prüfte bislang ausschließlich die Interface-Section `"Output"`. Fix: Zusätzlich wird die Section `"InOut"` (VAR_IN_OUT, bereits an anderer Stelle im Projekt als Sektionsname bestätigt, siehe `comments.py`/`structure.py`) gleichermaßen auf Mehrfach-Schreibzugriffe geprüft; die Meldung nennt die jeweilige Parameterart (`Output-Parameter '...'` bzw. `InOut-Parameter '...'`). Live gegen das Salzmaschine-Projekt vorher/nachher verglichen (`git stash`-Vergleich): 229 → 340 Befunde, die 111 neu hinzugekommenen sind durchgängig korrekt als `InOut-Parameter` beschriftet, die ursprünglichen 229 Output-Befunde blieben unverändert. `pytest` weiterhin 51/51 grün. Titel, "Was wird geprüft?" und Besonderheiten bei Prüfpunkt 26 entsprechend ergänzt; doppelte "Besonderheiten"-Überschrift (redaktionelles Überbleibsel aus einer früheren Version) im Zuge dessen zu einem Abschnitt zusammengeführt. |

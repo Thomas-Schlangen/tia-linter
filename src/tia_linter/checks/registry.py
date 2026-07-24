@@ -309,7 +309,7 @@ CHECK_REGISTRY: dict[str, CheckMeta] = {
     "styleguide.output_mehrfach_beschrieben": CheckMeta(
         name="Output-Tag pro Zyklus nur einmal beschrieben",
         category=STYLEGUIDE,
-        description="Prüfpunkt 26: VAR_OUTPUT-Parameter wird innerhalb eines Bausteins an mehreren Stellen beschrieben.",
+        description="Prüfpunkt 26: VAR_OUTPUT-/VAR_IN_OUT-Parameter wird innerhalb eines Bausteins an mehreren Stellen beschrieben.",
         recommendation="Schreibzugriffe auf den Output-Parameter auf eine Stelle im Baustein konsolidieren.",
         nummer="26",
     ),

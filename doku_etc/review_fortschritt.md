@@ -3069,3 +3069,42 @@ Rohdaten, wurde bisher nur nicht ausgewertet. Live an drei
 unterschiedlichen Format-Varianten (grafisches Netzwerk, reines SCL,
 SCL-Netzwerk mit Nummer) sowie am vom User genannten Testfall verifiziert.
 pytest 51/51 grün, Handbuch aktualisiert, noch nicht committet."
+
+## Runde 51 — Prüfpunkt 26: VAR_IN_OUT-Parameter zusätzlich zu VAR_OUTPUT geprüft
+
+**Ausgangspunkt:** User: "Weiter mit PP26. Funktioniert auch, aber ich
+brauch auch hier noch eine Erweiterung. Es gibt innerhalb von FBs und FCs
+sowohl Output-Tags als auch InputOutput-Tags. Bei denen müsste die gleiche
+Prüfung durchgeführt werden. Darf nur 1x beschrieben werden."
+
+**Umsetzung:** Kein Bug, reine Erweiterung. `OutputMehrfachBeschriebenCheck`
+(`libraries.py`) rief `interface_section_members(xml_root, "Output")`
+bislang nur für die Output-Section auf. Die Section `"InOut"`
+(VAR_IN_OUT) ist als Sektionsname im XML-Export bereits an anderer Stelle
+im Projekt bestätigt (`comments.py::_INTERFACE_SECTIONS`,
+`structure.py::_INTERFACE_SECTIONS`) — dieselbe `local_variable_write_
+counts()`-Hilfsfunktion (sprachunabhängig, bereits für Output bewährt)
+funktioniert unverändert auch für InOut-Member. Fix: Beide Sections
+(Output und InOut) werden jetzt in derselben Schleife geprüft, mit einem
+Label pro Parameterart in der Meldung (`Output-Parameter '...'` bzw.
+`InOut-Parameter '...'`).
+
+**Verifiziert:** `pytest` weiterhin 51/51 grün. Live-Vergleich gegen das
+Salzmaschine-Projekt per `git stash`-Vorher/Nachher-Methode: 229 → 340
+Befunde. Die 111 neu hinzugekommenen sind durchgängig korrekt als
+`InOut-Parameter` beschriftet (u. a. `iou_St` bei diversen `PrgBibAlpma`-
+FBs mit bis zu 57 Schreibzugriffen), die ursprünglichen 229 Output-Befunde
+blieben unverändert erhalten.
+
+**Dokumentiert:** `docs/Handbuch.md` Version 0.50 (Titel, "Was wird
+geprüft?" und Besonderheiten bei Prüfpunkt 26 ergänzt, Anhang-C-Eintrag;
+dabei auch eine seit längerem bestehende doppelte "Besonderheiten"-
+Überschrift zu einem Abschnitt zusammengeführt). Noch nicht committet.
+
+Letzter Stand: "Prüfpunkt 26 prüft jetzt zusätzlich zu VAR_OUTPUT- auch
+VAR_IN_OUT-Parameter auf Mehrfach-Schreibzugriffe innerhalb desselben
+Bausteins — dieselbe bereits bewährte Zähllogik, nur auf eine zweite
+Interface-Section (`"InOut"`) angewendet. Live verifiziert: 229 → 340
+Befunde, alle 111 neuen korrekt als InOut-Parameter beschriftet, Output-
+Befunde unverändert. pytest 51/51 grün, Handbuch aktualisiert, noch nicht
+committet."
