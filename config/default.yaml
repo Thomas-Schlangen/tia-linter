@@ -420,6 +420,10 @@ checks:
     know_how_schutz:
       enabled: true
       severity: warning
+      # Liste literaler Teiltexte (kein Regex, siehe Prüfpunkt 21), von denen
+      # mindestens einer case-insensitiv in der Kopfbeschreibung vorkommen
+      # muss, damit der Know-how-Schutz als dokumentiert gilt.
+      dokumentations_hinweise: ["know-how", "knowhow"]
 
     # Prüfpunkt 31 — Tag-Tabelle enthält Tags außerhalb des I-/
     # Q-Adressbereichs.
@@ -445,6 +449,10 @@ checks:
     schreibschutz:
       enabled: true
       severity: warning
+      # Liste literaler Teiltexte (kein Regex, siehe Prüfpunkt 21), von denen
+      # mindestens einer case-insensitiv in der Kopfbeschreibung vorkommen
+      # muss, damit der Schreibschutz als dokumentiert gilt.
+      dokumentations_hinweise: ["schreibschutz", "write-protect"]
 
 logging:
   level: "INFO"

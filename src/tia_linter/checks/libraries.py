@@ -434,23 +434,36 @@ class Ob1KomplexitaetCheck(BaseCheck):
         return results
 
 
+_DEFAULT_KNOW_HOW_HINWEISE = ("know-how", "knowhow")
+
+
 class KnowHowSchutzCheck(BaseCheck):
     """Prüfpunkt 30: Know-how-geschützte Bausteine ohne entsprechenden Vermerk.
 
     ``PlcBlock.Comment`` ist mehrsprachig (``MultilingualText``, siehe
     ``comments.py::VariablenKommentarCheck``) — Lesen über ``read_comment``
     statt ``GetAttribute``.
+
+    Neuer Parameter ``dokumentations_hinweise`` (Standard ``["know-how",
+    "knowhow"]``, User-Auftrag 24.07.2026, analog zu ``ignorierte_meldungen``
+    bei Prüfpunkt 21): Liste literaler Teiltexte (kein Regex — siehe dort für
+    die Begründung), von denen mindestens einer case-insensitiv in der
+    Kopfbeschreibung vorkommen muss, damit der Schutz als dokumentiert gilt.
     """
 
     def run(self, project: Any) -> list[CheckResult]:
         results: list[CheckResult] = []
         language = reference_language(project)
+        hinweise = [
+            text.casefold()
+            for text in self.definition.params.get("dokumentations_hinweise", _DEFAULT_KNOW_HOW_HINWEISE)
+        ]
         for plc_software in iter_plc_software(project):
             for block, group_path in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
                 if not bool(get_attribute(block, "IsKnowHowProtected", False)):
                     continue
-                comment = read_comment(block, language).lower()
-                if "know-how" not in comment and "knowhow" not in comment:
+                comment = read_comment(block, language).casefold()
+                if not any(text in comment for text in hinweise):
                     results.append(
                         self._make_result(
                             path=format_path(plc_software.Name, "Programmbausteine", *group_path, block.Name),
@@ -537,6 +550,9 @@ class BausteineImRootCheck(BaseCheck):
         return results
 
 
+_DEFAULT_SCHREIBSCHUTZ_HINWEISE = ("schreibschutz", "write-protect")
+
+
 class SchreibschutzCheck(BaseCheck):
     """Prüfpunkt 34 (neu in V21): Schreibschutz von Bausteinen ohne Dokumentation.
 
@@ -552,17 +568,27 @@ class SchreibschutzCheck(BaseCheck):
     ``PlcBlock.Comment`` ist mehrsprachig (``MultilingualText``, siehe
     ``comments.py::VariablenKommentarCheck``) — Lesen über ``read_comment``
     statt ``GetAttribute``.
+
+    Neuer Parameter ``dokumentations_hinweise`` (Standard
+    ``["schreibschutz", "write-protect"]``, User-Auftrag 24.07.2026, analog
+    zu ``ignorierte_meldungen`` bei Prüfpunkt 21 sowie demselben Parameter
+    bei Prüfpunkt 30): Liste literaler Teiltexte (kein Regex), von denen
+    mindestens einer case-insensitiv in der Kopfbeschreibung vorkommen muss.
     """
 
     def run(self, project: Any) -> list[CheckResult]:
         results: list[CheckResult] = []
         language = reference_language(project)
+        hinweise = [
+            text.casefold()
+            for text in self.definition.params.get("dokumentations_hinweise", _DEFAULT_SCHREIBSCHUTZ_HINWEISE)
+        ]
         for plc_software in iter_plc_software(project):
             for block, group_path in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
                 if not bool(get_attribute(block, "IsWriteProtected", False)):
                     continue
-                comment = read_comment(block, language).lower()
-                if "schreibschutz" not in comment and "write-protect" not in comment:
+                comment = read_comment(block, language).casefold()
+                if not any(text in comment for text in hinweise):
                     results.append(
                         self._make_result(
                             path=format_path(plc_software.Name, "Programmbausteine", *group_path, block.Name),

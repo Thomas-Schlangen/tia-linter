@@ -3108,3 +3108,93 @@ Interface-Section (`"InOut"`) angewendet. Live verifiziert: 229 → 340
 Befunde, alle 111 neuen korrekt als InOut-Parameter beschriftet, Output-
 Befunde unverändert. pytest 51/51 grün, Handbuch aktualisiert, noch nicht
 committet."
+
+## Runde 52 — Prüfpunkt 27: Sinnhaftigkeit infrage gestellt (offene Entscheidung, kein Fix)
+
+**Ausgangspunkt:** User bat um eine Erklärung zu Prüfpunkt 27
+(Multi-Instanzen statt Einzel-Instanzen), da ein selbst eingefügter
+Timer-Aufruf "als DB in einem FB" nicht bemängelt wurde. Erklärt:
+`MultiInstanzenCheck` (`libraries.py`) reagiert ausschließlich auf
+**eigenständige Instanz-DB-Objekte im Projektbaum** (`iter_data_blocks`),
+deren `InstanceOfName` einem bekannten Timer/Zähler-Systembaustein
+entspricht (`_MULTI_INSTANCE_CANDIDATES`: TON, TOF, TP, TONR, CTU, CTD,
+CTUD, IEC_Timer, IEC_Counter, S_ODT, S_OFFDT, S_PULSE) — das ist genau der
+Fall, wenn beim Einfügen "Einzelinstanz" statt "Multiinstanz" gewählt
+wurde. Ein als Multiinstanz eingefügter Timer legt gar keinen eigenen DB
+an (wird als Static-Member im Interface des aufrufenden Bausteins
+geführt) — das ist bereits das vom Prüfpunkt gewünschte Verhalten, daher
+gibt es dort nichts zu melden.
+
+**User-Reaktion:** "Ich glaube der PP macht keinen Sinn. Schreib dir das
+bitte auf, evtl. werden wir den später entfernen." — Kein Fix in dieser
+Runde, keine Codeänderung. Grund für den Zweifel des Users noch nicht im
+Detail besprochen (evtl. weil die Prüfung nur den seltenen
+Einzelinstanz-Fall abdeckt, oder weil sie in der Praxis zu selten/nie
+zutrifft, um wertvoll zu sein) — bei Wiederaufnahme des Themas zuerst
+klären, was genau als "nicht sinnvoll" empfunden wird, bevor über
+Entfernen oder Umbau entschieden wird (analog zur PP19/22-Bereinigung in
+Runde 46-48: dort war die Redundanz klar benennbar, hier ist der genaue
+Einwand noch offen).
+
+Letzter Stand: "Prüfpunkt 27 als möglicher Streichkandidat notiert, kein
+Fix, keine Codeänderung. Nächstes Mal zuerst klären, was genau am
+Prüfpunkt als nicht sinnvoll empfunden wird (nur der Einzelinstanz-Fall
+wird erkannt, Multiinstanz ist ja gerade das gewünschte Verhalten und wird
+bewusst nicht gemeldet), dann ggf. entscheiden: entfernen, umbauen oder so
+lassen. Kein Commit in dieser Runde, keine Änderungen an Code/YAML/
+Handbuch."
+
+## Runde 53 — PP31-Klärung, PP30/PP34-Erklärung, neuer Parameter `dokumentations_hinweise` bei beiden
+
+**PP31-Klärung (kein Fix):** User testete Prüfpunkt 31 (Tag-Tabellen nur
+I/O-Tags) mit einer angelegten Beobachtungstabelle ("Beobachtungstabelle_1")
+und Force-Tabelle ("Force table"), jeweils mit einer Instanz-DB-Variable
+(`"ConfigDb".Exists.BlowOff`) darin — beide liefen ohne Meldung durch.
+Erklärt: `iter_tag_tables()` durchsucht ausschließlich
+`plc_software.TagTableGroup` (echte PLC-Variablentabellen) — Beobachtungs-
+und Force-Tabellen liegen unter dem komplett getrennten Openness-Objektbaum
+`plc_software.WatchAndForceTables` und werden von diesem Prüfpunkt nie
+untersucht; ihre Einträge sind zudem keine `PlcTag`-Objekte, sondern
+beliebige Adressausdrücke, worauf die vorhandene `tag_direction()`-Logik
+ohnehin nicht direkt passt. User entschied nach Rückfrage: keine
+Erweiterung, war ein Missverständnis des Prüfpunkt-Umfangs. Anschließende
+Verständnisfrage direkt beantwortet: Eine neu angelegte Variablentabelle
+mit ausschließlich Merkern (keine I/O-Tags) wird von PP31 **nicht**
+gemeldet — der Check meldet nur eine *Mischung* aus I/O- und Nicht-I/O-Tags
+in derselben Tabelle, eine rein nicht-I/O-Tabelle ist bereits der
+gewünschte Endzustand.
+
+**PP30-vs-PP34-Erklärung:** Auf Anfrage Unterschied erklärt — PP30
+(`IsKnowHowProtected`) betrifft Kopierschutz (Baustein weder les- noch
+änderbar ohne Passwort), PP34 (`IsWriteProtected`, neu in V21) betrifft
+reinen Schreibschutz (weiterhin einsehbar, nur nicht änderbar). Beide
+folgen strukturell demselben Muster (Attribut prüfen → Kopfbeschreibung auf
+Dokumentationshinweis durchsuchen).
+
+**Umsetzung (User-Auftrag, kein Bug):** "Kannst du sowohl bei PP30 als auch
+bei PP34 die Strings, die du in den Kommentaren suchst (schreibschutz,
+...), so wie bei PP21 mit in die YAML-Datei als Parameter aufnehmen. Dann
+ist der Benutzer flexibler." Neuer Parameter `dokumentations_hinweise` bei
+beiden Checks (`KnowHowSchutzCheck`/`SchreibschutzCheck`, `libraries.py`)
+— Liste literaler Teiltexte, case-insensitiv, bewusst kein Regex (exakt
+dasselbe Muster wie `ignorierte_meldungen` bei Prüfpunkt 21, Version 0.47:
+Regex wäre hier derselbe Klammern-Fallstrick, sobald jemand eine
+Formulierung mit Sonderzeichen einträgt). Standardwerte identisch zu den
+bisherigen fest verdrahteten Texten (`["know-how", "knowhow"]` bzw.
+`["schreibschutz", "write-protect"]`) — bestehende Konfigurationen/
+Verhalten ändern sich dadurch nicht, nur neu überschreibbar.
+
+**Verifiziert:** `pytest` weiterhin 51/51 grün. Config-Ladetest gegen beide
+YAML-Dateien bestätigt korrekte Standardwerte für beide neuen Parameter.
+
+**Dokumentiert:** Beide YAML-Dateien ergänzt. `docs/Handbuch.md` Version
+0.51 (Parameter-Tabelle und Besonderheiten bei Prüfpunkt 30/34 ergänzt,
+Anhang-C-Eintrag). Noch nicht committet.
+
+Letzter Stand: "PP31 lief bei Beobachtungs-/Force-Tabellen korrekterweise
+durch (komplett anderer Openness-Objektbaum als PLC-Variablentabellen,
+keine Erweiterung gewünscht); eine reine Merker-Tabelle wird von PP31
+ebenfalls korrekt nicht gemeldet (nur Mischungen zählen). PP30/PP34 per
+neuem Parameter `dokumentations_hinweise` konfigurierbar gemacht (analog zu
+`ignorierte_meldungen` bei PP21, Standardwerte unverändert). pytest 51/51
+grün, Handbuch aktualisiert, noch nicht committet."

@@ -1,6 +1,6 @@
 # TIA Linter — Benutzerhandbuch
 
-**Version dieses Handbuchs:** 0.50 (Entwurf)
+**Version dieses Handbuchs:** 0.51 (Entwurf)
 **Stand:** 23.07.2026
 **Programmversion:** 0.1.0
 
@@ -2585,7 +2585,10 @@ erkennbar, dass es sich überhaupt um einen geschützten Baustein handelt,
 was bei der Fehlersuche oder Projektübergabe zu Verwirrung führen kann.
 
 **Parameter**
-Dieser Prüfpunkt hat keine konfigurierbaren Parameter.
+
+| Parameter | Standardwert | Bedeutung |
+|---|---|---|
+| `dokumentations_hinweise` | `["know-how", "knowhow"]` | Liste literaler Teiltexte; mindestens einer muss case-insensitiv in der Kopfbeschreibung vorkommen, damit der Schutz als dokumentiert gilt. |
 
 **Beispiel**
 
@@ -2597,10 +2600,10 @@ PLC_1 > Programmbausteine > FB_Rezeptalgorithmus
 
 **Besonderheiten**
 
-- Die Prüfung auf den Dokumentationshinweis erfolgt als einfache
-  Textsuche in der Kopfbeschreibung (unabhängig von Groß-/Kleinschreibung)
-  — eine andere Formulierung als "know-how" bzw. "knowhow" wird nicht
-  erkannt.
+- Die Prüfung auf den Dokumentationshinweis erfolgt als einfache,
+  case-insensitive Textsuche in der Kopfbeschreibung (kein Regex, analog zu
+  `ignorierte_meldungen` bei Prüfpunkt 21) — eine Formulierung, die nicht in
+  `dokumentations_hinweise` eingetragen ist, wird nicht erkannt.
 
 **Empfehlung zur Behebung**
 Know-how-Schutz im Bausteinkopf bzw. in der Projektdokumentation
@@ -2745,7 +2748,10 @@ dass Änderungsversuche am Baustein absichtlich blockiert sind, was bei
 einer geplanten Anpassung zunächst für Verwirrung sorgen kann.
 
 **Parameter**
-Dieser Prüfpunkt hat keine konfigurierbaren Parameter.
+
+| Parameter | Standardwert | Bedeutung |
+|---|---|---|
+| `dokumentations_hinweise` | `["schreibschutz", "write-protect"]` | Liste literaler Teiltexte; mindestens einer muss case-insensitiv in der Kopfbeschreibung vorkommen, damit der Schutz als dokumentiert gilt. |
 
 **Beispiel**
 
@@ -2760,6 +2766,11 @@ PLC_1 > Programmbausteine > FB_Kalibrierung
 - Dieser Prüfpunkt ist **neu in TIA Portal V21** — das zugrunde liegende
   Attribut (`IsWriteProtected`) ist erst seit dieser Version über die
   Openness-Schnittstelle verlässlich auslesbar.
+- Die Prüfung auf den Dokumentationshinweis erfolgt als einfache,
+  case-insensitive Textsuche in der Kopfbeschreibung (kein Regex, analog zu
+  `ignorierte_meldungen` bei Prüfpunkt 21 sowie demselben Parameter bei
+  Prüfpunkt 30) — eine Formulierung, die nicht in `dokumentations_hinweise`
+  eingetragen ist, wird nicht erkannt.
 
 **Empfehlung zur Behebung**
 Schreibschutz im Bausteinkopf bzw. in der Projektdokumentation vermerken.
@@ -2942,3 +2953,4 @@ zu der Übersicht, die bereits am Anfang der Markdown-Datei steht.
 | 0.48 | 24.07.2026 | Prüfpunkt 22 ("Projektversion vorhanden") komplett entfernt und alle nachfolgenden Prüfpunkte um 1 nach vorne verschoben (User-Auftrag im Anschluss an eine Nachfrage zu Prüfpunkt 22: "Ist der nicht mit PP19 schon erschlagen?" — bestätigt: `ProjektversionCheck` prüfte lediglich, ob `project.Version` leer ist, exakt dieselbe Prüfung, die Prüfpunkt 19 bereits über sein `felder`-Array abdeckt, sobald `"Version"` darin steht — was seit jeher der Standardwert ist. "Option 4": Prüfpunkt 22 ersatzlos streichen statt ihn auszubauen oder Prüfpunkt 19 einzuschränken). Betraf durchgängig Code, beide YAML-Dateien und Handbuch: `ProjektversionCheck`-Klasse und Registry-Eintrag entfernt (`metadata.py`, `registry.py`); alle Prüfpunkt-Nummern 23–35 in Docstrings/Kommentaren um 1 verringert (22–34), betroffen `registry.py`, `libraries.py` (Modul- und Klassen-Docstrings, inkl. Kreuzverweise wie "Prüfpunkt-11/26-Überarbeitung" → "11/25"), `structure.py` und `_tia_helpers.py` (Kreuzverweise auf die verschobenen Styleguide-Prüfpunkte 25–27 → 24–26). Beide YAML-Dateien: `projektversion`-Konfigurationsblock entfernt, alle Kommentare der Kategorien Bibliotheken/Styleguide neu nummeriert, Kopfkommentar "35 Prüfpunkte" → "34". Handbuch: Abschnitt 10.5 (jetzt "Prüfpunkte 19-21") um Prüfpunkt 22 gekürzt, Abschnitte 10.6/10.7 samt aller Unterüberschriften, internen Anker-Links (u. a. auf den ehemaligen Prüfpunkt 26) und der Übersichtstabelle am Kapitelanfang neu nummeriert; alle "35 Prüfpunkte"-Erwähnungen (Kapitelübersicht, Abschlusshinweis, Besonderheiten bei Prüfpunkt 1b/1c) auf "34" korrigiert. Auf Nutzerwunsch zusätzlich die ursprüngliche, außerhalb des Code-Repos liegende Checkliste `doku_etc/Pruefpunkte.md` (in `tia-linter/doku_etc/`, nicht `tia-linter/code/`) identisch angepasst, damit die Nummerierung projektweit konsistent bleibt. Datierte Änderungshistorien-Einträge in Anhang C sowie die Runden-Historie in `doku_etc/review_fortschritt.md` bleiben als Zeitpunkt-Aufzeichnungen bewusst bei der zum jeweiligen Zeitpunkt gültigen Nummerierung. `pytest` weiterhin 51/51 grün; Config-Ladetest bestätigt 43 statt 44 Checks und das Fehlen von `projektmetadaten.projektversion` in beiden YAML-Dateien. |
 | 0.49 | 24.07.2026 | Verbesserung bei Prüfpunkt 25 (User-Feedback: "Funktioniert hervorragend. Eine Verbesserung hätte ich noch ... Hast du zu dem Zeitpunkt evtl. auch aus welchem Netzwerk heraus? So dass du schreiben könntest: 01Org / NW6?"): Die Meldung nannte bislang nur den zugreifenden Baustein, nicht die Netzwerk-/Codestelle darin. Die Information steckte bereits im selben `ReferenceLocation`-String (Format `@<Baustein> ▶ <Ort>`), wurde bisher aber nach dem `▶`-Zeichen verworfen. Live an 5 verschiedenen Bausteinen/187 Kreuzreferenz-Einträgen des Salzmaschine-Projekts die tatsächlich vorkommenden Formate gesammelt: `NW6` bzw. `NW6 (<Netzwerktitel>)` bei grafischen Netzwerken, `Ln: x   Cl: y` bei einem eigenständigen SCL-Baustein ohne Netzwerkgliederung (z. B. `LSNTP_Server`), sowie `NW 10   Ln: x   Cl: y` bei einem einzelnen SCL-Netzwerk innerhalb eines sonst grafischen Bausteins (z. B. `4805PrgMan`/NW10). Fix: `_LOCATION_PREFIX`-Regex erweitert, um zusätzlich zum Bausteinnamen auch den Text zwischen `▶` und einer eventuellen Titel-Klammer zu erfassen (Mehrfach-Leerzeichen dabei auf eines reduziert); der Netzwerktitel selbst wird bewusst nicht mit ausgegeben. Live verifiziert: Meldung für `01TestOrgPrgDb`/`lx_xx` lautet jetzt exakt wie vom User gewünscht `'01Org / NW6'` (vorher nur `'01Org'`), zweiter Treffer `01PrgDb`/`lx_30M1StopGap` entsprechend `'01Vis / NW5'`. `pytest` weiterhin 51/51 grün. Beispiel und Besonderheiten bei Prüfpunkt 25 entsprechend ergänzt. |
 | 0.50 | 24.07.2026 | Erweiterung bei Prüfpunkt 26 (User-Auftrag: "Funktioniert auch, aber ich brauch auch hier noch eine Erweiterung. Es gibt innerhalb von FBs und FCs sowohl Output-Tags als auch InputOutput-Tags. Bei denen müsste die gleiche Prüfung durchgeführt werden. Darf nur 1x beschrieben werden."): `OutputMehrfachBeschriebenCheck` prüfte bislang ausschließlich die Interface-Section `"Output"`. Fix: Zusätzlich wird die Section `"InOut"` (VAR_IN_OUT, bereits an anderer Stelle im Projekt als Sektionsname bestätigt, siehe `comments.py`/`structure.py`) gleichermaßen auf Mehrfach-Schreibzugriffe geprüft; die Meldung nennt die jeweilige Parameterart (`Output-Parameter '...'` bzw. `InOut-Parameter '...'`). Live gegen das Salzmaschine-Projekt vorher/nachher verglichen (`git stash`-Vergleich): 229 → 340 Befunde, die 111 neu hinzugekommenen sind durchgängig korrekt als `InOut-Parameter` beschriftet, die ursprünglichen 229 Output-Befunde blieben unverändert. `pytest` weiterhin 51/51 grün. Titel, "Was wird geprüft?" und Besonderheiten bei Prüfpunkt 26 entsprechend ergänzt; doppelte "Besonderheiten"-Überschrift (redaktionelles Überbleibsel aus einer früheren Version) im Zuge dessen zu einem Abschnitt zusammengeführt. |
+| 0.51 | 24.07.2026 | Neuer Parameter bei Prüfpunkt 30 und Prüfpunkt 34 (User-Auftrag im Anschluss an eine Erklärung des Unterschieds beider Prüfpunkte: "Kannst du sowohl bei PP30 als auch bei PP34 die Strings, die du in den Kommentaren suchst (schreibschutz, ...), so wie bei PP21 mit in die YAML-Datei als Parameter aufnehmen. Dann ist der Benutzer flexibler."): Beide Checks (`KnowHowSchutzCheck`, `SchreibschutzCheck`, `libraries.py`) hatten die gesuchten Dokumentationshinweise bislang fest im Code verdrahtet (`"know-how"`/`"knowhow"` bzw. `"schreibschutz"`/`"write-protect"`). Neuer Parameter `dokumentations_hinweise` bei beiden (Standardwerte identisch zu den bisherigen fest verdrahteten Texten) — Liste literaler Teiltexte, case-insensitiv, kein Regex (bewusst analog zu `ignorierte_meldungen` bei Prüfpunkt 21, siehe Version 0.47: Klammern/Sonderzeichen in einer eigenen Formulierung hätten als Regex sonst denselben Fallstrick). Beide YAML-Dateien ergänzt. `pytest` weiterhin 51/51 grün (Config-Ladetest bestätigt korrekte Standardwerte in beiden Dateien). Parameter-Tabelle und Besonderheiten bei Prüfpunkt 30/34 entsprechend ergänzt. |
