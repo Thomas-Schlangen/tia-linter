@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from tia_linter.checks._tia_helpers import (
@@ -80,12 +81,30 @@ class KompilierfehlerCheck(BaseCheck):
     ``ErrorCount``/``WarningCount`` (analog zu ``UpdateCheckResultMessage`` in
     ``libraries.py``) — Blattmeldungen mit ``ErrorCount > 0`` werden als
     Fehler eingestuft, alle übrigen als Warnung.
+
+    Neuer Parameter ``ignorierte_meldungen`` (Standard ``[]`` = deaktiviert,
+    User-Auftrag): Liste von Regex-Mustern, auf die der Meldungstext geprüft
+    wird (``re.search``, nicht ``re.match`` wie sonst bei Regex-Parametern
+    in diesem Projekt üblich — hier soll ein Muster irgendwo im oft langen,
+    freien Meldungstext treffen dürfen, nicht nur am Anfang). Ein Treffer
+    unterdrückt die Meldung vollständig, unabhängig von Baustein oder
+    Fehler-/Warnungsstatus. Gedacht für Compiler-Meldungen, die der Nutzer
+    bewusst als irrelevant einstuft (z. B. "since it is write-protected"/
+    "because it is not editable" bei schreibgeschützten Bausteinen aus
+    zugekauften Bibliotheken) — bei Unsicherheit gilt weiterhin: lieber den
+    Entwickler kontaktieren, statt eine Meldung hier pauschal zu
+    unterdrücken.
     """
 
     def run(self, project: Any) -> list[CheckResult]:
         from Siemens.Engineering.Compiler import ICompilable
 
         results: list[CheckResult] = []
+        ignored_patterns = [
+            re.compile(pattern, re.IGNORECASE)
+            for pattern in self.definition.params.get("ignorierte_meldungen", [])
+        ]
+
         for plc_software in iter_plc_software(project):
             try:
                 compile_service = plc_software.GetService[ICompilable]()
@@ -102,6 +121,8 @@ class KompilierfehlerCheck(BaseCheck):
 
             for message in _leaf_compiler_messages(getattr(compile_result, "Messages", [])):
                 description = str(getattr(message, "Description", "Compiler-Meldung"))
+                if any(pattern.search(description) for pattern in ignored_patterns):
+                    continue
                 error_count = int(getattr(message, "ErrorCount", 0) or 0)
                 status = CheckStatus.ERROR if error_count > 0 else CheckStatus.WARNING
                 path_hint = str(getattr(message, "Path", "") or "")

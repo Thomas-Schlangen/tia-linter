@@ -2826,3 +2826,49 @@ gefunden (`GetAttribute('Comment')` liefert `None`, korrekter Zugriff ist
 bevor er einem Nutzer beim Hinzufügen von `Comment` zu `felder` aufgefallen
 wäre. Beide YAML-Dateien und Handbuch entsprechend dokumentiert. pytest
 51/51 grün, noch nicht committet."
+
+## Runde 47 — Prüfpunkt 21: Parameter `ignorierte_meldungen` für dauerhaft irrelevante Compiler-Meldungen
+
+**Ausgangspunkt (User-Auftrag):** "Ich habe PP21 getestet und er scheint
+gut zu funktionieren. Aber ich würde gerne 2 Warnungen unterdrücken
+(dauerhaft). Und zwar tauchen für sehr viele schreibgeschützte Bausteine
+2 Warnungen auf: '...since it is write-protected' und '...because it is
+not editable'. Bitte dokumentiere in den YAML und definitiv im Handbuch,
+dass diese Warnungen unterdrückt werden, da sie für irrelevant empfunden
+werden. Sonst Kontaktaufnahme mit Entwickler."
+
+**Umsetzung:** Kein Bug, sondern ein reines Feature — `KompilierfehlerCheck`
+(`metadata.py`) bekommt einen neuen Parameter `ignorierte_meldungen`
+(Standard `[]`): eine Liste von Regex-Mustern, die über `re.search` gegen
+jede einzelne Compiler-Meldung geprüft werden; bei einem Treffer wird die
+Meldung vollständig übersprungen, unabhängig von Baustein und Fehler-/
+Warnungsstatus. Bewusst `re.search` statt des sonst in diesem Projekt für
+Regex-Parameter üblichen `re.match` (siehe z. B. `ausnahme_titel_regex`
+bei Prüfpunkt 10), weil ein Muster hier irgendwo im oft langen, frei
+formulierten Meldungstext treffen soll, nicht nur an dessen Anfang.
+
+**Verifiziert:** `pytest` weiterhin 51/51 grün. Auf einen vollständigen
+Live-Recompile des echten Salzmaschine-Projekts wurde verzichtet (der User
+hatte PP21 kurz zuvor bereits selbst erfolgreich live getestet, ein
+erneuter voller Übersetzungsvorgang wäre für eine reine Textfilter-Ergänzung
+unverhältnismäßig gewesen) — stattdessen die Regex-Logik isoliert gegen
+realistische Beispielmeldungen geprüft: beide Muster treffen zuverlässig
+(`"... cannot be changed since it is write-protected."`, `"... is not
+compiled because it is not editable."`), eine dritte, unbeteiligte
+Beispielmeldung bleibt unverändert erhalten.
+
+**Dokumentiert:** `config/default.yaml` mit leerer Standardliste plus den
+beiden Mustern als auskommentiertes Beispiel; `config/project_settings.yaml`
+mit beiden Mustern aktiv gesetzt (dauerhaft unterdrückt, vom Nutzer
+explizit als irrelevant eingestuft, mit Datum in der Konfiguration
+vermerkt). `docs/Handbuch.md` Version 0.46 (Parameter-Tabelle und
+Besonderheiten bei Prüfpunkt 21 ergänzt, Anhang-C-Eintrag). Noch nicht
+committet.
+
+Letzter Stand: "Neuer Parameter `ignorierte_meldungen` bei Prüfpunkt 21:
+Liste von Regex-Mustern (re.search) gegen den Compiler-Meldungstext, ein
+Treffer unterdrückt die Meldung dauerhaft. Auf Nutzerwunsch in
+`project_settings.yaml` mit den beiden konkret genannten Mustern
+('since it is write-protected', 'because it is not editable') aktiv
+gesetzt. Regex-Logik isoliert getestet statt vollem Live-Recompile. pytest
+51/51 grün, Handbuch aktualisiert, noch nicht committet."
