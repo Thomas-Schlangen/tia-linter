@@ -114,7 +114,7 @@ class ZertifikatCheck(BaseCheck):
 
         for plc_software, device_item, _device in iter_plc_targets(project):
             try:
-                from Siemens.Engineering.SW.Security import LocalCertificateManager
+                from Siemens.Engineering.Security import LocalCertificateManager
 
                 cert_manager = device_item.GetService[LocalCertificateManager]()
             except Exception:  # noqa: BLE001 — Service evtl. nicht verfügbar

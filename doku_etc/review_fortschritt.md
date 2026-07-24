@@ -2688,3 +2688,70 @@ Baugruppenträger, CPU, Busadapter (`PositionNumber == 127`) und
 Server-Modul (höchste verbleibende Positionsnummer) heraus. Live
 verifiziert (10 → 6 Module im Testprojekt, Rest korrekt herausgerechnet).
 pytest 51/51 grün, Handbuch aktualisiert, noch nicht committet."
+
+## Runde 45 — Einunddreißigster Bug: Prüfpunkt 18c fand nie ein Zertifikat (falscher Namespace)
+
+**Ausgangspunkt:** Direkter Anschluss an Runde 44, gleiches Testprojekt
+`S7T0159_V21_NoHW`. User tauschte dort die CPU gegen eine F-CPU
+(`CPU 1514SP F-2 PN`, `pn4805-15a1`) und testete zunächst Prüfpunkt 18b:
+"Ohne Passwortschutz. PP18b läuft allerdings ohne Warnung durch."
+
+**PP18b (Zwischenschritt, kein Bug):** Live geprüft — `device_item.
+GetAttribute("TypeName")` bestätigt echte F-CPU-Hardware, aber
+`GetAttribute("Failsafe_FCapabilityActivated")` liefert `False`. Laut
+V21-Openness-Referenz (Abschnitt 1.4.19.9.2) ist die "F-Fähigkeit" ein
+eigenes, separates Attribut am DeviceItem, unabhängig von der reinen
+CPU-Typauswahl — ohne dessen Aktivierung existiert aus Openness-Sicht noch
+kein aktives Sicherheitsprogramm, `GetService[SafetyAdministration]()`
+liefert deshalb korrekterweise `None`, und Prüfpunkt 18b überspringt die
+PLC zu Recht (kein Linter-Bug, sondern ein in TIA noch fehlender
+Konfigurationsschritt). User aktivierte daraufhin die F-Fähigkeit selbst
+in TIA Portal; PP18b funktionierte danach wie erwartet.
+
+**PP18c (echter Bug):** User direkt im Anschluss: "Es ist ein Zertifikat
+vorhanden, im TIA Portal Zertifikatemanager. Es wird auch im
+'Kommunikationsmodus...' verwendet. Aber trotzdem wird PP18c als Fehler
+markiert." (Zertifikat `pn4805-15a1/Communication-1`, ID 2.) Live-Probe
+des headless-Skripts scheiterte sofort mit `ModuleNotFoundError: No
+module named 'Siemens.Engineering.SW.Security'` — dieser Import steht
+exakt so (unkommentiert im `try`) in `ZertifikatCheck.run()` und wird dort
+von einer bewusst breiten `except Exception`-Klausel (gedacht für "Dienst
+evtl. nicht verfügbar/keine Lizenz") stillschweigend abgefangen. Root
+Cause per Reflection über die geladenen `Siemens.Engineering.*`-Assemblies
+gesucht (Typensuche nach `"CertificateManager"` über alle geladenen
+Assemblies blieb zunächst leer, da nur Base/Step7/WinCC/WinCCUnified
+geladen sind und der fehlerhafte Import nie erfolgreich war) — der
+Namensabgleich in `Siemens.Engineering.Base.xml` (mitgelieferte
+Typ-Dokumentation) zeigte den tatsächlichen Namespace:
+`Siemens.Engineering.Security.LocalCertificateManager`, ohne
+`SW`-Zwischenebene. Der Bug bestand seit Einbau des Prüfpunkts,
+unentdeckt, weil `cert_manager` dadurch **projektweit und unabhängig vom
+tatsächlichen Zertifikatsstatus immer `None`** war — jede PLC wurde
+unabhängig von der Realität als "kein Zertifikat vorhanden" (Fehler)
+gemeldet, auch mit einem echten, gültigen, aktiv genutzten Zertifikat wie
+hier.
+
+**Fix:** Import in `hardware.py` von `Siemens.Engineering.SW.Security` auf
+`Siemens.Engineering.Security` korrigiert (nur die eine Zeile betroffen,
+`Certificate.Id`/`.ValidUntil` sind laut derselben XML-Dokumentation
+bereits als direkte Properties vorhanden, keine weitere Anpassung nötig).
+
+**Verifiziert:** `pytest` weiterhin 51/51 grün. Live gegen
+`S7T0159_V21_NoHW` und zusätzlich zur Kontrolle gegen das
+Original-Salzmaschine-Projekt (`ZertifikatCheck` isoliert über
+`build_check_definitions()`/`config/project_settings.yaml` instanziiert,
+ohne vollen Lint-Lauf): beide liefern jetzt identisch 1 Befund
+`[OK] pn4805-15a1 > Zertifikate > 2: Zertifikat ist gültig (gültig bis
+2057-10-28)` — exakt das vom User genannte Zertifikat, korrekt gefunden.
+
+**Dokumentiert:** `docs/Handbuch.md` Version 0.44 (Besonderheiten bei
+Prüfpunkt 18c ergänzt, Anhang-C-Eintrag). Noch nicht committet.
+
+Letzter Stand: "Prüfpunkt 18c importierte `LocalCertificateManager` aus
+dem falschen Namespace (`Siemens.Engineering.SW.Security` statt
+`Siemens.Engineering.Security`) — der ImportError wurde von der breiten
+Fehlerbehandlung stillschweigend verschluckt, wodurch jede PLC unabhängig
+vom echten Zertifikatsstatus immer als 'kein Zertifikat vorhanden'
+gemeldet wurde. Ein-Zeilen-Fix, live an einem echten vorhandenen
+Zertifikat verifiziert (Status jetzt korrekt OK statt Fehler). pytest
+51/51 grün, Handbuch aktualisiert, noch nicht committet."
