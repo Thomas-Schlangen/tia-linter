@@ -62,6 +62,56 @@ def iter_devices_with_items(project: Any) -> Iterator[tuple[Any, Any]]:
             yield device, device_item
 
 
+_ET200SP_BUS_ADAPTER_POSITION = 127
+
+
+def count_additional_hardware_modules(device: Any) -> int:
+    """Zählt die zusätzlich zur CPU konfigurierten Hardware-Module eines
+    ``Device`` (für Prüfpunkt 17, ``hardware.hardware_vorhanden``).
+
+    ``device.DeviceItems`` enthält daneben immer strukturelle Elemente, die
+    TIA selbst anlegt und die kein echtes I/O-Modul darstellen: den
+    Baugruppenträger (``Rack_0``) sowie — bei ET200SP-Stationen — genau ein
+    Busadapter/Schnittstellenmodul (belegt konstant Positionsnummer 127,
+    unabhängig vom konkreten Adaptertyp) und genau ein
+    Server-/Abschlussmodul (belegt immer die höchste "normale" Positionsnummer,
+    da es physisch das letzte Modul im Baugruppenträger sein muss). Ohne
+    Herausrechnen dieser drei Elementarten kann ``module_count`` bei einer
+    ET200SP-Station selbst ganz ohne zusätzliche I/O-Module nie unter 2-3
+    fallen — Prüfpunkt 17 hätte dadurch nie anschlagen können (live
+    verifiziert an einem eigens angelegten CPU-only-Testprojekt ohne jede
+    I/O-Hardware, siehe review_fortschritt.md Runde 44)."""
+    from Siemens.Engineering.HW.Features import SoftwareContainer
+    from Siemens.Engineering.SW import PlcSoftware
+
+    is_et200sp = False
+    candidates: list[tuple[int, Any]] = []
+    for index, device_item in enumerate(device.DeviceItems):
+        type_identifier = str(get_attribute(device_item, "TypeIdentifier", "") or "")
+        if type_identifier.startswith("System:Rack"):
+            if "ET200SP" in type_identifier:
+                is_et200sp = True
+            continue
+
+        container = device_item.GetService[SoftwareContainer]()
+        if container is not None and isinstance(container.Software, PlcSoftware):
+            continue  # CPU selbst
+
+        position = get_attribute(device_item, "PositionNumber", None)
+        if position == _ET200SP_BUS_ADAPTER_POSITION:
+            continue  # Busadapter/Schnittstellenmodul: fester ET200SP-Sonderslot
+
+        candidates.append((position if isinstance(position, int) else index, device_item))
+
+    if is_et200sp and candidates:
+        # Höchste "normale" Positionsnummer ist bei ET200SP immer das
+        # zwingende Server-/Abschlussmodul, kein optionales I/O-Modul.
+        candidates.sort(key=lambda item: item[0])
+        candidates.pop()
+
+    return len(candidates)
+
+
 def _normalize_excluded(excluded_folders: Iterable[str]) -> frozenset[str]:
     """Normalisiert Ordnernamen für den Vergleich ohne Berücksichtigung von
     Groß-/Kleinschreibung (siehe ``ausgeschlossene_ordner`` in der Config)."""

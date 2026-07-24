@@ -2613,3 +2613,78 @@ zählt jetzt stattdessen die Code-Zeilen eines SCL-Netzwerks anhand seiner
 `<NewLine>`-XML-Elemente. Beide YAML-Dateien ergänzt. Live verifiziert:
 0 → 119 Befunde, größtenteils in der Siemens-Standardbibliothek LGF.
 pytest 51/51 grün, Handbuch aktualisiert, noch nicht committet."
+
+## Runde 44 — Dreißigster Bug: Prüfpunkt 17 konnte bei ET200SP-Stationen nie anschlagen
+
+**Ausgangspunkt (User-Meldung):** "PP17 steht an und funktioniert leider
+nicht. Ich hab ein weiteres TIA Projekt angelegt, nur mit CPU ohne weitere
+Hardware. Es liegt im übergeordneten Ordner unter Salzmaschine ->
+S7T0159_V21_NoHW. Bitte schau dir mal an warum PP17 hier trotz fehlender
+Hardware ohne Probleme durchläuft."
+
+**Untersuchung:** Headless gegen `S7T0159_V21_NoHW` verbunden (analog zum
+etablierten Live-Verify-Vorgehen, hier direkt zur Fehlersuche statt nur
+zur Nachprüfung). `project.Devices` liefert genau 1 Gerät (`ET 200SP
+station_1`), `device.DeviceItems` liefert **10** Einträge: `Rack_0`, CPU
+`pn4805-15a1`, 6 echte I/O-Module (DI/DQ/AI), `Server module_1` und
+`BA 2xRJ45` (Busadapter). Der bisherige Check
+(`module_count = len(list(device.DeviceItems)); if module_count <= 1`)
+ging implizit davon aus, dass ein Gerät ganz ohne Zusatzhardware genau 1
+`DeviceItem` liefert (nur die CPU) — das stimmt nur für kompakte
+CPU-Familien ohne eigenen Baugruppenträger-Eintrag (z. B. S7-1200). Bei
+ET200SP-Stationen (wie in Salzmaschine durchgängig verwendet) legt TIA
+zusätzlich zur CPU immer mindestens `Rack_0`, einen Busadapter und ein
+Server-/Abschlussmodul als eigene `DeviceItems` an — physisch zwingend,
+nicht vom User entfernbar. Damit kann `module_count` bei dieser
+Stationsart nie unter 2–4 fallen, selbst bei einer PLC komplett ohne
+I/O-Hardware — Prüfpunkt 17 hätte in der Praxis (ausschließlich
+ET200SP-Projekte) **nie** anschlagen können. Bug bestand seit Einbau in
+Runde 8 (17.07.2026), unentdeckt, weil dort nur der Positivfall ("Projekt
+hat Hardware") verifiziert wurde, nie der Negativfall.
+
+Attribut-Sondierung (`GetAttribute` auf jedem `DeviceItem`) fand mit
+`PositionNumber` einen robusten, katalogunabhängigen Unterscheidungswert:
+Rack=0, CPU=1, echte I/O-Module fortlaufend 2..N, Server-/Abschlussmodul
+immer die höchste "normale" Positionsnummer (physisch zwingend als
+letztes Modul im Baugruppenträger), Busadapter immer fest auf 127
+(ET200SP-Sonderslot für Schnittstellenmodule, unabhängig vom konkreten
+Adaptertyp/Bestellnummer). `Classification` erwies sich dagegen als
+Sackgasse — nur die CPU trägt dort ein Flag (`CPU`), echte I/O-Module,
+Server-Modul und Busadapter zeigen alle gleichermaßen `None`.
+
+**Fix:** Neue Hilfsfunktion `count_additional_hardware_modules()`
+(`_tia_helpers.py`) rechnet Baugruppenträger (`TypeIdentifier` beginnt mit
+`"System:Rack"`), die CPU selbst (per `SoftwareContainer`/`PlcSoftware`-
+Prüfung, identisch zu `iter_plc_targets()`) sowie bei ET200SP
+(`"ET200SP"` im Rack-`TypeIdentifier`) den Busadapter
+(`PositionNumber == 127`) und das Server-/Abschlussmodul (höchste
+verbleibende Positionsnummer) heraus. `HardwareVorhandenCheck.run()`
+nutzt jetzt `count_additional_hardware_modules(device) == 0` statt des
+alten `len(list(device.DeviceItems)) <= 1`.
+
+**Verifiziert:** `pytest` weiterhin 51/51 grün. Live-Vergleich
+`S7T0159_V21_NoHW` gegen das Original-Salzmaschine-Projekt: Modulzahl
+korrekt von 10 auf 6 reduziert (nur die 6 echten I/O-Module verbleiben,
+Rack/Busadapter/Server-Modul zuverlässig herausgerechnet) — in beiden
+Projekten identisch 6, da sich herausstellte, dass `S7T0159_V21_NoHW`
+tatsächlich noch dieselben 6 I/O-Module wie das Original enthielt (vom
+User nach Rückfrage bestätigt: "mein Fehler", kein Linter-Bug). Die
+Korrektheit der neuen Zählfunktion selbst (10 → 6, exakt um die 4
+Strukturelemente reduziert) ist damit live bestätigt; der volle
+Negativfall (`module_count == 0` bei echter Nackt-CPU) ließ sich mangels
+eines tatsächlich hardwarelosen Testprojekts nicht zusätzlich live
+auslösen, ergibt sich aber zwingend aus derselben Zählweise.
+
+**Dokumentiert:** `docs/Handbuch.md` Version 0.43 (Besonderheiten bei
+Prüfpunkt 17 ergänzt, Anhang-C-Eintrag). Noch nicht committet.
+
+Letzter Stand: "Prüfpunkt 17 verglich schlicht die Gesamtzahl an
+`DeviceItems` gegen den Schwellenwert 1 — bei ET200SP-Stationen (Rack +
+Busadapter + Server-Modul sind dort immer zusätzlich zur CPU vorhanden)
+konnte dieser Schwellenwert dadurch nie unterschritten werden, der Check
+war für den in Salzmaschine verwendeten Stationstyp faktisch wirkungslos.
+Neue Hilfsfunktion `count_additional_hardware_modules()` rechnet
+Baugruppenträger, CPU, Busadapter (`PositionNumber == 127`) und
+Server-Modul (höchste verbleibende Positionsnummer) heraus. Live
+verifiziert (10 → 6 Module im Testprojekt, Rest korrekt herausgerechnet).
+pytest 51/51 grün, Handbuch aktualisiert, noch nicht committet."

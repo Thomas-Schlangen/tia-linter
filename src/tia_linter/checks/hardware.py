@@ -5,7 +5,12 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Any
 
-from tia_linter.checks._tia_helpers import format_path, get_attribute, iter_plc_targets
+from tia_linter.checks._tia_helpers import (
+    count_additional_hardware_modules,
+    format_path,
+    get_attribute,
+    iter_plc_targets,
+)
 from tia_linter.checks.base import BaseCheck
 from tia_linter.models import CheckResult, CheckStatus
 
@@ -20,14 +25,18 @@ class HardwareVorhandenCheck(BaseCheck):
     überprüfbarer Näherungswert wird stattdessen geprüft, ob die PLC
     überhaupt zusätzliche Hardware-Module (über die CPU hinaus) besitzt —
     eine PLC ganz ohne konfigurierte E/A-Module bei vorhandenen I/O-Tags im
-    Programm ist in jedem Fall auffällig.
+    Programm ist in jedem Fall auffällig. ``device.DeviceItems`` enthält
+    daneben immer strukturelle, von TIA selbst angelegte Elemente
+    (Baugruppenträger, bei ET200SP zusätzlich Busadapter und
+    Server-/Abschlussmodul) — ``count_additional_hardware_modules()``
+    rechnet diese heraus, siehe dort für Details.
     """
 
     def run(self, project: Any) -> list[CheckResult]:
         results: list[CheckResult] = []
         for plc_software, device_item, device in iter_plc_targets(project):
-            module_count = len(list(device.DeviceItems))
-            if module_count <= 1:
+            module_count = count_additional_hardware_modules(device)
+            if module_count == 0:
                 results.append(
                     self._make_result(
                         path=format_path(plc_software.Name, "Hardwarekonfiguration"),
