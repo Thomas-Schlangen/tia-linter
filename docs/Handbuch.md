@@ -1,12 +1,12 @@
 # TIA Linter — Benutzerhandbuch
 
-**Version dieses Handbuchs:** 0.47 (Entwurf)
+**Version dieses Handbuchs:** 0.48 (Entwurf)
 **Stand:** 23.07.2026
 **Programmversion:** 0.1.0
 
 > **Hinweis zum Bearbeitungsstand:** Dieses Handbuch ist inhaltlich
 > vollständig — alle Kapitel 1–9 (grundsätzliche Funktion und Bedienung der
-> Oberfläche) sowie Kapitel 10 mit allen 35 Prüfpunkten (siehe
+> Oberfläche) sowie Kapitel 10 mit allen 34 Prüfpunkten (siehe
 > [Übersichtstabelle am Anfang von Kapitel 10](#10-die-prüfpunkte-im-detail))
 > sind ausgearbeitet. Es trägt weiterhin die Kennzeichnung "Entwurf", bis
 > eine erste vollständige Durchsicht stattgefunden hat.
@@ -61,7 +61,7 @@ Der Aufbau folgt bewusst vom Allgemeinen zum Speziellen:
 - Die **Kapitel 1–9** erklären, was das Programm tut, wie es aufgebaut ist
   und wie man es bedient — unabhängig davon, welche einzelnen Prüfpunkte
   gerade aktiv sind.
-- **Kapitel 10** enthält für jeden einzelnen der 35 Prüfpunkte eine eigene,
+- **Kapitel 10** enthält für jeden einzelnen der 34 Prüfpunkte eine eigene,
   ausführliche Beschreibung (was genau geprüft wird, warum das wichtig ist,
   und wie ein Befund behoben wird).
 
@@ -618,9 +618,9 @@ Dieses Kapitel wird schrittweise ausgebaut. Der aktuelle Bearbeitungsstand:
 | [10.2](#102-namenskonventionen-prüfpunkte-5-9) | Namenskonventionen | 5–9 | ausgearbeitet |
 | [10.3](#103-programmstruktur-prüfpunkte-10-16) | Programmstruktur | 10–16 | ausgearbeitet |
 | [10.4](#104-hardware-konfiguration-prüfpunkte-17-18c) | Hardware & Konfiguration | 17–18c | ausgearbeitet |
-| [10.5](#105-projektmetadaten-prüfpunkte-19-22) | Projektmetadaten | 19–22 | ausgearbeitet |
-| [10.6](#106-bibliotheken-typen-prüfpunkte-23-24) | Bibliotheken & Typen | 23–24 | ausgearbeitet |
-| [10.7](#107-siemens-styleguide-best-practices-prüfpunkte-25-35) | Siemens Styleguide & Best Practices | 25–35 | ausgearbeitet |
+| [10.5](#105-projektmetadaten-prüfpunkte-19-21) | Projektmetadaten | 19–21 | ausgearbeitet |
+| [10.6](#106-bibliotheken-typen-prüfpunkte-22-23) | Bibliotheken & Typen | 22–23 | ausgearbeitet |
+| [10.7](#107-siemens-styleguide-best-practices-prüfpunkte-24-34) | Siemens Styleguide & Best Practices | 24–34 | ausgearbeitet |
 
 ### 10.1 Kommentare & Beschreibungen (Prüfpunkte 1-4)
 
@@ -755,7 +755,7 @@ PLC_1 > PLC-Datentypen > U_Motor > Member > Drehzahl
 
 **Besonderheiten**
 
-- War in der ursprünglichen Liste der 35 Prüfpunkte kein eigener Punkt —
+- War in der ursprünglichen Liste der 34 Prüfpunkte kein eigener Punkt —
   ergänzt Prüfpunkt 1 um eine Lücke, die erst durch dessen eigene
   UDT-Sonderbehandlung entstanden ist (siehe dort).
 - Ist ein Item selbst wieder vom Typ eines (anderen oder desselben) UDT,
@@ -819,7 +819,7 @@ PLC_1 > Programmbausteine > FB_Motor > Member > Drehzahl
 
 **Besonderheiten**
 
-- War in der ursprünglichen Liste der 35 Prüfpunkte kein eigener Punkt —
+- War in der ursprünglichen Liste der 34 Prüfpunkte kein eigener Punkt —
   ergänzt Prüfpunkt 1 um eine Lücke, die erst durch dessen eigene
   Multi-Instanz-Sonderbehandlung entstanden ist (siehe dort).
 - Technischer Sonderfall: Anders als bei Datenbausteinen und
@@ -1354,7 +1354,7 @@ wird geprüft, ob eine Verwendung vorliegt. Für FB/FC/OB zählt dabei
 Zugriff von außen (z. B. eine andere Stelle im Programm, die direkt auf
 `"Instanz".Member` zugreift) macht ein Member hier nicht "benutzt"; solche
 externen Zugriffe sind ohnehin unerwünscht und werden separat von
-[Prüfpunkt 26](#prüfpunkt-26--direkter-zugriff-auf-static-tags-von-außen)
+[Prüfpunkt 25](#prüfpunkt-25--direkter-zugriff-auf-static-tags-von-außen)
 gemeldet.
 
 **Warum ist das wichtig?**
@@ -1464,7 +1464,7 @@ PLC_1 > Programmbausteine > FB_Reserve_Alt
   Aufruf) herausgefiltert — sonst würde jede Instanz-DB fälschlich als
   "benutzt" gelten, selbst wenn ihre FB nie aufgerufen wird, ein einzelnes
   Member der Instanz-DB von außen aber doch zugegriffen wird (was ohnehin
-  unerwünscht ist und separat von [Prüfpunkt 26](#prüfpunkt-26--direkter-zugriff-auf-static-tags-von-außen)
+  unerwünscht ist und separat von [Prüfpunkt 25](#prüfpunkt-25--direkter-zugriff-auf-static-tags-von-außen)
   gemeldet wird).
 - **Global- und Array-Datenbausteine** werden dagegen anhand ihrer Member
   geprüft (wie bei [Prüfpunkt 11](#prüfpunkt-11--unbenutzte-variablen-dead-code)):
@@ -1978,7 +1978,7 @@ Zertifikat einspielen bzw. rechtzeitig vor Ablauf erneuern.
 
 ---
 
-### 10.5 Projektmetadaten (Prüfpunkte 19-22)
+### 10.5 Projektmetadaten (Prüfpunkte 19-21)
 
 Diese Kategorie prüft die "Rahmendaten" eines Projekts — alles, was nicht
 in einzelnen Bausteinen steht, sondern das Projekt als Ganzes betrifft:
@@ -2175,46 +2175,9 @@ PLC_1 > Compiler-Meldung > FB_Motor\Netzwerk 3
 **Empfehlung zur Behebung**
 Compiler-Meldung beheben und Baustein neu übersetzen.
 
-#### Prüfpunkt 22 — Projektversion vorhanden
-
-| | |
-|---|---|
-| **Kategorie** | Projektmetadaten |
-| **Standard-Schweregrad** | Warnung |
-| **Config-Schlüssel** | `checks.projektmetadaten.projektversion` |
-
-**Was wird geprüft?**
-Es wird geprüft, ob für das Projekt insgesamt eine Versionsnummer
-hinterlegt ist. Fehlt sie, wird ein Befund erzeugt.
-
-**Warum ist das wichtig?**
-Eine Projektversion ermöglicht es, verschiedene Bearbeitungsstände eindeutig
-zu unterscheiden — etwa bei der Übergabe an einen Kunden oder beim
-Vergleich mit einer älteren Sicherungskopie.
-
-**Parameter**
-Dieser Prüfpunkt hat keine konfigurierbaren Parameter.
-
-**Beispiel**
-
-```
-Projekt > Eigenschaften > Version
-→ Projekt hat keine Versionsnummer hinterlegt.
-```
-
-**Besonderheiten**
-
-- Dieser Prüfpunkt betrifft die Versionsnummer des **Gesamtprojekts**
-  (Projekteigenschaft "Version") — nicht zu verwechseln mit der
-  Versionsangabe im Kopf einzelner Bausteine aus
-  [Prüfpunkt 4](#prüfpunkt-4-bausteinköpfe-ohne-änderungshistorie).
-
-**Empfehlung zur Behebung**
-Versionsnummer (z. B. 1.2.3) in den Projekteigenschaften vergeben.
-
 ---
 
-### 10.6 Bibliotheken & Typen (Prüfpunkte 23-24)
+### 10.6 Bibliotheken & Typen (Prüfpunkte 22-23)
 
 Diese Kategorie prüft den Umgang mit Bibliotheken und wiederverwendeten
 Typinstanzen: Sind eingesetzte Bibliotheksbausteine noch auf dem aktuellen
@@ -2223,7 +2186,7 @@ Funktionsbaustein nicht mehr existiert?
 
 ![Beispiel aus TIA Portal: die Aktualitätsprüfung der Projektbibliothek mit einer als veraltet markierten Typinstanz](images/beispiel-bibliotheken-tia-portal.png)
 
-#### Prüfpunkt 23 — Bibliotheksbausteine auf aktuellem Stand
+#### Prüfpunkt 22 — Bibliotheksbausteine auf aktuellem Stand
 
 | | |
 |---|---|
@@ -2266,7 +2229,7 @@ Projektbibliothek
 Bibliothekstyp in der Projektbibliothek aktualisieren und betroffene
 Instanzen neu generieren.
 
-#### Prüfpunkt 24 — Instanz-DBs ohne zugehörigen FB
+#### Prüfpunkt 23 — Instanz-DBs ohne zugehörigen FB
 
 | | |
 |---|---|
@@ -2303,7 +2266,7 @@ Verwaisten Instanz-DB entfernen oder den zugehörigen FB wiederherstellen.
 
 ---
 
-### 10.7 Siemens Styleguide & Best Practices (Prüfpunkte 25-35)
+### 10.7 Siemens Styleguide & Best Practices (Prüfpunkte 24-34)
 
 Diese letzte und umfangreichste Kategorie fasst Empfehlungen aus dem
 Siemens Standardisierungsleitfaden sowie allgemein anerkannte
@@ -2313,7 +2276,7 @@ Vermeidung unnötiger Instanz-Datenbausteine bis zur Projektorganisation.
 
 ![Beispiel aus TIA Portal: der Organisationsbaustein OB1 mit auffällig vielen Netzwerken, die eigene Logik statt reiner Bausteinaufrufe enthalten](images/beispiel-styleguide-tia-portal.png)
 
-#### Prüfpunkt 25 — Sprachen konsistent
+#### Prüfpunkt 24 — Sprachen konsistent
 
 | | |
 |---|---|
@@ -2356,7 +2319,7 @@ Projekt > Eigenschaften > Sprache
 Kommentare und Netzwerktitel einheitlich in der Projektsprache verfassen
 bzw. die Referenzsprache im Projekt korrigieren.
 
-#### Prüfpunkt 26 — Direkter Zugriff auf Static-Tags von außen
+#### Prüfpunkt 25 — Direkter Zugriff auf Static-Tags von außen
 
 | | |
 |---|---|
@@ -2404,7 +2367,7 @@ PLC_1 > Datenbaustein > DB_Ventil_Instanz > Member > InternerZaehler
 Zugriff über Ein-/Ausgangsparameter des FB kapseln, statt direkt auf den
 Instanz-DB zuzugreifen.
 
-#### Prüfpunkt 27 — Output-Tag pro Zyklus nur einmal beschrieben
+#### Prüfpunkt 26 — Output-Tag pro Zyklus nur einmal beschrieben
 
 | | |
 |---|---|
@@ -2453,7 +2416,7 @@ PLC_1 > Programmbausteine > FB_Regler > Fehlercode
 Schreibzugriffe auf den Output-Parameter auf eine Stelle im Baustein
 konsolidieren.
 
-#### Prüfpunkt 28 — Multi-Instanzen statt Einzel-Instanzen
+#### Prüfpunkt 27 — Multi-Instanzen statt Einzel-Instanzen
 
 | | |
 |---|---|
@@ -2500,7 +2463,7 @@ PLC_1 > Datenbaustein > TON_Instanz_3
 **Empfehlung zur Behebung**
 Aufruf auf Multi-Instanz umstellen (spart Bausteine und Datenbausteine).
 
-#### Prüfpunkt 29 — UDT für wiederkehrende Strukturen
+#### Prüfpunkt 28 — UDT für wiederkehrende Strukturen
 
 | | |
 |---|---|
@@ -2543,7 +2506,7 @@ PLC_1 > Datenbaustein > DB_Rezept_A
 Wiederkehrende Struktur als PLC-Datentyp (UDT) anlegen und in den
 betroffenen Datenbausteinen referenzieren.
 
-#### Prüfpunkt 30 — OB1 (Main) Komplexität
+#### Prüfpunkt 29 — OB1 (Main) Komplexität
 
 | | |
 |---|---|
@@ -2588,7 +2551,7 @@ PLC_1 > Programmbausteine > Main [OB1]
 Logik aus OB1 in eigene Bausteine auslagern — OB1 sollte primär Bausteine
 aufrufen.
 
-#### Prüfpunkt 31 — Know-How-Schutz dokumentiert
+#### Prüfpunkt 30 — Know-How-Schutz dokumentiert
 
 | | |
 |---|---|
@@ -2630,7 +2593,7 @@ PLC_1 > Programmbausteine > FB_Rezeptalgorithmus
 Know-how-Schutz im Bausteinkopf bzw. in der Projektdokumentation
 vermerken.
 
-#### Prüfpunkt 32 — Tag-Tabellen nur I/O-Tags
+#### Prüfpunkt 31 — Tag-Tabellen nur I/O-Tags
 
 | | |
 |---|---|
@@ -2668,7 +2631,7 @@ PLC_1 > Variablentabellen > Tags_Allgemein
 **Empfehlung zur Behebung**
 Nicht-I/O-Tags (z. B. Merker) in eine eigene Tag-Tabelle verschieben.
 
-#### Prüfpunkt 33 — Nicht-optimierte Bausteine
+#### Prüfpunkt 32 — Nicht-optimierte Bausteine
 
 | | |
 |---|---|
@@ -2710,7 +2673,7 @@ PLC_1 > Programmbausteine > DB_Altsystem
 Bausteinzugriff auf "Optimiert" umstellen, sofern kein technischer Grund
 dagegenspricht.
 
-#### Prüfpunkt 34 — Bausteine im Root ohne Ordnerstruktur
+#### Prüfpunkt 33 — Bausteine im Root ohne Ordnerstruktur
 
 | | |
 |---|---|
@@ -2747,7 +2710,7 @@ PLC_1 > Programmbausteine
 **Empfehlung zur Behebung**
 Bausteine in thematische Unterordner/Gruppen einsortieren.
 
-#### Prüfpunkt 35 — Schreibschutz von Bausteinen
+#### Prüfpunkt 34 — Schreibschutz von Bausteinen
 
 | | |
 |---|---|
@@ -2762,7 +2725,7 @@ Kopfbeschreibung einen entsprechenden Hinweis enthält (die Begriffe
 Befund erzeugt.
 
 **Warum ist das wichtig?**
-Analog zu [Prüfpunkt 31](#prüfpunkt-31-know-how-schutz-dokumentiert) lässt
+Analog zu [Prüfpunkt 30](#prüfpunkt-30-know-how-schutz-dokumentiert) lässt
 sich ein schreibgeschützter Baustein zwar weiterhin einsehen, aber nicht
 mehr verändern. Ohne Dokumentationshinweis ist nicht sofort erkennbar,
 dass Änderungsversuche am Baustein absichtlich blockiert sind, was bei
@@ -2790,14 +2753,16 @@ Schreibschutz im Bausteinkopf bzw. in der Projektdokumentation vermerken.
 
 ---
 
-> **Kapitel 10 ist damit vollständig:** Alle 35 ursprünglichen Prüfpunkte
+> **Kapitel 10 ist damit vollständig:** Alle 34 aktuellen Prüfpunkte
 > (inkl. der Unterpunkte 11b, 18b und 18c) sind ausgearbeitet — ergänzt um
 > Prüfpunkt 1b (UDT ohne Kommentar), Prüfpunkt 1c (FB-Interface-Member ohne
 > Kommentar) und Prüfpunkt 12b (Eingänge dürfen nicht beschrieben werden),
-> die alle drei nachträglich als sinnvolle Ergänzung hinzugekommen sind
-> (siehe Änderungshistorie in Anhang C). Rückmeldungen und Korrekturen sind
-> jederzeit willkommen — dieses Handbuch bleibt bis zu einer ersten
-> Durchsicht als Entwurf gekennzeichnet (siehe Kopf des Dokuments).
+> die alle drei nachträglich als sinnvolle Ergänzung hinzugekommen sind, sowie
+> um den ursprünglichen Prüfpunkt 22 (Projektversion) bereinigt, der sich als
+> redundant zu Prüfpunkt 19 herausstellte (siehe Änderungshistorie in
+> Anhang C). Rückmeldungen und Korrekturen sind jederzeit willkommen —
+> dieses Handbuch bleibt bis zu einer ersten Durchsicht als Entwurf
+> gekennzeichnet (siehe Kopf des Dokuments).
 
 ---
 
@@ -2961,3 +2926,4 @@ zu der Übersicht, die bereits am Anfang der Markdown-Datei steht.
 | 0.45 | 24.07.2026 | Neues Feature bei Prüfpunkt 19 (User-Wunsch: "ich würde bei PP19 gerne noch mehr Felder prüfen. Mein TIA ist auf Deutsch, d. h. meine Namen in den Eigenschaften stimmen nicht mit den Strings überein"): Vollständige Liste aller von der Openness-API als Top-Level-Projektattribute gelieferten Felder ermittelt — live per `project.GetAttributeInfos()` gegen ein echtes Projekt (12 Attribute) sowie per Namensabgleich mit der deutschen V21-Referenz (Manual 03/2026, Abschnitt "Projektbezogene Attribute lesen"). Dabei zusätzlichen, bislang unbemerkten Bug gefunden: `Comment` (Kommentar des Projekts) wird nicht als `System.String` geliefert, sondern als mehrsprachiges `Siemens.Engineering.MultilingualText`-Objekt — dieselbe Fallstrick-Klasse wie beim mehrfach behobenen `Comment`-Attribut auf Baustein-/Tag-Ebene (siehe u. a. Runde 13/14/15), hier aber am Projekt-Objekt selbst und bislang nie aufgefallen, weil `Comment` bisher nicht Teil der Standard-`felder`-Liste war. `GetAttribute("Comment")` liefert dafür sogar direkt `None` statt des Objekts — ein generischer `str(get_attribute(...))`-Zugriff (wie ihn `PflichtfelderCheck` bislang einheitlich für alle Felder verwendete) hätte `Comment` dadurch **immer** als leer gemeldet, unabhängig vom tatsächlichen Inhalt, sobald ein Nutzer es zu `felder` hinzugefügt hätte. Fix: `PflichtfelderCheck` behandelt `Comment` jetzt als Sonderfall und liest es über die bereits bestehenden Hilfsfunktionen `read_comment()`/`reference_language()` (dieselbe Infrastruktur, die den ursprünglichen Comment-Bug an anderer Stelle bereits gelöst hat) — bei der Konfiguration selbst ist keine Sonderbehandlung nötig, `Comment` wird wie jedes andere Feld einfach in `felder` eingetragen. Live gegen `S7T0159_V21_NoHW` verifiziert: mit `felder: ["Author", "Comment", "Copyright", "Family", "Version"]` liefert der Check 3 Befunde (`Comment`, `Copyright`, `Family` leer — `Author`="Mukara", `Version`="Ende Dev TBE" korrekt erkannt als gefüllt), keine Exception beim `Comment`-Zugriff. `project_settings.yaml` auf Wunsch direkt um die drei neuen Felder erweitert (`felder: ["Author", "Version", "Comment", "Copyright", "Family"]`); `default.yaml` unverändert bei den bisherigen zwei Standardfeldern, aber beide Dateien um die vollständige Feldliste als Kommentar ergänzt. `pytest` weiterhin 51/51 grün. Parameter-Tabelle und Besonderheiten bei Prüfpunkt 19 um die vollständige Attributtabelle (inkl. Eignung als Pflichtfeld) und den Comment-Sonderfall ergänzt. |
 | 0.46 | 24.07.2026 | Neuer Parameter bei Prüfpunkt 21 (User-Auftrag: "ich habe PP21 getestet und er scheint gut zu funktionieren. Aber ich würde gerne 2 Warnungen unterdrücken (dauerhaft). Und zwar tauchen für sehr viele schreibgeschützte Bausteine 2 Warnungen auf: '...since it is write-protected' und '...because it is not editable'. Bitte dokumentiere in den YAML und definitiv im Handbuch, dass diese Warnungen unterdrückt werden, da sie für irrelevant empfunden werden. Sonst Kontaktaufnahme mit Entwickler."): Neuer Parameter `ignorierte_meldungen` (Standard `[]`) — Liste von Regex-Mustern, die per `re.search` (bewusst nicht `re.match` wie sonst bei Regex-Parametern in diesem Projekt üblich, da ein Muster irgendwo im oft langen freien Compiler-Meldungstext treffen darf, nicht nur an dessen Anfang) gegen jede Compiler-Meldung geprüft werden; ein Treffer unterdrückt die Meldung vollständig. Regex-Filterlogik isoliert gegen Beispieltexte getestet (kein Live-Recompile nötig, da der Nutzer PP21 bereits selbst erfolgreich gegen das echte Projekt getestet hatte): beide Muster treffen zuverlässig auf realistische Beispielmeldungen, unbeteiligte Meldungen bleiben unverändert. Beide YAML-Dateien ergänzt: `default.yaml` mit leerer Liste plus den beiden Mustern als auskommentiertes Beispiel, `project_settings.yaml` mit beiden Mustern aktiv gesetzt (dauerhaft unterdrückt, laut Nutzer als irrelevant eingestuft). `pytest` weiterhin 51/51 grün. Parameter-Tabelle und Besonderheiten bei Prüfpunkt 21 entsprechend ergänzt. |
 | 0.47 | 24.07.2026 | Zweiunddreißigster Bug behoben, direkt im Anschluss an Version 0.46 gefunden (User-Meldung: "kannst du checken warum meine 2 Parameter in PP21 nicht greifen?", mit den beiden vollständigen, live aus TIA kopierten Meldungstexten). Live-Recompile des Testprojekts `S7T0159_V21_NoHW` bestätigte zunächst, dass die in `project_settings.yaml` hinterlegten Muster Zeichen für Zeichen exakt mit den echten Compiler-Meldungen übereinstimmen (per `repr()`-Vergleich verifiziert) — der Fehler lag also nicht an falsch abgetippten Mustern. Ursache stattdessen im Regex-Mechanismus selbst: Beide (und, wie sich zeigte, auch das schon vorher aktive dritte Muster `"Compiling finished (errors: 0; warnings: 0)"`) enthalten literale, unescapte Klammern — als Regex sind `(`/`)` aber Gruppierungs-Metazeichen, keine literalen Zeichen. Isoliert nachgewiesen: Selbst ein Muster gegen den exakt eigenen Wortlaut als Suchtext (`re.search(muster, muster)`) liefert `False`, sobald eine echte Klammer enthalten ist — der Abgleich schlägt komplett stillschweigend fehl, ohne Fehlermeldung, unabhängig davon, wie exakt der Meldungstext übernommen wurde. Sowohl `default.yaml` als auch `project_settings.yaml` waren betroffen, da beide dieselbe Regex-Semantik dokumentierten. Fix: `ignorierte_meldungen` von Regex-Matching (`re.search`) auf reinen, case-insensitiven Teiltext-Abgleich (`text.casefold() in description.casefold()`) umgestellt — der praktische Anwendungsfall (eine konkrete, bekannte Meldung dauerhaft unterdrücken) braucht ohnehin nie Wildcards, reiner Teiltext ist hier robuster als Regex. `re`-Import in `metadata.py` entsprechend entfernt (nicht mehr benötigt). Live erneut mit allen 5 hinterlegten Mustern gegen die beiden problematischen Meldungen sowie drei weitere Beispielmeldungen getestet: alle 5 Muster treffen jetzt zuverlässig, eine unbeteiligte Beispielmeldung bleibt unverändert erhalten. `pytest` weiterhin 51/51 grün. Beide YAML-Dateien (Kommentar von "Regex-Muster" auf "literale Teiltexte, kein Regex" korrigiert) sowie Parameter-Tabelle und Besonderheiten bei Prüfpunkt 21 entsprechend aktualisiert. |
+| 0.48 | 24.07.2026 | Prüfpunkt 22 ("Projektversion vorhanden") komplett entfernt und alle nachfolgenden Prüfpunkte um 1 nach vorne verschoben (User-Auftrag im Anschluss an eine Nachfrage zu Prüfpunkt 22: "Ist der nicht mit PP19 schon erschlagen?" — bestätigt: `ProjektversionCheck` prüfte lediglich, ob `project.Version` leer ist, exakt dieselbe Prüfung, die Prüfpunkt 19 bereits über sein `felder`-Array abdeckt, sobald `"Version"` darin steht — was seit jeher der Standardwert ist. "Option 4": Prüfpunkt 22 ersatzlos streichen statt ihn auszubauen oder Prüfpunkt 19 einzuschränken). Betraf durchgängig Code, beide YAML-Dateien und Handbuch: `ProjektversionCheck`-Klasse und Registry-Eintrag entfernt (`metadata.py`, `registry.py`); alle Prüfpunkt-Nummern 23–35 in Docstrings/Kommentaren um 1 verringert (22–34), betroffen `registry.py`, `libraries.py` (Modul- und Klassen-Docstrings, inkl. Kreuzverweise wie "Prüfpunkt-11/26-Überarbeitung" → "11/25"), `structure.py` und `_tia_helpers.py` (Kreuzverweise auf die verschobenen Styleguide-Prüfpunkte 25–27 → 24–26). Beide YAML-Dateien: `projektversion`-Konfigurationsblock entfernt, alle Kommentare der Kategorien Bibliotheken/Styleguide neu nummeriert, Kopfkommentar "35 Prüfpunkte" → "34". Handbuch: Abschnitt 10.5 (jetzt "Prüfpunkte 19-21") um Prüfpunkt 22 gekürzt, Abschnitte 10.6/10.7 samt aller Unterüberschriften, internen Anker-Links (u. a. auf den ehemaligen Prüfpunkt 26) und der Übersichtstabelle am Kapitelanfang neu nummeriert; alle "35 Prüfpunkte"-Erwähnungen (Kapitelübersicht, Abschlusshinweis, Besonderheiten bei Prüfpunkt 1b/1c) auf "34" korrigiert. Auf Nutzerwunsch zusätzlich die ursprüngliche, außerhalb des Code-Repos liegende Checkliste `doku_etc/Pruefpunkte.md` (in `tia-linter/doku_etc/`, nicht `tia-linter/code/`) identisch angepasst, damit die Nummerierung projektweit konsistent bleibt. Datierte Änderungshistorien-Einträge in Anhang C sowie die Runden-Historie in `doku_etc/review_fortschritt.md` bleiben als Zeitpunkt-Aufzeichnungen bewusst bei der zum jeweiligen Zeitpunkt gültigen Nummerierung. `pytest` weiterhin 51/51 grün; Config-Ladetest bestätigt 43 statt 44 Checks und das Fehlen von `projektmetadaten.projektversion` in beiden YAML-Dateien. |

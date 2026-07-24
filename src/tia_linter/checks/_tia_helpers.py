@@ -269,7 +269,7 @@ def reference_language(project: Any) -> Any:
     """Liefert die Referenzsprache des Projekts (``Siemens.Engineering.Language``).
 
     Dieselbe Sprache, die bereits an anderer Stelle als "die maßgebliche
-    Projektsprache" verwendet wird (Prüfpunkt 25 ``SprachenKonsistentCheck``,
+    Projektsprache" verwendet wird (Prüfpunkt 24 ``SprachenKonsistentCheck``,
     Projekttexte-Export in ``project_texts.py``) — hier als ``Language``-Objekt
     statt nur dessen ``Culture``, weil ``MultilingualTextItemComposition.Find``
     (siehe ``multilingual_text``) ein ``Language``-Objekt erwartet, keine
@@ -641,7 +641,7 @@ def find_source_child_by_name(source_object: Any, name: str) -> Any | None:
     zum bereits in Prüfpunkt 11 behandelten Fall bei
     ``unused_cross_reference_leaf_names``). Ohne diesen Präfix-Abgleich fand
     diese Funktion **kein einziges** einfaches (nicht verschachteltes)
-    Interface-Member — betraf Prüfpunkt 26 (``static_zugriff_extern``), das
+    Interface-Member — betraf Prüfpunkt 25 (``static_zugriff_extern``), das
     dadurch trotz des separaten ``ReferenceLocation``-Fixes weiterhin nie
     einen Treffer meldete. Für Namen, die keine gültigen "einfachen"
     Bezeichner sind (z. B. Ziffernbeginn), ist der Rest nach dem Präfix
@@ -950,7 +950,7 @@ def local_variable_write_counts(xml_root: Any) -> dict[str, int]:
 
     Anders als ``local_variable_access_names`` (das nur "wird überhaupt
     verwendet" beantwortet) ist hier die Lese-/Schreibrichtung nötig
-    (Prüfpunkt 27: mehrfach beschriebene Output-Parameter). Live an
+    (Prüfpunkt 26: mehrfach beschriebene Output-Parameter). Live an
     Salzmaschine erarbeitet (FB ``LSNTP_Server``, FC ``CtrFcParaRdWr``,
     OB1 ``OrgPrg``, FC ``DiagnosticErrorInterrupt`` als Move-Beispiel):
 

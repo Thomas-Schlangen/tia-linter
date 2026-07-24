@@ -1,7 +1,7 @@
-"""Prüfpunkte 23-35: Bibliotheken & Typen sowie Siemens Styleguide & Best Practices.
+"""Prüfpunkte 22-34: Bibliotheken & Typen sowie Siemens Styleguide & Best Practices.
 
 Gegen die TIA Portal V21 Openness-Referenz (Manual 03/2026, lokal unter
-~/Dokumente/ObsidianVault/Projekte/TiaOpenness/) geprüft. Check 26 (Static-
+~/Dokumente/ObsidianVault/Projekte/TiaOpenness/) geprüft. Check 25 (Static-
 Zugriff auf einzelne Interface-Member von außen) nutzt ``Location.ReferenceLocation``
 (Format ``@<Bausteinname> ▶ ...``), um den zugreifenden Baustein zu bestimmen —
 live verifiziert (Salzmaschine), siehe ``StaticZugriffExternCheck``-Docstring.
@@ -36,7 +36,7 @@ from tia_linter.models import CheckResult
 
 # Häufige Siemens-System-/IEC-Bausteine, die typischerweise als Multi-Instanz
 # statt als eigener Instanz-DB aufgerufen werden sollten (Heuristik für
-# Prüfpunkt 28 — keine erschöpfende Liste).
+# Prüfpunkt 27 — keine erschöpfende Liste).
 _MULTI_INSTANCE_CANDIDATES = (
     "TON", "TOF", "TP", "TONR",
     "CTU", "CTD", "CTUD",
@@ -46,7 +46,7 @@ _MULTI_INSTANCE_CANDIDATES = (
 
 
 class VeralteteBibliothekenCheck(BaseCheck):
-    """Prüfpunkt 23: Bibliothekstyp-Instanzen mit veralteter Version.
+    """Prüfpunkt 22: Bibliothekstyp-Instanzen mit veralteter Version.
 
     Nutzt ``ILibrary.UpdateCheck(project, UpdateCheckMode.ReportOutOfDateOnly)``
     (Openness-Referenz, Abschnitt "Ermitteln veralteter Typinstanzen") — mit
@@ -98,7 +98,7 @@ class VeralteteBibliothekenCheck(BaseCheck):
 
 
 class VerwaisteInstanzDbsCheck(BaseCheck):
-    """Prüfpunkt 24: Instanz-DBs, deren Quell-FB nicht mehr im Projekt existiert."""
+    """Prüfpunkt 23: Instanz-DBs, deren Quell-FB nicht mehr im Projekt existiert."""
 
     def run(self, project: Any) -> list[CheckResult]:
         from Siemens.Engineering.SW.Blocks import FB, InstanceDB
@@ -126,7 +126,7 @@ class VerwaisteInstanzDbsCheck(BaseCheck):
 
 
 class SprachenKonsistentCheck(BaseCheck):
-    """Prüfpunkt 25: Projektsprache weicht von der erwarteten Sprache ab.
+    """Prüfpunkt 24: Projektsprache weicht von der erwarteten Sprache ab.
 
     Vereinfachung: prüft die projektweite Referenzsprache statt jeden
     einzelnen Kommentar/Netzwerktitel auf die tatsächlich verwendete Sprache
@@ -153,7 +153,7 @@ class SprachenKonsistentCheck(BaseCheck):
 
 
 class StaticZugriffExternCheck(BaseCheck):
-    """Prüfpunkt 26: Static-Tags eines FB werden von außerhalb direkt gelesen/beschrieben.
+    """Prüfpunkt 25: Static-Tags eines FB werden von außerhalb direkt gelesen/beschrieben.
 
     Ablauf: Die Namen der "Static"-Interface-Mitglieder kommen aus dem
     XML-Export der FB-Definition (Interface-Sections sind dort laut V21-
@@ -254,9 +254,9 @@ class StaticZugriffExternCheck(BaseCheck):
 
 
 class OutputMehrfachBeschriebenCheck(BaseCheck):
-    """Prüfpunkt 27: VAR_OUTPUT-Parameter wird an mehreren Stellen beschrieben.
+    """Prüfpunkt 26: VAR_OUTPUT-Parameter wird an mehreren Stellen beschrieben.
 
-    Dreiundzwanzigster Bug (im Rahmen der Prüfpunkt-11/26-Überarbeitung
+    Dreiundzwanzigster Bug (im Rahmen der Prüfpunkt-11/25-Überarbeitung
     entdeckt, live an Salzmaschine verifiziert): Der ursprüngliche Ansatz
     (``CrossReferenceService`` direkt am FB/FC abfragen) war komplett
     wirkungslos — anders als bei einem DB liefert ``GetCrossReferences``
@@ -310,7 +310,7 @@ class OutputMehrfachBeschriebenCheck(BaseCheck):
 
 
 class MultiInstanzenCheck(BaseCheck):
-    """Prüfpunkt 28: Timer/Zähler als Einzel-Instanz-DB statt Multi-Instanz.
+    """Prüfpunkt 27: Timer/Zähler als Einzel-Instanz-DB statt Multi-Instanz.
 
     Heuristik anhand einer Liste bekannter Siemens-/IEC-System-Bausteine
     (``_MULTI_INSTANCE_CANDIDATES``) — erkennt keine kundeneigenen
@@ -341,7 +341,7 @@ class MultiInstanzenCheck(BaseCheck):
 
 
 class UdtWiederkehrendeStrukturenCheck(BaseCheck):
-    """Prüfpunkt 29: Identische Member-Struktur kommt in mehreren DBs vor, ohne UDT zu sein."""
+    """Prüfpunkt 28: Identische Member-Struktur kommt in mehreren DBs vor, ohne UDT zu sein."""
 
     def run(self, project: Any) -> list[CheckResult]:
         results: list[CheckResult] = []
@@ -377,7 +377,7 @@ class UdtWiederkehrendeStrukturenCheck(BaseCheck):
 
 
 class Ob1KomplexitaetCheck(BaseCheck):
-    """Prüfpunkt 30: OB1 (Main) enthält mehr Netzwerke mit eigener Logik als der Schwellenwert."""
+    """Prüfpunkt 29: OB1 (Main) enthält mehr Netzwerke mit eigener Logik als der Schwellenwert."""
 
     def run(self, project: Any) -> list[CheckResult]:
         from Siemens.Engineering.SW.Blocks import OB
@@ -411,7 +411,7 @@ class Ob1KomplexitaetCheck(BaseCheck):
 
 
 class KnowHowSchutzCheck(BaseCheck):
-    """Prüfpunkt 31: Know-how-geschützte Bausteine ohne entsprechenden Vermerk.
+    """Prüfpunkt 30: Know-how-geschützte Bausteine ohne entsprechenden Vermerk.
 
     ``PlcBlock.Comment`` ist mehrsprachig (``MultilingualText``, siehe
     ``comments.py::VariablenKommentarCheck``) — Lesen über ``read_comment``
@@ -440,7 +440,7 @@ class KnowHowSchutzCheck(BaseCheck):
 
 
 class TagTabellenNurIoCheck(BaseCheck):
-    """Prüfpunkt 32: Tag-Tabelle mischt I/O-Tags mit Nicht-I/O-Tags."""
+    """Prüfpunkt 31: Tag-Tabelle mischt I/O-Tags mit Nicht-I/O-Tags."""
 
     def run(self, project: Any) -> list[CheckResult]:
         results: list[CheckResult] = []
@@ -466,7 +466,7 @@ class TagTabellenNurIoCheck(BaseCheck):
 
 
 class NichtOptimierteBausteineCheck(BaseCheck):
-    """Prüfpunkt 33: Bausteine mit Standard- statt optimiertem Bausteinzugriff.
+    """Prüfpunkt 32: Bausteine mit Standard- statt optimiertem Bausteinzugriff.
 
     Attribut ``MemoryLayout`` (enum, Werte ``Standard``/``Optimized``) ist in
     der V21-Openness-Referenz als allgemeines Bausteinattribut bestätigt
@@ -491,7 +491,7 @@ class NichtOptimierteBausteineCheck(BaseCheck):
 
 
 class BausteineImRootCheck(BaseCheck):
-    """Prüfpunkt 34: Zu viele Bausteine direkt im Wurzelordner ohne Gruppierung."""
+    """Prüfpunkt 33: Zu viele Bausteine direkt im Wurzelordner ohne Gruppierung."""
 
     def run(self, project: Any) -> list[CheckResult]:
         results: list[CheckResult] = []
@@ -514,7 +514,7 @@ class BausteineImRootCheck(BaseCheck):
 
 
 class SchreibschutzCheck(BaseCheck):
-    """Prüfpunkt 35 (neu in V21): Schreibschutz von Bausteinen ohne Dokumentation.
+    """Prüfpunkt 34 (neu in V21): Schreibschutz von Bausteinen ohne Dokumentation.
 
     Attribut ``IsWriteProtected`` (Bool) ist als allgemeines Bausteinattribut
     in der V21-Openness-Referenz bestätigt (Manual 03/2026, Tabelle der

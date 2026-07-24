@@ -1,4 +1,4 @@
-"""Prüfpunkte 19-22: Projektmetadaten."""
+"""Prüfpunkte 19-21: Projektmetadaten."""
 
 from __future__ import annotations
 
@@ -154,24 +154,8 @@ def _leaf_compiler_messages(messages: Any) -> list[Any]:
     return leaves
 
 
-class ProjektversionCheck(BaseCheck):
-    """Prüfpunkt 22: Projekt hat keine Versionsnummer hinterlegt."""
-
-    def run(self, project: Any) -> list[CheckResult]:
-        version = str(get_attribute(project, "Version", "") or "").strip()
-        if not version:
-            return [
-                self._make_result(
-                    path=format_path("Projekt", "Eigenschaften", "Version"),
-                    description="Projekt hat keine Versionsnummer hinterlegt.",
-                )
-            ]
-        return []
-
-
 CHECK_CLASSES = {
     "projektmetadaten.pflichtfelder": PflichtfelderCheck,
     "projektmetadaten.max_sprachen": MaxSprachenCheck,
     "projektmetadaten.kompilierfehler": KompilierfehlerCheck,
-    "projektmetadaten.projektversion": ProjektversionCheck,
 }

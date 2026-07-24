@@ -143,7 +143,7 @@ class UnbenutzteVariablenCheck(BaseCheck):
     dabei aber **jede** Referenz mit, auch externe Direktzugriffe von außen
     (z. B. ``"Instanz".Member`` aus einem anderen Baustein) — genau solche
     externen Zugriffe sind unerwünscht und werden bereits separat von
-    Prüfpunkt 26 (``static_zugriff_extern``) gemeldet. Live an
+    Prüfpunkt 25 (``static_zugriff_extern``) gemeldet. Live an
     ``PlcTimeDb.ot_PlcTime`` und ``01PrgDb.lx_30M1StopGap`` verifiziert:
     beide sind sowohl intern (im eigenen FB) als auch extern referenziert —
     ``UnusedObjects`` kann diese beiden Fälle nicht unterscheiden.
@@ -350,7 +350,7 @@ class UnbenutzteBausteineCheck(BaseCheck):
     Root-``Locations`` unabhängig von echter Verwendung einen permanenten
     Meta-Eintrag mit ``ReferenceType.InstanceType`` (``@<DBName> ▶ Type``),
     der nur die Typbeziehung zur eigenen FB beschreibt, keine echte
-    Codestelle — dasselbe Muster, das in Runde 36 bereits bei Prüfpunkt 26
+    Codestelle — dasselbe Muster, das in Runde 36 bereits bei Prüfpunkt 25
     auf **Member**-Ebene gefiltert wurde (siehe ``libraries.py``,
     ``static_zugriff_extern``), hier aber auf **Root**-Ebene der Instanz-DB
     selbst und bislang ungefiltert. Live verifiziert: ``01TestOrgPrgDb``

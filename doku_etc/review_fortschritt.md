@@ -2942,3 +2942,71 @@ Text liefert `False`, sobald eine Klammer enthalten ist). Fix: Umstellung
 auf reinen case-insensitiven Teiltext-Abgleich, keine Regex mehr. Alle 5
 Muster live neu getestet, greifen jetzt zuverlässig. pytest 51/51 grün,
 Handbuch aktualisiert, noch nicht committet."
+
+## Runde 49 — Prüfpunkt 22 (Projektversion) entfernt, PP23-35 auf PP22-34 umnummeriert
+
+**Ausgangspunkt:** User fragte nach einer kurzen Erklärung zu Prüfpunkt 22
+("Ist der nicht mit PP19 schon erschlagen?"). Antwort: Ja — `Projektver­
+sionCheck` prüfte lediglich `project.Version` auf Leere, exakt dieselbe
+Prüfung, die Prüfpunkt 19 (`PflichtfelderCheck`) bereits über sein
+`felder`-Array abdeckt, sobald `"Version"` darin steht — was seit jeher
+der Standardwert ist (`["Author", "Version"]`). Drei Lösungsoptionen
+angeboten (so lassen / `Version` aus PP19 entfernen / PP22 zu echter
+Formatprüfung ausbauen); User wählte "Option 4": Prüfpunkt 22 ersatzlos
+streichen. Auftrag ausdrücklich mit vollständiger Neunummerierung "überall"
+(Programmierung, Handbuch, Config) sowie — nach Rückfrage — auch der
+außerhalb des Code-Repos liegenden Original-Checkliste `doku_etc/
+Pruefpunkte.md` (in `tia-linter/doku_etc/`, nicht `tia-linter/code/`).
+
+**Umsetzung (rein mechanisch, kein Bug):**
+- `metadata.py`: `ProjektversionCheck`-Klasse und ihr `CHECK_CLASSES`-
+  Eintrag entfernt, Moduldocstring auf "Prüfpunkte 19-21" korrigiert.
+- `registry.py`: `projektmetadaten.projektversion`-Eintrag entfernt, alle
+  `nummer`-Felder und Beschreibungstexte der Kategorien Bibliotheken
+  (23-24 → 22-23) und Styleguide (25-35 → 24-34) um 1 verringert.
+- `libraries.py`: Moduldocstring sowie alle 13 Klassen-Docstrings (PP23-35
+  → PP22-34) neu nummeriert, inkl. interner Kreuzverweise (z. B.
+  "Prüfpunkt-11/26-Überarbeitung" → "11/25").
+- `structure.py`/`_tia_helpers.py`: Kreuzverweise auf die verschobenen
+  Styleguide-Prüfpunkte (ehemals 25/26/27, jetzt 24/25/26) korrigiert.
+- `config/default.yaml` und `config/project_settings.yaml`: `projekt­
+  version`-Block entfernt, alle Kommentare der Kategorien Bibliotheken/
+  Styleguide neu nummeriert, Kopfkommentar "35" → "34" Prüfpunkte.
+- `docs/Handbuch.md`: Abschnitt 10.5 um Prüfpunkt 22 gekürzt (jetzt
+  "Prüfpunkte 19-21"), Abschnitte 10.6/10.7 samt aller Unterüberschriften
+  neu nummeriert, interne Anker-Links (u. a. auf den ehemaligen
+  Prüfpunkt 26) sowie die Übersichtstabelle am Kapitelanfang korrigiert;
+  alle undatierten "35 Prüfpunkte"-Erwähnungen (Kapitelübersicht,
+  Abschlusshinweis, Besonderheiten bei Prüfpunkt 1b/1c) auf "34"
+  aktualisiert. Datierte Anhang-C-Einträge bewusst **nicht** verändert
+  (Zeitpunkt-Aufzeichnungen, wie bereits bei Runden in
+  `review_fortschritt.md` gehandhabt).
+- `README.md`: Modulübersicht, Kategorientabelle und die beiden
+  "Bekannte Einschränkungen"-Verweise (`UpdateCheckMode` war Prüfpunkt 23,
+  jetzt 22; "Prüfpunkte 26/27" jetzt "25/26"; "Prüfpunkt 30" in der
+  Netzwerk-Elementnamen-Einschränkung jetzt "29") korrigiert.
+- `doku_etc/Pruefpunkte.md` (außerhalb des Code-Repos, auf expliziten
+  Wunsch): Abschnitt 22 entfernt, Abschnitte 23-35 sowie die
+  Übersichtstabelle am Dateiende auf 22-34 neu nummeriert.
+
+**Verifiziert:** `pytest` weiterhin 51/51 grün nach jedem Code-Schritt.
+`load_app_config()` gegen beide YAML-Dateien bestätigt: 43 statt 44
+Checks geladen, `projektmetadaten.projektversion` in keiner der beiden
+mehr vorhanden. Vollständige Grep-Sweeps über `src/`, `config/`,
+`docs/Handbuch.md`, `README.md` und `doku_etc/Pruefpunkte.md` nach
+`Prüfpunkt(e) 2[2-9]|3[0-5]` bestätigten am Ende, dass ausschließlich die
+korrekten neuen Nummern übrig blieben.
+
+**Dokumentiert:** `docs/Handbuch.md` Version 0.48 (Anhang-C-Eintrag mit
+vollständiger Zusammenfassung). Noch nicht committet.
+
+Letzter Stand: "Prüfpunkt 22 (Projektversion) war seit jeher redundant zu
+Prüfpunkt 19 (beide prüften `project.Version` auf Leere) — auf
+Nutzerwunsch ersatzlos entfernt und alle nachfolgenden Prüfpunkte
+(23-35 → 22-34) durchgängig neu nummeriert: Code (`metadata.py`,
+`registry.py`, `libraries.py`, `structure.py`, `_tia_helpers.py`), beide
+YAML-Dateien, Handbuch, README und — auf Rückfrage — auch die
+außerhalb des Repos liegende Original-Checkliste `Pruefpunkte.md`.
+Datierte Änderungshistorien-Einträge bleiben unangetastet. pytest 51/51
+grün, Config lädt 43 statt 44 Checks, Handbuch aktualisiert, noch nicht
+committet."

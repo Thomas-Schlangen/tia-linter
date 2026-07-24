@@ -137,15 +137,15 @@ erfolgt headless über `TiaPortalMode.WithoutUserInterface`.
 | Namenskonventionen | 5–9 |
 | Programmstruktur | 10–16 (inkl. 12b, siehe unten) |
 | Hardware & Konfiguration | 17–18c |
-| Projektmetadaten | 19–22 |
-| Bibliotheken & Typen | 23–24 |
-| Siemens Styleguide | 25–35 |
+| Projektmetadaten | 19–21 |
+| Bibliotheken & Typen | 22–23 |
+| Siemens Styleguide | 24–34 |
 
 Details zu allen Prüfpunkten: siehe `config/default.yaml`
 (`description`/`recommendation` je Prüfpunkt).
 
 **Prüfpunkt 1b — UDT ohne Kommentar** (`kommentare.udt_kommentar`, Standard-
-Schweregrad Warnung): war in der ursprünglichen Liste der 35 Prüfpunkte kein
+Schweregrad Warnung): war in der ursprünglichen Liste der 34 Prüfpunkte kein
 eigener Punkt, ergänzt aber Prüfpunkt 1 um PLC-Datentypen (UDTs). Prüfpunkt 1
 prüft Items *innerhalb* eines UDT-typisierten DB-Members bewusst nicht mehr
 einzeln (analog zu Array-Elementen genügt ein Kommentar auf dem UDT-Member
@@ -246,12 +246,12 @@ tia-linter/
 │   │       ├── naming.py     # Prüfpunkte 5-9
 │   │       ├── structure.py  # Prüfpunkte 10-16
 │   │       ├── hardware.py   # Prüfpunkte 17-18c
-│   │       ├── metadata.py   # Prüfpunkte 19-22
-│   │       └── libraries.py  # Prüfpunkte 23-35
+│   │       ├── metadata.py   # Prüfpunkte 19-21
+│   │       └── libraries.py  # Prüfpunkte 22-34
 │   ├── config_loader/        # Wiederverwendbare YAML/JSON-Config-Bibliothek
 │   └── my_logger/            # Wiederverwendbare Logging-Bibliothek
 ├── config/
-│   └── default.yaml          # Standard-Konfiguration (alle 35 Prüfpunkte)
+│   └── default.yaml          # Standard-Konfiguration (alle 34 Prüfpunkte)
 ├── tests/
 ├── pyproject.toml
 └── LICENSE
@@ -266,7 +266,7 @@ tia-linter/
   (TIA Portal begrenzt offene Openness-Objektinstanzen pro Session auf
   500.000 — behoben durch planmäßigen Reconnect alle `reconnect_every_n_checks`
   Prüfpunkte, siehe Abschnitt "Verbindungsstabilität"), ein falscher
-  Namespace für `UpdateCheckMode` (Prüfpunkt 23) sowie ein `AttributeError`
+  Namespace für `UpdateCheckMode` (Prüfpunkt 22) sowie ein `AttributeError`
   bei Prüfpunkt 17 (`device_item.Parent` lieferte nur ein generisches
   `IEngineeringObject` ohne `.DeviceItems`). `main.py` verwendet weiterhin
   standardmäßig `runner.simulate_lint_run()` (Dummy-Befunde) statt
@@ -286,8 +286,8 @@ tia-linter/
   Interface-Section-Struktur (`<Sections><Section Name="Static">`), aber
   nicht die exakten Netzwerk-Elementnamen (angenommen: `SW.Blocks.CompileUnit`
   mit `ProgrammingLanguage`/`Title`/`Comment`). Betrifft: Prüfpunkte 3, 10,
-  15, 16, 30.
-- **Prüfpunkte 26/27 (Static-/Output-Zugriff auf einzelne Interface-Member)**
+  15, 16, 29.
+- **Prüfpunkte 25/26 (Static-/Output-Zugriff auf einzelne Interface-Member)**
   bleiben heuristisch: Die Referenz bestätigt, dass Member als namenlose
   Kind-Objekte im Kreuzreferenzbaum ihres Bausteins/DBs auftauchen, zeigt
   aber kein Codebeispiel dafür, welche `Location`-Eigenschaft den Namen des
