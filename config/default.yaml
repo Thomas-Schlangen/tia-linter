@@ -350,13 +350,15 @@ checks:
     kompilierfehler:
       enabled: true
       severity: error
-      # Regex-Muster (re.search, nicht re.match — ein Treffer irgendwo im
-      # oft langen freien Meldungstext genügt), auf die der Meldungstext
-      # geprüft wird. Ein Treffer unterdrückt die Meldung vollständig,
-      # dauerhaft, unabhängig von Baustein oder Fehler-/Warnungsstatus.
-      # Nur für Meldungen eintragen, die bewusst und dauerhaft als
-      # irrelevant eingestuft werden — im Zweifel lieber den Entwickler
-      # kontaktieren, statt eine unbekannte Meldung hier zu unterdrücken.
+      # Liste literaler Teiltexte (KEIN Regex! — reale Compiler-Meldungen
+      # enthalten oft Klammern/Anführungszeichen, die als Regex-Metazeichen
+      # den Abgleich stillschweigend zum Scheitern bringen würden), auf die
+      # der Meldungstext case-insensitiv geprüft wird. Ein Treffer
+      # unterdrückt die Meldung vollständig, dauerhaft, unabhängig von
+      # Baustein oder Fehler-/Warnungsstatus. Nur für Meldungen eintragen,
+      # die bewusst und dauerhaft als irrelevant eingestuft werden — im
+      # Zweifel lieber den Entwickler kontaktieren, statt eine unbekannte
+      # Meldung hier zu unterdrücken.
       ignorierte_meldungen: []
       #   - "since it is write-protected"
       #   - "because it is not editable"

@@ -2872,3 +2872,73 @@ Treffer unterdrückt die Meldung dauerhaft. Auf Nutzerwunsch in
 ('since it is write-protected', 'because it is not editable') aktiv
 gesetzt. Regex-Logik isoliert getestet statt vollem Live-Recompile. pytest
 51/51 grün, Handbuch aktualisiert, noch nicht committet."
+
+## Runde 48 — Zweiunddreißigster Bug: Klammern in `ignorierte_meldungen` brachen den Regex-Abgleich
+
+**Ausgangspunkt (User-Meldung):** "Kannst du checken warum meine 2
+Parameter in PP21 nicht greifen? Diese: `'The project setting "Enable
+usage of S7-1500 blocks in virtual PLCs" (Project > Properties >
+Protection) can not be applied to the block, since it is
+write-protected.'` und `"The project setting (Project > Properties >
+Protection) for simulation support cannot be applied to this block,
+because it is not editable."`" — der Nutzer hatte die beiden aus Runde 47
+kurz eingetragenen Muster inzwischen selbst durch die vollständigen,
+live aus TIA kopierten Meldungstexte ersetzt (und zusätzlich 3 weitere
+generische Compile-Status-Meldungen ergänzt).
+
+**Untersuchung:** Live-Recompile von `S7T0159_V21_NoHW` (964
+Blattmeldungen) bestätigte per `repr()`-Vergleich zunächst, dass die in
+`project_settings.yaml` hinterlegten Muster Zeichen für Zeichen exakt mit
+den echten, wiederholt auftretenden Compiler-Meldungen übereinstimmen —
+kein Tippfehler, keine falsche Konfiguration. Isolierter Regex-Test
+deckte die eigentliche Ursache auf: Beide Muster (und, wie sich zeigte,
+auch das schon vorher aktive dritte Muster `"Compiling finished (errors:
+0; warnings: 0)"`) enthalten literale, unescapte Klammern. Als Regex
+interpretiert sind `(`/`)` aber Gruppierungs-Metazeichen, keine literalen
+Zeichen — der Abgleich verlangt dadurch effektiv den Meldungstext *ohne*
+die Klammerzeichen an genau der Stelle, an der der echte Text sie aber
+enthält. Isoliert nachgewiesen (bewusst per Skript statt `python -c`, da
+Shell-Escaping beim ersten Versuch das Bild verfälscht hätte): Selbst ein
+Muster gegen den exakt eigenen Wortlaut als Suchtext
+(`re.search(muster, muster)`) liefert `False`, sobald eine echte Klammer
+im Text vorkommt — Bisektion Zeichen für Zeichen zeigte den Bruch exakt
+an der ersten öffnenden Klammer (`"unterminated subpattern"` beim
+Kompilieren eines Präfixes, dann stiller Fehlschlag sobald die
+schließende Klammer den Ausdruck syntaktisch gültig macht). Der Abgleich
+schlägt dadurch komplett stillschweigend fehl, ohne jede Fehlermeldung,
+unabhängig davon, wie exakt der Meldungstext übernommen wurde — ein
+Footgun, der bei den kurzen Mustern aus Runde 47 nicht auffiel, weil
+diese keine Klammern enthielten.
+
+**Fix:** `ignorierte_meldungen` (`KompilierfehlerCheck`, `metadata.py`)
+von Regex-Matching (`re.search`) auf reinen, case-insensitiven
+Teiltext-Abgleich umgestellt (`text.casefold() in
+description.casefold()`) — der praktische Anwendungsfall (eine konkrete,
+bekannte Meldung dauerhaft unterdrücken) braucht ohnehin nie Wildcards,
+reiner Teiltext ist hier robuster als Regex und macht das gesamte
+Escaping-Problem grundsätzlich unmöglich. `re`-Import in `metadata.py`
+entsprechend entfernt.
+
+**Verifiziert:** `pytest` weiterhin 51/51 grün. Alle 5 in
+`project_settings.yaml` hinterlegten Muster gegen die beiden
+problematischen Live-Meldungen sowie 3 weitere Beispielmeldungen erneut
+getestet: alle 5 Muster treffen jetzt zuverlässig, eine unbeteiligte
+Beispielmeldung bleibt unverändert erhalten.
+
+**Dokumentiert:** Beide YAML-Dateien (Kommentar von "Regex-Muster" auf
+"literale Teiltexte, kein Regex" korrigiert, inhaltliche Werte
+unverändert — die bereits eingetragenen literalen Texte funktionieren mit
+der neuen Semantik unverändert weiter). `docs/Handbuch.md` Version 0.47
+(Parameter-Tabelle und Besonderheiten bei Prüfpunkt 21 korrigiert,
+Anhang-C-Eintrag). Noch nicht committet.
+
+Letzter Stand: "`ignorierte_meldungen` war nie kaputt konfiguriert,
+sondern als Regex grundsätzlich die falsche Wahl: reale Compiler-
+Meldungen enthalten fast immer Klammern/Anführungszeichen, die als
+Regex-Metazeichen interpretiert werden statt als literale Zeichen —
+dadurch schlägt der Abgleich still fehl, selbst bei exakt übernommenem
+Meldungstext. Live isoliert nachgewiesen (Muster gegen sich selbst als
+Text liefert `False`, sobald eine Klammer enthalten ist). Fix: Umstellung
+auf reinen case-insensitiven Teiltext-Abgleich, keine Regex mehr. Alle 5
+Muster live neu getestet, greifen jetzt zuverlässig. pytest 51/51 grün,
+Handbuch aktualisiert, noch nicht committet."

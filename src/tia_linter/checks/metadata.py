@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from tia_linter.checks._tia_helpers import (
@@ -83,26 +82,33 @@ class KompilierfehlerCheck(BaseCheck):
     Fehler eingestuft, alle übrigen als Warnung.
 
     Neuer Parameter ``ignorierte_meldungen`` (Standard ``[]`` = deaktiviert,
-    User-Auftrag): Liste von Regex-Mustern, auf die der Meldungstext geprüft
-    wird (``re.search``, nicht ``re.match`` wie sonst bei Regex-Parametern
-    in diesem Projekt üblich — hier soll ein Muster irgendwo im oft langen,
-    freien Meldungstext treffen dürfen, nicht nur am Anfang). Ein Treffer
-    unterdrückt die Meldung vollständig, unabhängig von Baustein oder
-    Fehler-/Warnungsstatus. Gedacht für Compiler-Meldungen, die der Nutzer
-    bewusst als irrelevant einstuft (z. B. "since it is write-protected"/
-    "because it is not editable" bei schreibgeschützten Bausteinen aus
-    zugekauften Bibliotheken) — bei Unsicherheit gilt weiterhin: lieber den
-    Entwickler kontaktieren, statt eine Meldung hier pauschal zu
-    unterdrücken.
+    User-Auftrag): Liste von **literalen Teiltexten** (kein Regex!), auf die
+    der Meldungstext case-insensitiv geprüft wird — ein Treffer unterdrückt
+    die Meldung vollständig, unabhängig von Baustein oder Fehler-/
+    Warnungsstatus. Bewusst kein Regex (anders als sonst in diesem Projekt
+    bei ähnlichen Ausnahme-Parametern üblich, siehe z. B.
+    ``ausnahme_titel_regex`` bei Prüfpunkt 10): Zweiunddreißigster Bug,
+    live gefunden — reale Compiler-Meldungen enthalten sehr häufig
+    Klammern/Anführungszeichen (z. B. "(Project > Properties >
+    Protection)"), die als Regex-Metazeichen (Gruppierung) interpretiert
+    würden statt als literale Zeichen und den Abgleich dadurch stillschweigend
+    zum Scheitern bringen — sogar ein Muster gegen sich selbst als Text
+    liefert dann keinen Treffer. Da der praktische Anwendungsfall ("genau
+    diese eine bekannte Meldung dauerhaft unterdrücken") ohnehin nie
+    Wildcards braucht, ist reiner Teiltext-Abgleich hier robuster als Regex.
+    Gedacht für Compiler-Meldungen, die der Nutzer bewusst als irrelevant
+    einstuft (z. B. "since it is write-protected"/"because it is not
+    editable" bei schreibgeschützten Bausteinen aus zugekauften
+    Bibliotheken) — bei Unsicherheit gilt weiterhin: lieber den Entwickler
+    kontaktieren, statt eine Meldung hier pauschal zu unterdrücken.
     """
 
     def run(self, project: Any) -> list[CheckResult]:
         from Siemens.Engineering.Compiler import ICompilable
 
         results: list[CheckResult] = []
-        ignored_patterns = [
-            re.compile(pattern, re.IGNORECASE)
-            for pattern in self.definition.params.get("ignorierte_meldungen", [])
+        ignored_substrings = [
+            text.casefold() for text in self.definition.params.get("ignorierte_meldungen", [])
         ]
 
         for plc_software in iter_plc_software(project):
@@ -121,7 +127,8 @@ class KompilierfehlerCheck(BaseCheck):
 
             for message in _leaf_compiler_messages(getattr(compile_result, "Messages", [])):
                 description = str(getattr(message, "Description", "Compiler-Meldung"))
-                if any(pattern.search(description) for pattern in ignored_patterns):
+                folded_description = description.casefold()
+                if any(text in folded_description for text in ignored_substrings):
                     continue
                 error_count = int(getattr(message, "ErrorCount", 0) or 0)
                 status = CheckStatus.ERROR if error_count > 0 else CheckStatus.WARNING
