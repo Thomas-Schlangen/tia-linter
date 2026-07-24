@@ -198,9 +198,21 @@ class StaticZugriffExternCheck(BaseCheck):
     (nicht existierenden) Baustein namens ``'"4805PrgMan".Man4805_27M11'``
     fehlinterpretiert — ein Fehlalarm bei **jedem** Multiinstanz-Member. Fix:
     Locations mit ``ReferenceType.InstanceType`` werden übersprungen.
+
+    User-Wunsch (24.07.2026): Neben dem zugreifenden Baustein zusätzlich die
+    Netzwerk-/Codestelle in der Meldung ausgeben (z. B. ``01Org / NW6``).
+    Die Information steckt bereits im selben ``ReferenceLocation``-String,
+    hinter dem ``▶``-Zeichen, wurde bisher aber verworfen — live an fünf
+    Projekten bestätigte Formate: ``NW6`` bzw. ``NW6 (<Netzwerktitel>)`` für
+    grafische Netzwerke, ``Ln: x   Cl: y`` für reinen SCL-Code ohne eigene
+    Netzwerknummer (z. B. ``LSNTP_Server``), sowie ``NW 10   Ln: x   Cl: y``
+    für ein SCL-Netzwerk *mit* Netzwerknummer (z. B. ``4805PrgMan``/NW10).
+    Ein eventueller Netzwerktitel in Klammern wird nicht mit übernommen (der
+    ist oft lang und für die Meldung selbst nicht nötig), Mehrfach-
+    Leerzeichen werden auf eines reduziert.
     """
 
-    _LOCATION_PREFIX = re.compile(r"^@([^\s▶]+)")
+    _LOCATION_PREFIX = re.compile(r"^@([^\s▶]+)\s*▶\s*([^(]*)")
 
     def run(self, project: Any) -> list[CheckResult]:
         from Siemens.Engineering.CrossReference import ReferenceType
@@ -237,6 +249,8 @@ class StaticZugriffExternCheck(BaseCheck):
                             reference_location = str(getattr(location, "ReferenceLocation", "") or "")
                             match = self._LOCATION_PREFIX.match(reference_location)
                             accessor = match.group(1) if match else ""
+                            location_hint = re.sub(r"\s+", " ", match.group(2)).strip() if match else ""
+                            accessor_display = f"{accessor} / {location_hint}" if location_hint else accessor
                             if accessor and accessor not in (owner_name, db.Name):
                                 results.append(
                                     self._make_result(
@@ -245,9 +259,9 @@ class StaticZugriffExternCheck(BaseCheck):
                                         ),
                                         description=(
                                             f"Static-Tag '{member_name}' wird von außerhalb "
-                                            f"('{accessor}') direkt zugegriffen."
+                                            f"('{accessor_display}') direkt zugegriffen."
                                         ),
-                                        value=accessor,
+                                        value=accessor_display,
                                     )
                                 )
         return results

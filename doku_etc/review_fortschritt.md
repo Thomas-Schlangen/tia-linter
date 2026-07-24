@@ -3010,3 +3010,62 @@ außerhalb des Repos liegende Original-Checkliste `Pruefpunkte.md`.
 Datierte Änderungshistorien-Einträge bleiben unangetastet. pytest 51/51
 grün, Config lädt 43 statt 44 Checks, Handbuch aktualisiert, noch nicht
 committet."
+
+## Runde 50 — Prüfpunkt 25: Netzwerk-/Codestelle in der Meldung ergänzt
+
+**Zwischenschritt (kein Bug):** User bat um kurze Erklärungen zu
+Prüfpunkt 24 (Sprachen konsistent) — reine Erläuterung, keine Aktion.
+Danach zu Prüfpunkt 23 (Instanz-DBs ohne zugehörigen FB): User berichtete,
+`01TestOrgPrgDb` würde trotz fehlender Verwendung nicht markiert. Live
+gegen das Original-Salzmaschine-Projekt geprüft: FB `01OrgPrg` existiert
+weiterhin im Projekt, daher meldet PP23 (das nur die *Existenz* des
+Quell-FB prüft) hier zu Recht 0 Befunde — die vom User beschriebene
+"nirgends verwendet"-Situation ist die Aufgabe von Prüfpunkt 11b, das
+`01TestOrgPrgDb` bereits korrekt mit "Baustein '01TestOrgPrgDb' wird an
+keinem FB verwendet." meldet (derselbe Mechanismus, der in Runde 39/40
+schon repariert wurde). User bestätigte: Verwechslung durch die frische
+Neunummerierung, kein Bug, keine Aktion nötig.
+
+**Eigentliche Aufgabe (Prüfpunkt 25 — Direkter Zugriff auf Static-Tags von
+außen):** User: "Funktioniert hervorragend. Eine Verbesserung hätte ich
+noch, wenn die Info zur Verfügung steht. In der Warnung steht, von
+welchem Baustein aus auf die Static-Variable zugegriffen wird. Hast du zu
+dem Zeitpunkt evtl. auch aus welchem Netzwerk heraus? So dass du schreiben
+könntest: 01Org / NW6?"
+
+**Untersuchung:** Der zugreifende Bausteinname wurde bereits aus
+`Location.ReferenceLocation` extrahiert (Format ``@<Baustein> ▶ <Ort>``,
+siehe Zwanzigster Bug, Runde davor) — der Teil nach ``▶`` wurde aber
+bislang verworfen. Live-Dump aller `ReferenceLocation`-Werte über 5
+verschiedene Bausteine/187 Kreuzreferenz-Einträge des Salzmaschine-
+Projekts bestätigte drei tatsächlich vorkommende Formate: `NW6` bzw.
+`NW6 (<Netzwerktitel>)` bei grafischen Netzwerken, `Ln: x   Cl: y` bei
+einem eigenständigen SCL-Baustein ohne Netzwerkgliederung (`LSNTP_Server`),
+und `NW 10   Ln: x   Cl: y` bei einem einzelnen SCL-Netzwerk innerhalb
+eines sonst grafischen Bausteins (`4805PrgMan`/NW10). Der vom User selbst
+genannte Beispielfall `01TestOrgPrgDb`/`lx_xx` lieferte dabei exakt
+``'@01Org ▶ NW6 (Unterbrechung allgemein)'``.
+
+**Fix:** `_LOCATION_PREFIX`-Regex in `StaticZugriffExternCheck`
+(`libraries.py`) um eine zweite Gruppe erweitert, die den Text zwischen
+``▶`` und einer eventuellen Titel-Klammer erfasst (Mehrfach-Leerzeichen
+auf eines reduziert); der Netzwerktitel selbst wird bewusst nicht mit
+ausgegeben (oft lang, für die Meldung nicht nötig). Meldung und `value`
+zeigen jetzt `"<Baustein> / <Ort>"` statt nur `"<Baustein>"`.
+
+**Verifiziert:** `pytest` weiterhin 51/51 grün. Live gegen das Original-
+Salzmaschine-Projekt: `01TestOrgPrgDb`/`lx_xx` meldet jetzt exakt wie vom
+User gewünscht `'01Org / NW6'` (vorher `'01Org'`), zweiter Treffer
+`01PrgDb`/`lx_30M1StopGap` entsprechend `'01Vis / NW5'`.
+
+**Dokumentiert:** `docs/Handbuch.md` Version 0.49 (Beispiel und
+Besonderheiten bei Prüfpunkt 25 ergänzt, Anhang-C-Eintrag). Noch nicht
+committet.
+
+Letzter Stand: "Prüfpunkt 25 nennt jetzt zusätzlich zum zugreifenden
+Baustein auch die Netzwerk-/Codestelle (`01Org / NW6` statt nur `01Org`)
+— die Information steckte bereits in den vorhandenen Kreuzreferenz-
+Rohdaten, wurde bisher nur nicht ausgewertet. Live an drei
+unterschiedlichen Format-Varianten (grafisches Netzwerk, reines SCL,
+SCL-Netzwerk mit Nummer) sowie am vom User genannten Testfall verifiziert.
+pytest 51/51 grün, Handbuch aktualisiert, noch nicht committet."
