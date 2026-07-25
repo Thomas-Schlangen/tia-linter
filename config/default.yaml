@@ -1,6 +1,6 @@
 # TIA Linter — Standard-Konfiguration
 #
-# Enthält alle 33 Prüfpunkte aus Pruefpunkte.md (einige Prüfpunkte sind hier
+# Enthält alle 39 Prüfpunkte aus Pruefpunkte.md (einige Prüfpunkte sind hier
 # als mehrere separat schaltbare Einträge abgebildet, z. B. Prüfpunkt 6 als
 # plc_tag_eingaenge + plc_tag_ausgaenge).
 #

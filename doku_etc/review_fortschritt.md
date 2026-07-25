@@ -3386,3 +3386,345 @@ Planungs-Stub). Vollständig über Code, beide YAML-Dateien, Tests, README,
 Handbuch (inkl. Anker-Links) und die externe Pruefpunkte.md-Checkliste
 gezogen, historische Aufzeichnungen unangetastet gelassen. pytest 51/51
 grün, noch nicht committet."
+
+## Runde 13 — Standard Code Review nach Pull (XML-Cache + Pruefpunkte.md-Sync)
+
+*(Titel wie im Original-Auftrag `Claude-Code-Prompt-Standard-Review.md` vorgegeben;
+chronologisch direkter Nachfolger von Runde 56 oben — kein Bruch der bestehenden
+Historie, nur eine andere Zähllogik im Auftragstitel selbst.)*
+
+**Kontext:** Dieser Review folgt auf einen `git pull`/Konsolidierungsstand, der u. a.
+den XML-Export-Cache (Runde "0.54"/Commit `e91b5fc`, live gegen Salzmaschine
+verifiziert, siehe `XML-Optimierung-Fortschritt.md`) sowie die frische Verfügbarkeit
+von `doku_etc/md/Pruefpunkte.md` im Code-Repo umfasst (vorher extern im Vault
+gepflegt, siehe Commit `0f1718d`). Reiner Read-Only-Review — keine Code-Änderung,
+nur dieser Fortschrittseintrag.
+
+- [x] Test-Abdeckung geprüft
+- [x] 35 (tatsächlich 36/39) Prüfpunkte verifiziert
+- [x] Konsistenz XML-Cache geprüft
+- [x] Standard Code Review (Qualität/Architektur) durchgeführt
+- [x] PDF-Report geprüft
+- [x] GUI geprüft
+- [x] Abschlussbericht an User übergeben
+
+### 1. Test-Abdeckung
+
+`pytest` weiterhin grün: **56/56** (bestätigt reproduziert). Nur zwei Testdateien:
+`tests/test_models.py` (7 Tests, ausschließlich `models.py`) und
+`tests/test_tia_helpers.py` (49 Tests, ausschließlich reine, TIA-unabhängige
+Hilfsfunktionen aus `checks/_tia_helpers.py` — XML-/String-Parsing, Cache-Logik).
+
+**Ungetestet (0 Zeilen Testcode):** `runner.py` (435 Zeilen, u. a. die gesamte
+Reconnect-/OOM-Workaround-Logik), `reporter.py` (510 Zeilen, PDF-Erzeugung),
+`gui.py` (675 Zeilen), `connector.py` (165 Zeilen), alle 7 `checks/*.py`-Dateien mit
+den eigentlichen `BaseCheck`-Unterklassen (`comments.py` 660, `structure.py` 643,
+`libraries.py` 576, `naming.py` 214, `hardware.py` 179, `metadata.py` 161,
+`base.py` 62 Zeilen), `config.py`, `settings.py`, `project_texts.py`, `main.py`,
+sowie die kompletten Pakete `config_loader/` und `my_logger/`. Deckt sich mit dem,
+was der Original-Auftrag bereits vermutet hatte — bestätigt, nicht neu entdeckt.
+
+Diese Lücke ist zu großen Teilen **bewusst und dokumentiert** (siehe u. a. Runde 15:
+"Check-Level-Verifikation ausschließlich gegen das echte Projekt, konsistent mit dem
+bisherigen Testumfang" — `BaseCheck`-Unterklassen brauchen ein echtes/gefaktes
+Openness-`project`-Objekt mit sehr vielen typisierten Rückgabewerten, was ohne
+pythonnet/TIA praktisch nicht sinnvoll zu mocken ist). Trotzdem echte, konkrete
+nächste Schritte mit gutem Aufwand/Nutzen-Verhältnis, da sie **kein** TIA/pythonnet
+brauchen:
+- `settings.py` (`Settings.load`/`.save`) — reines JSON/Dataclass, kein TIA nötig,
+  aktuell nur einmalig manuell in Runde 11 verifiziert, nie als Dauertest verankert.
+- `config_loader/loader.py` (69 Zeilen) — YAML-Laden/Pydantic-Validierung, ebenfalls
+  ohne TIA testbar; bislang 0 Tests trotz zentraler Rolle (jede Config-Änderung der
+  letzten 56 Runden wurde nur per Ad-hoc-`load_app_config()`-Aufruf verifiziert).
+- `my_logger/logger.py` (62 Zeilen) — reine Logging-Konfiguration, ebenfalls ohne
+  TIA testbar.
+- `reporter.py` — `PdfReporter._render_config_yaml()`/`_insert_check_number_comments()`/
+  `_hard_wrap()`/`report_filename()` sind reine String-/Datenlogik ohne TIA-Bezug und
+  ließen sich mit einem synthetischen `LintReport` (wie ihn `simulate_lint_run()`
+  bereits erzeugt) und `AppConfig` direkt testen — würden z. B. den in Runde "0.55"
+  gefundenen `LEADING`-Rendering-Bug oder den Zeilenumbruch-Bug aus "0.54" strukturell
+  hätten auffangen können.
+- `checks/_tia_helpers.py` hat zwar 49 Tests, aber mehrere in späteren Runden
+  hinzugekommene Funktionen sind (nach eigener, dokumentierter Aussage in
+  `review_fortschritt.md`) nie isoliert unit-getestet worden, u. a.
+  `compile_unit_multilingual_text()`, `block_programming_language()`,
+  `compile_unit_scl_line_count()`, `count_additional_hardware_modules()`,
+  `local_variable_write_counts()`/`local_variable_access_paths()`,
+  `unused_cross_reference_leaf_names()`,
+  `cross_reference_referenced_top_level_names()` — bei mehreren davon
+  (`block_programming_language`, `compile_unit_multilingual_text`) waren gerade
+  .NET-Typ-vs-String-Vergleichsfehler die tatsächliche Bugursache (Runde 27/42) —
+  ein einfacher Unit-Test mit einem Fake-Enum-artigen Objekt (`__str__` vs. `==`)
+  hätte diese Fehlerklasse strukturell abfangen können, auch ohne echtes TIA.
+
+Keiner dieser Punkte ist neu im Sinne von "noch nie erwähnt" — die
+Nicht-Testbarkeit von Check-Klassen wurde bereits in Runde 15 etc. explizit
+begründet. Neu ist die konkrete Priorisierung (Settings/Config/Logger/Reporter
+zuerst, da TIA-unabhängig) als Fokuspunkt-1-Antwort.
+
+### 2. Vollständigkeit der 35 Prüfpunkte (gegen die jetzt vorliegende Pruefpunkte.md)
+
+`CHECK_REGISTRY` (`checks/registry.py`) enthält **42 Einträge** für **39 distinkte
+Prüfpunkt-Nummern** (3 Nummern sind bewusst in je zwei separat schaltbare
+Config-Einträge aufgeteilt: 5 → `db_format_global`/`db_format_instance`, 6 →
+`plc_tag_eingaenge`/`plc_tag_ausgaenge`, 7 → `fb_prefix`/`fc_prefix` — dokumentiertes,
+konsistentes Muster, kein Fehler).
+
+**Severity-Abgleich (alle in Pruefpunkte.md dokumentierten Nummern, 1a–33 sowie
+11b/17b/18b/18c):** vollständig geprüft, **keine einzige Abweichung** gefunden —
+`config/default.yaml` stimmt für jeden der 36 in Pruefpunkte.md gelisteten
+Prüfpunkte exakt mit dem dortigen Soll-Schweregrad überein (inkl. der beiden
+Sonderfälle mit code-seitig differenzierter Schweregrad-Logik statt fixem YAML-Wert:
+Prüfpunkt 18c/`ZertifikatCheck`, Prüfpunkt 21/`KompilierfehlerCheck` — beide Male
+direkt im Code verifiziert, Logik entspricht weiterhin der in Runde 3/45 bereits
+gefundenen und behobenen Fassung). Prüfpunkt 17b (Hardware-Typ passt zum
+Tag-Datentyp) ist weiterhin korrekt **nicht** implementiert (`- [ ] (spätere
+Version)`, kein Registry-Eintrag) — kein Gap, exakt wie spezifiziert.
+
+**❌ NEU — Pruefpunkte.md ist unvollständig (fehlende Einträge, kein Code-Bug):**
+Die Codebasis implementiert **drei zusätzliche, vollständige und gegen das echte
+Salzmaschine-Projekt verifizierte Prüfpunkte, die in der jetzt vorliegenden
+`doku_etc/md/Pruefpunkte.md` überhaupt nicht vorkommen** (kein Abschnitt, keine
+Tabellenzeile):
+- **1b — UDT ohne Kommentar** (`kommentare.udt_kommentar`, `UdtKommentarCheck`,
+  eingeführt Runde 16, 146 Befunde live verifiziert)
+- **1c — FB-Interface-Member ohne Kommentar** (`kommentare.fb_member_kommentar`,
+  `FbMemberKommentarCheck`, eingeführt Runde 20, zuletzt 45 Befunde live
+  verifiziert nach dem Fix in Runde 24)
+- **12b — Eingänge dürfen nicht beschrieben werden**
+  (`programmstruktur.eingaenge_nicht_beschrieben`, Severity `error`, seit
+  mindestens Runde 37 im Code vorhanden und gegen Salzmaschine geprüft)
+
+Alle drei sind vollständig implementiert, in `config/default.yaml` UND
+`config/project_settings.yaml` konfiguriert, in `docs/Handbuch.md` und `README.md`
+mit eigenem Abschnitt dokumentiert (jeweils ausdrücklich als "war in der
+ursprünglichen Liste kein eigener Punkt" gekennzeichnet) — nur die externe
+`Pruefpunkte.md`-Referenzdatei wurde nie um sie ergänzt. Zum Vergleich: Bei den
+mechanischen Umnummerierungen (Entfernen von PP22/PP27, "b"-Suffix-Umstellung in
+Runde 49/54/56) wurde `Pruefpunkte.md` laut Historie jedes Mal explizit
+mitgezogen ("auf Rückfrage auch die außerhalb des Code-Repos liegende
+Original-Checkliste") — bei den drei genannten *neuen* Prüfpunkten (1b/1c/12b)
+ist das offenbar nie passiert, vermutlich weil sie als "Ergänzung", nicht als
+"Umnummerierung" wahrgenommen wurden. Auch der Original-Auftrag dieses Reviews
+(`Claude-Code-Prompt-Standard-Review.md`) nennt in Fokus-Punkt 2 explizit nur
+"11b, 17b, 18b, 18c" als erwartete Splits — 1b/1c/12b werden dort nicht erwähnt,
+was den Verdacht stützt, dass dieser Stand dem User aktuell nicht bewusst ist.
+
+Umgekehrt: **kein** in Pruefpunkte.md dokumentierter Prüfpunkt fehlt im Code — die
+Abdeckung ist in dieser Richtung vollständig.
+
+**Vollständig implementiert (kein Stub) und live gegen ein echtes TIA-Projekt
+verifiziert:** alle 39 Registry-Einträge — bestätigt durch die extrem detaillierte
+Bug-Historie in Runde 5–56 (jeder Prüfpunkt wurde mindestens einmal, viele mehrfach,
+gegen das reale Salzmaschine-Projekt getestet und dabei gefundene Bugs behoben).
+Kein Stub-Zustand ("- [ ]" im Sinne von unimplementiert) mehr vorhanden außer dem
+bewusst zurückgestellten 17b.
+
+### 3. Konsistenz nach XML-Cache-Refactoring
+
+**✅ Vollständig korrekt, keine Abweichung gefunden.**
+- `export_block_xml(block, plc_software)` (`_tia_helpers.py:400`) hat exakt die im
+  Auftrag genannte Signatur.
+- Grep über `src/` bestätigt **genau 10 Aufrufstellen** (wie im Auftrag erwähnt):
+  `structure.py` (Zeilen 80, 282, 515, 552, 605), `comments.py` (450, 573),
+  `libraries.py` (223, 302, 376) — alle mit der neuen Zwei-Parameter-Signatur.
+- Kein einziger direkter `.Export(`-Aufruf außerhalb von `export_block_xml()`
+  selbst gefunden (der einzige Treffer ist die Implementierung der Cache-Funktion
+  selbst, `_tia_helpers.py:440`) — keine ungecachten Bypass-Exporte.
+- `runner.py::_reset_run_caches()` (Zeile 97) ruft sowohl `reset_export_cache()`
+  als auch `ProjectTextComments.reset_cache()` auf und wird in `run_lint()` direkt
+  nach jedem `connector.connect(...)` aufgerufen (Zeile 253, `with connector:`-Block)
+  — greift damit sowohl beim initialen Connect (`session_number == 1`) als auch bei
+  jedem geplanten (`reconnect_every_n_checks`) und jedem Fehler-bedingten Reconnect.
+  Deckt sich exakt mit der in `XML-Optimierung-Fortschritt.md` dokumentierten und
+  bereits live gegen Salzmaschine verifizierten Spezifikation.
+
+### 4. Standard Code Review
+
+**✅ Insgesamt sehr sauber.** Durchgängig Type Hints (`from __future__ import
+annotations` + Annotationen), ausführliche Docstrings mit Bug-Historie direkt am
+Code (z. B. `VariablenKommentarCheck`, `interface_section_members`), konsistente
+Namenskonvention (deutsche fachliche Namen für Check-Klassen/Config-Keys, englische
+für generische Infrastruktur), `format_path()` als einzige, konsequent verwendete
+Pfad-Formatierungsfunktion (` > `-Trenner, siehe unten Punkt 5). Keine
+hardcodierten absoluten Pfade in `src/` gefunden (grep negativ für `C:\`, `/home/`
+etc.); der einzige Windows-Pfad im gesamten Projekt ist der DLL-Pfad in
+`config/default.yaml` (korrekt konfigurierbar, kein Hardcoding im Code). Keine
+offenen `TODO`/`FIXME`/`XXX`-Marker. `except Exception` kommt 22× vor, an allen
+stichprobenartig geprüften Stellen mit `# noqa: BLE001`-Kommentar und Begründung
+(z. B. `connector.py`: ".NET-Exceptions", `runner.py::_release_dotnet_objects`:
+"reine Aufräum-Maßnahme, darf den Lauf nicht gefährden") — bewusste, dokumentierte
+breite Fehlerbehandlung, kein Anzeichen von "verschlucktem" Fehlerzustand (mit einer
+historischen Ausnahme, die bereits behoben wurde: Runde 44/`ZertifikatCheck`-
+Namespace-Bug, wo eine breite `except Exception` einen `ImportError` lange
+verschluckt hat — seither bekannt und im Docstring dokumentiert, kein neuer Fund).
+
+**⚠️ Kleinere, neue Verbesserungspunkte (kein Fehlverhalten, nur Wartbarkeit):**
+- `comments.py::VariablenKommentarCheck` und `UdtKommentarCheck` bauen beide
+  unabhängig voneinander `udt_names = {t.Name for t, _ in iter_plc_types(plc_software)}`
+  (Zeilen 197 und 313) — identischer Einzeiler an zwei Stellen. Geringer
+  Refactoring-Nutzen (nur eine Zeile), aber ein naheliegender Kandidat für eine
+  gemeinsame kleine Hilfsfunktion in `_tia_helpers.py`, falls sich die
+  UDT-Erkennungslogik künftig noch einmal ändert (wie schon zweimal zuvor,
+  Runde 16/23) — dann müsste sie nur an einer Stelle angepasst werden.
+- `default.yaml`/`README.md`/`Handbuch.md` sprechen konsistent von "33/34/35
+  Prüfpunkten" je nach historischem Stand des jeweiligen Dokuments — intern
+  jeweils in sich schlüssig (die Basiszahl aus Pruefpunkte.md, 1b/1c/12b werden
+  überall explizit als "kein eigener Punkt in der ursprünglichen Liste" separat
+  benannt), aber uneinheitlich zwischen den Dateien (Handbuch-Kapitelkopf sagt an
+  zwei Stellen weiterhin "33", Änderungshistorie an anderen Stellen "34"/"35" je
+  nach Eintragsdatum) — für eine neue Leserin ohne die volle Historie potenziell
+  verwirrend. Kein Fehler, nur ein Klarheits-Nice-to-have.
+- `KnowHowSchutzCheck` (39 Zeilen) und `SchreibschutzCheck` (61 Zeilen,
+  `libraries.py`) folgen laut eigenem Docstring "strukturell demselben Muster"
+  (Attribut prüfen → Kopfbeschreibung nach Dokumentationshinweisen durchsuchen),
+  sind aber unterschiedlich lang — nicht im Detail geprüft, ob der Unterschied
+  ausschließlich an echten V21-Zusatzanforderungen bei PP33 liegt oder ob dort
+  ebenfalls noch etwas zusammengeführt werden könnte. Nur als Hinweis, nicht als
+  bestätigter Befund.
+
+Architektur weiterhin sauber nach allen Änderungen: klare Schichtung
+(`registry.py` = feste Metadaten, `config.py`/YAML = veränderliche Parameter,
+`checks/*.py` = Logik, `_tia_helpers.py` = gemeinsame TIA-Zugriffs-/XML-Helfer,
+`runner.py` = Orchestrierung, `reporter.py`/`gui.py` = reine Präsentation) — keine
+Anzeichen von Vermischung trotz 56 Runden inkrementeller Änderungen.
+
+### 5. PDF-Report
+
+**✅ Vollständig, alle im Auftrag genannten Punkte erfüllt.** `reporter.py`
+(`PdfReporter.generate`) baut fünf Kapitel: Deckblatt (`_build_cover_page`) →
+Prüfpunkte-Übersicht (`_build_overview_page`, **alle** `CHECK_REGISTRY`-Einträge,
+nicht nur die aktivierten, mit Durchgeführt/Erfolgreich/Fehler/Warnungen-Spalten
+und expliziter Unterscheidung zwischen technischem Check-Fehlschlag und
+inhaltlichem Befund über `_CHECK_FAILED_PREFIX`) → Zusammenfassung
+(`_build_summary_page`, Gesamt-Kachel + Aufschlüsselung nach Kategorie) → Details
+(`_build_detail_pages`, ein Abschnitt/eine Tabelle pro Kategorie) → Anhang A
+(`_build_appendix_a`, vollständige verwendete Konfiguration als YAML). Status
+Fehler/Warnung/OK sind über `_STATUS_LABEL`/`_STATUS_COLOR` konsequent farblich
+(Rot/Orange/Grün) UND textlich unterschieden, inkl. fetter Statusspalte. Pfadformat
+einheitlich über `format_path(*parts) -> " > ".join(...)` (`_tia_helpers.py:18`),
+von allen Checks verwendet — entspricht exakt dem geforderten
+`PLC_1 > FB_Motor > Netzwerk 3`-Format. Bereits mehrfach live gegen echte/simulierte
+Reports verifiziert (Runde 11, 595 Seiten inhaltlich geprüft; Runde 54/55, neue
+Kapitel bzw. Rendering-Fix). Keine neuen Befunde in diesem Review.
+
+### 6. GUI
+
+**✅ Alle im Auftrag genannten Punkte vorhanden und im Code bestätigt.**
+- Alle Prüfpunkt-Checkboxen werden dynamisch aus `self.app.definitions` (= geladene
+  Config, deckungsgleich mit den 39 Registry-Einträgen) aufgebaut
+  (`gui.py::rebuild_check_tree`) — keine hartkodierte Liste, die veralten könnte;
+  jede Checkbox zeigt links ihre Prüfpunkt-Nummer (`definition.nummer`).
+- Gruppierung nach den 7 Kategorien aus `registry.py` (`by_category`-Dict), im Grid
+  zu je 4 Spalten nebeneinander (`_CATEGORY_COLUMNS = 4`).
+- TIA-Version-Dropdown vorhanden (`tk.OptionMenu`, gespeist aus
+  `config.tia_versionen.verfuegbar`) — aktuell mit genau einem Eintrag "TIA Portal
+  V21", wie in `default.yaml` konfiguriert.
+- Testmodus-Checkbox vorhanden ("Testmodus (simulierter Lauf ohne TIA-Verbindung,
+  Dummy-Befunde)", `self.test_mode`, Default aus `Settings.test_mode` = `False`),
+  steuert nachweislich `active_run_lint = self._simulate_lint_run_fn if
+  self.main_page.test_mode.get() else self._run_lint_fn`.
+- `settings.json`-Persistenz bestätigt: `Settings.load()` beim Start
+  (`main.py:41`), `Settings.save()` beim Schließen (`gui.py::_on_close`, an
+  `WM_DELETE_WINDOW` gebunden) — inkl. `last_project_path`,
+  `last_output_folder`, `last_config_path`, `last_tia_version`, `window_geometry`,
+  `test_mode`. Robuste Fehlerbehandlung bei fehlender/beschädigter Datei (Fallback
+  auf Defaults, kein Absturz).
+
+Keine neuen Befunde in diesem Review — alle in früheren Runden (v. a. 3, 11, 22, 30,
+31) gefundenen GUI-Probleme sind bestätigt behoben und weiterhin stabil.
+
+### Zusammenfassung Runde 13
+
+**Einziger genuin neuer Befund:** `doku_etc/md/Pruefpunkte.md` fehlen die
+Abschnitte/Tabellenzeilen für die Prüfpunkte 1b, 1c und 12b — alle drei sind im
+Code vollständig implementiert, konfiguriert, dokumentiert (Handbuch/README) und
+gegen das echte Projekt verifiziert, nur die externe Referenzliste wurde nie
+nachgezogen. Alle anderen fünf Fokus-Punkte bestätigen einen sehr sauberen,
+konsistenten Stand ohne neue Funde — reine Verifikation des durch 56 vorherige
+Runden bereits gründlich gehärteten Codes. Keine Code-Änderungen in dieser Runde
+vorgenommen (wie im Auftrag verlangt), `pytest` 56/56 grün, keine Regression.
+
+Letzter Stand: "Vollständiger Standard-Code-Review (6 Fokus-Punkte) nach dem
+XML-Cache-Refactoring und der Pruefpunkte.md-Repo-Migration durchgeführt. Ein neuer
+Befund: Pruefpunkte.md fehlen die Abschnitte für Prüfpunkt 1b/1c/12b (im Code seit
+Runde 16/20/38 vorhanden und verifiziert, nur die externe Referenzdatei nie
+nachgezogen). Alle anderen Fokus-Punkte (XML-Cache-Konsistenz, PDF-Report, GUI)
+bestätigt vollständig korrekt, keine neuen Bugs. Test-Abdeckung weiterhin
+lückenhaft bei runner/reporter/gui/connector/checks (bewusste, dokumentierte
+Design-Entscheidung, aber konkrete TIA-unabhängige Nachrüst-Kandidaten benannt:
+settings.py, config_loader, my_logger, reporter.py-Stringlogik). Keine
+Code-Änderungen vorgenommen, reiner Bericht, wartet auf Freigabe des Users."
+
+## Runde 14 — Doku-Fix (Prüfpunkte 1b/1c/12b ergänzt, Terminologie vereinheitlicht)
+
+Auftrag laut `doku_etc/md/Claude-Code-Prompt-Doku-Fix.md`, schließt die beiden
+in Runde 13 gefundenen Doku-Lücken. Reine Dokumentationsänderung, kein Code
+berührt.
+
+- [x] **Aufgabe 1: Pruefpunkte.md um 1b/1c/12b ergänzt.** Inhalte aus den
+      Docstrings der jeweiligen Check-Klassen abgeleitet (`UdtKommentarCheck`,
+      `FbMemberKommentarCheck` in `checks/comments.py`;
+      `EingaengeNichtBeschriebenCheck` in `checks/structure.py`) sowie den
+      Registry-Metadaten (`checks/registry.py`) und gegen `config/default.yaml`
+      auf Schweregrad abgeglichen (1b/1c: Warnung; 12b: Fehler). 1b/1c direkt
+      nach Prüfpunkt 1a eingefügt, 12b direkt nach 12a. Übersichtstabelle am
+      Dateiende um die drei neuen Zeilen ergänzt, alle drei als
+      `Implementiert: - [x]` markiert (die drei einzigen Checkboxen in dieser
+      Datei, die aktuell auf `[x]` stehen — alle anderen 36 waren beim Pull
+      bereits durchgängig auf `- [ ]`, was vom Auftrag nicht adressiert war;
+      siehe Hinweis am Ende).
+- [x] **Aufgabe 2: Terminologie vereinheitlicht — korrekte Zahl: 39.**
+      Ermittlung: `grep -c 'nummer='` in `registry.py` liefert 42 Einträge,
+      davon 39 mit eindeutiger Nummer (3 Zahlen — 5, 6, 7 — sind je auf zwei
+      Registry-Einträge aufgeteilt, z. B. `plc_tag_eingaenge`/`_ausgaenge`,
+      teilen sich aber dieselbe Prüfpunkt-Nummer). 39 deckt sich exakt mit dem
+      Vorbericht ("39 im Code implementierten Prüfpunkte"). Dabei zwei
+      unterschiedliche Bedeutungen von Zahlen in der bestehenden Doku
+      unterschieden und NICHT vermischt:
+      - **"Aktuelle Gesamtzahl"** (bislang uneinheitlich 33/34/35 je nach
+        Datei) → einheitlich auf **39** korrigiert: `README.md` (Zeile 254,
+        Verzeichnisbaum-Kommentar zu `default.yaml`), `config/default.yaml`
+        (Zeile 3, Kopfkommentar), `docs/Handbuch.md` (Zeile 9 Bearbeitungsstand-
+        Hinweis, Zeile 64 Leseanleitung).
+      - **"Ursprüngliche Liste"** (historische Aussage in den Besonderheiten
+        zu 1b/1c, bezieht sich auf den Stand *vor* Ergänzung dieser
+        Zusatzpunkte, nicht auf die aktuelle Gesamtzahl) → in
+        `docs/Handbuch.md` (Zeilen 785, 849) von "34" auf **33**
+        vereinheitlicht, passend zur bereits korrekten Formulierung in
+        `README.md` Zeile 148 ("ursprünglichen Liste der 33 Prüfpunkte").
+      - **Kategorie-Bereichsangaben** (z. B. "Prüfpunkte 22-33",
+        "Prüfpunkte 24-33" in README/Handbuch/registry.py/libraries.py)
+        bewusst unverändert gelassen — 33 ist dort weiterhin korrekt die
+        höchste Basis-Nummer der jeweiligen Kategorie, unabhängig von den
+        Buchstaben-Zusatzpunkten.
+      - **Datierte Änderungshistorien-Einträge** in `docs/Handbuch.md` Anhang C
+        (u. a. "34 Prüfpunkte", "35 Prüfpunkte" in Versionszeilen 0.8/0.24/
+        0.51/0.54) bewusst unverändert gelassen — laut der Konvention, die im
+        Handbuch selbst dokumentiert ist (Version 0.48: "Datierte
+        Änderungshistorien-Einträge... bleiben als Zeitpunkt-Aufzeichnungen
+        bewusst bei der zum jeweiligen Zeitpunkt gültigen Nummerierung"),
+        genau wie die Runden-Historie dieser Datei selbst.
+      Verifiziert: `grep` nach verbleibenden "33-36 Prüfpunkte"-Nennungen in
+      README/docs/config zeigt nur noch die drei bewusst belassenen
+      "ursprüngliche Liste"-Stellen (jetzt konsistent bei 33) sowie
+      Kategorie-Bereiche — keine offenen Inkonsistenzen mehr außerhalb der
+      Changelog-Historie.
+
+**Hinweis (nicht Teil des Auftrags, hier nur dokumentiert):** Alle 36
+"alten" Einzel-Checkboxen in `Pruefpunkte.md` (`Implementiert: - [ ]`) sind
+weiterhin unchecked, obwohl laut dieser Fortschrittsdatei längst alle
+implementiert und gegen das Salzmaschine-Projekt verifiziert sind — die
+gepullte Datei scheint ein unbearbeiteter Grundstand zu sein (Runde 12 hatte
+seinerzeit eine *andere* Kopie außerhalb des Repos, `~/Dokumente/
+ObsidianVault/Projekte/TIA-Linter/Pruefpunkte.md`, komplett abgehakt). Da der
+Doku-Fix-Auftrag ausdrücklich nur 1b/1c/12b sowie die Terminologie nennt,
+wurden die übrigen Checkboxen nicht angefasst — falls gewünscht, wäre das
+Nachziehen aller 36 Checkboxen ein eigener, klar abgrenzbarer Folgeauftrag.
+
+`.venv/bin/pytest`: 56/56 grün, `config/default.yaml` lädt weiterhin fehlerfrei
+(reine Kommentaränderung, keine Struktur betroffen).
+
+Letzter Stand: "Beide Doku-Lücken aus Runde 13 geschlossen (Pruefpunkte.md um
+1b/1c/12b ergänzt, Terminologie auf 39 vereinheitlicht). Kein Code geändert,
+pytest weiterhin 56/56 grün. Committed und gepusht."

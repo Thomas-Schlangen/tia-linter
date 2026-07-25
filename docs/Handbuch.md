@@ -6,7 +6,7 @@
 
 > **Hinweis zum Bearbeitungsstand:** Dieses Handbuch ist inhaltlich
 > vollständig — alle Kapitel 1–9 (grundsätzliche Funktion und Bedienung der
-> Oberfläche) sowie Kapitel 10 mit allen 33 Prüfpunkten (siehe
+> Oberfläche) sowie Kapitel 10 mit allen 39 Prüfpunkten (siehe
 > [Übersichtstabelle am Anfang von Kapitel 10](#10-die-prüfpunkte-im-detail))
 > sind ausgearbeitet. Es trägt weiterhin die Kennzeichnung "Entwurf", bis
 > eine erste vollständige Durchsicht stattgefunden hat.
@@ -61,7 +61,7 @@ Der Aufbau folgt bewusst vom Allgemeinen zum Speziellen:
 - Die **Kapitel 1–9** erklären, was das Programm tut, wie es aufgebaut ist
   und wie man es bedient — unabhängig davon, welche einzelnen Prüfpunkte
   gerade aktiv sind.
-- **Kapitel 10** enthält für jeden einzelnen der 33 Prüfpunkte eine eigene,
+- **Kapitel 10** enthält für jeden einzelnen der 39 Prüfpunkte eine eigene,
   ausführliche Beschreibung (was genau geprüft wird, warum das wichtig ist,
   und wie ein Befund behoben wird).
 
@@ -782,7 +782,7 @@ PLC_1 > PLC-Datentypen > U_Motor > Member > Drehzahl
 
 **Besonderheiten**
 
-- War in der ursprünglichen Liste der 34 Prüfpunkte kein eigener Punkt —
+- War in der ursprünglichen Liste der 33 Prüfpunkte kein eigener Punkt —
   ergänzt Prüfpunkt 1a um eine Lücke, die erst durch dessen eigene
   UDT-Sonderbehandlung entstanden ist (siehe dort).
 - Ist ein Item selbst wieder vom Typ eines (anderen oder desselben) UDT,
@@ -846,7 +846,7 @@ PLC_1 > Programmbausteine > FB_Motor > Member > Drehzahl
 
 **Besonderheiten**
 
-- War in der ursprünglichen Liste der 34 Prüfpunkte kein eigener Punkt —
+- War in der ursprünglichen Liste der 33 Prüfpunkte kein eigener Punkt —
   ergänzt Prüfpunkt 1a um eine Lücke, die erst durch dessen eigene
   Multi-Instanz-Sonderbehandlung entstanden ist (siehe dort).
 - Technischer Sonderfall: Anders als bei Datenbausteinen und

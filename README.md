@@ -251,7 +251,7 @@ tia-linter/
 │   ├── config_loader/        # Wiederverwendbare YAML/JSON-Config-Bibliothek
 │   └── my_logger/            # Wiederverwendbare Logging-Bibliothek
 ├── config/
-│   └── default.yaml          # Standard-Konfiguration (alle 33 Prüfpunkte)
+│   └── default.yaml          # Standard-Konfiguration (alle 39 Prüfpunkte)
 ├── tests/
 ├── pyproject.toml
 └── LICENSE

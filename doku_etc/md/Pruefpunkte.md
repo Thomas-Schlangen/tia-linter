@@ -20,6 +20,20 @@ Alle Prüfpunkte sollen konfigurierbar sein (YAML-Konfigurationsdatei). Jeder Pu
 **Status bei Verstoß:** ⚠️ Warnung oder ❌ Fehler (konfigurierbar)
 **Implementiert:** - [ ]
 
+### 1b. UDT ohne Kommentar
+**Was:** Prüfen ob PLC-Datentypen (UDTs) einen Kommentar haben — sowohl der UDT selbst als auch seine einzelnen Items (Interface-Member).
+**Hintergrund:** War in der ursprünglichen Liste der 33 Prüfpunkte kein eigener Punkt — ergänzt Prüfpunkt 1a um eine Lücke, die durch dessen eigene UDT-Sonderbehandlung entstanden ist: Prüfpunkt 1a prüft Items *innerhalb* eines UDT-typisierten DB-Members bewusst nicht mehr einzeln (ein Kommentar auf dem UDT-Member selbst genügt dort), dieser Prüfpunkt schließt die Lücke, indem er sowohl den Kommentar des UDT selbst als auch die Kommentare aller seiner Items direkt an der UDT-Definition prüft.
+**Konfigurierbar:** Ausnahmen per Namenspattern (Standard-Präfix `__`).
+**Status bei Verstoß:** ⚠️ Warnung
+**Implementiert:** - [x]
+
+### 1c. FB-Interface-Member ohne Kommentar
+**Was:** Prüfen ob die Interface-Member (Input/Output/InOut/Static) eines Funktionsbausteins (FB) einen Kommentar haben.
+**Hintergrund:** War in der ursprünglichen Liste der 33 Prüfpunkte kein eigener Punkt — analog zu Prüfpunkt 1b, aber für Funktionsbausteine statt UDTs: Prüfpunkt 1a prüft Instanz-DB-Member bewusst nicht mehr einzeln, dieser Prüfpunkt ist die alleinige Quelle für Kommentar-Befunde zu FB-Interface-Membern, geprüft einmalig an der FB-Definition (nicht pro Instanz). Der Kopfkommentar des FB als Ganzes ist Sache von Prüfpunkt 2 und wird hier nicht erneut geprüft.
+**Konfigurierbar:** Ausnahmen per Namenspattern (Standard-Präfix `__`).
+**Status bei Verstoß:** ⚠️ Warnung
+**Implementiert:** - [x]
+
 ### 2. Bausteine ohne Kopfbeschreibung
 **Was:** Prüfen ob alle FBs, FCs, DBs im Baustein-Kopf eine Beschreibung haben.
 **Inhalt prüfen:** Nicht nur ob vorhanden, sondern ob Mindestlänge (z.B. > 20 Zeichen) — leere oder nichtssagende Texte wie "." oder "FB" zählen nicht.
@@ -95,6 +109,12 @@ Alle Prüfpunkte sollen konfigurierbar sein (YAML-Konfigurationsdatei). Jeder Pu
 **Was:** Prüfen ob jeder Eingangs-PLC-Tag mindestens einmal im Programm gelesen wird.
 **Status bei Verstoß:** ⚠️ Warnung
 **Implementiert:** - [ ]
+
+### 12b. Eingänge dürfen nicht beschrieben werden
+**Was:** Prüfen ob ein Eingangs-PLC-Tag irgendwo im Programm beschrieben (geschrieben) statt nur gelesen wird.
+**Hintergrund:** War in der ursprünglichen Liste der 33 Prüfpunkte kein eigener Punkt — eine der grundlegendsten SPS-Programmierregeln: Eingänge werden jeden Zyklus vom Prozessabbild aus der Hardware überschrieben, ein Schreibzugriff aus dem Anwenderprogramm wird beim nächsten Zyklus also ohnehin wieder verworfen und deutet meist auf eine Verwechslung mit einem Merker hin.
+**Status bei Verstoß:** ❌ Fehler
+**Implementiert:** - [x]
 
 ### 13. Ausgänge max. 1x geschrieben
 **Was:** Prüfen ob Ausgangs-PLC-Tags nicht von mehreren Stellen im Programm beschrieben werden.
@@ -254,6 +274,8 @@ Alle Prüfpunkte sollen konfigurierbar sein (YAML-Konfigurationsdatei). Jeder Pu
 | Nr | Prüfpunkt | Via Openness | Schwierigkeit | Implementiert |
 |---|---|---|---|---|
 | 1a | Kommentare Variablen | ✅ Ja | Gering | - [ ] |
+| 1b | UDT ohne Kommentar | ✅ Ja | Gering | - [x] |
+| 1c | FB-Interface-Member ohne Kommentar | ✅ Ja | Gering | - [x] |
 | 2 | Kommentare Bausteine | ✅ Ja | Gering | - [ ] |
 | 3 | Netzwerkbeschreibungen | ✅ Ja | Gering | - [ ] |
 | 4 | Änderungshistorie | ✅ Ja | Gering | - [ ] |
@@ -266,6 +288,7 @@ Alle Prüfpunkte sollen konfigurierbar sein (YAML-Konfigurationsdatei). Jeder Pu
 | 11a | Unbenutzte Variablen | ⚠️ Kreuzreferenz | Hoch | - [ ] |
 | 11b | Unbenutzte Bausteine | ⚠️ Kreuzreferenz | Hoch | - [ ] |
 | 12a | Eingänge min. 1x gelesen | ⚠️ Kreuzreferenz | Hoch | - [ ] |
+| 12b | Eingänge dürfen nicht beschrieben werden | ⚠️ Kreuzreferenz | Hoch | - [x] |
 | 13 | Ausgänge max. 1x geschrieben | ⚠️ Kreuzreferenz | Hoch | - [ ] |
 | 14 | AWL-Code | ✅ Ja | Mittel | - [ ] |
 | 15 | Gemischte Sprachen | ✅ Ja | Mittel | - [ ] |
