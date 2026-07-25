@@ -3757,3 +3757,93 @@ tatsächlichen Implementierungsstand (39 implementierte Prüfpunkte auf `[x]`,
 Letzter Stand: "Alle 36 restlichen Checkboxen in Pruefpunkte.md auf [x]
 gesetzt, 17b und die Format-Legende bewusst ausgenommen. Kein Code geändert.
 Bereit zum Commit/Push."
+
+## Runde 16 — Code-Qualitäts-Review (Konsistenz/SRP/toter Code/Type Hints/Docstrings), alle 24 Befunde umgesetzt
+
+Auf User-Auftrag von einer zweiten Instanz (Opus 5) durchgeführtes, fokussiertes
+Code-Review über `code/src/**` (~4.000 Zeilen) entlang fünf Bereichen —
+Konsistenz, Single Responsibility, toter Code, Type Hints, Docstrings; keine
+TIA-Funktionsprüfung. Bericht liegt außerhalb des Repos unter
+`~/Dokumente/ObsidianVault/Projekte/TIA-Linter/Review-Qualitaet.md` (Repo-Root
+ist `code/`) und enthält alle 24 Einzelbefunde mit Datei:Zeile, Problem,
+Empfehlung sowie — nach Umsetzung — den Erledigungsstatus je Befund. Umsetzung
+in vier Schritten/Commits (Sonnet 5, auf User-Anweisung nach Vorlage des
+Berichts):
+
+- [x] **Commit `c9dd24a` — Konsistenz, toter Code, Type Hints, `run_lint`
+      entzerrt.**
+      - Logger + `logger.debug(..., exc_info=True)` in bislang stillen
+        `except Exception`-Fallbacks ergänzt (`checks/hardware.py`,
+        `structure.py`, `libraries.py`) — ein nicht verfügbarer TIA-Service war
+        vorher im Ergebnis nicht von "keine Verstöße" unterscheidbar.
+      - Toter Code entfernt: `local_variable_access_names` (~58 Zeilen, durch
+        `local_variable_access_paths` abgelöst) und `iter_devices_with_items`
+        (0 Aufrufer) aus `_tia_helpers.py`; zwei unbenutzte Importe
+        (`compile_unit_attribute` in `libraries.py`, `get_attribute` in
+        `naming.py`); `hardware.py`s ungenutzte Loop-Variable `device_item` →
+        `_device_item`.
+      - Gemeinsame `leaf_messages()` in `_tia_helpers.py` ergänzt, ersetzt zwei
+        zeichengleiche lokale Rekursionen in `libraries.py`
+        (`_leaf_messages`) und `metadata.py` (`_leaf_compiler_messages`).
+      - Fünf fehlende Type-Hints geschlossen: `export_block_xml` (`-> Element |
+        None`), `connector.connect()`/`.project` (`-> Any`),
+        `gui._run_lint_thread(**kwargs: Any)`, `reporter._make_footer ->
+        Callable[[Any, Any], None]`, `models.CheckDefinition.params: dict[str,
+        Any]`.
+      - `runner.py::run_lint` (~190 Zeilen) entzerrt: `_run_session()` und
+        `_disposed_exception_types()` herausgelöst. Wichtige
+        Design-Entscheidung: `_run_session` mutiert die ihr übergebenen
+        `results`/`done_check_ids`-Container direkt statt sie zurückzugeben —
+        dadurch bleiben bei einer disposed-Exception mitten in der Session die
+        bereits abgeschlossenen Checks erhalten, exakt wie im ursprünglichen,
+        unaufgeteilten Code.
+- [x] **Commit `ae4dea4` — verbleibende SRP-Aufsplittungen (auf expliziten
+      User-Wunsch nach Rückfrage, ob 2.2–2.5 auch noch angegangen werden
+      sollen).**
+      - `comments.py::VariablenKommentarCheck.run` in `_check_tags()`/
+        `_check_db_members()` gesplittet; die vorher zweimal fast identisch
+        vorkommende UDT-/FB-Namensermittlung als `_all_udt_names()`/
+        `_all_fb_names()` auf Modulebene ausgelagert und zusätzlich von
+        `UdtKommentarCheck` mitgenutzt.
+      - `structure.py::UnbenutzteVariablenCheck.run` in drei Methoden je
+        Prüfmechanismus gesplittet: `_check_tags()`, `_check_db_members()`,
+        `_check_block_interface_members()`.
+      - `gui.py::start_lint_run` um `_validate_inputs() -> bool` und
+        `_setup_run_logger(output_folder, project_path_str)` entlastet.
+      - `MainPage._build_widgets` in `_build_form()`,
+        `_setup_big_button_style()`, `_build_check_area()`, `_build_buttons()`,
+        `_build_log_area()` aufgeteilt — Aufrufreihenfolge bewusst exakt
+        beibehalten, da sie über `.pack()` die vertikale Layout-Reihenfolge
+        bestimmt; `pad`-Dict zur Klassenkonstante `_PAD` konsolidiert.
+      - Zusätzlich zur Testsuite mit einer Live-Instanziierung von
+        `TiaLinterApp(...)` (ohne Mainloop) verifiziert — Start-/
+        Abbrechen-Button-Zustand und Prüfpunkt-Bereich unverändert korrekt.
+- [x] **Commit `9d7f8da` — Docstring-Lücken 5.1–5.5.**
+      `CheckStatus`/`CheckSeverity` (`models.py`), `TiaVersionenConfig`/
+      `AppConfig` (`config.py`), `CheckMeta` (`checks/registry.py`), `Settings`
+      (`settings.py`) sowie fünf öffentliche GUI-Methoden ohne Docstring
+      (`start_lint_run`, `generate_pdf_report`, `collect_enabled_definitions`,
+      `set_running`, `load_report`) ergänzt. Reine Dokumentation, keine
+      Verhaltensänderung.
+- [x] **Commit `ecaf2e7` — letzter offener Befund 1.1 (auf User-Wunsch).**
+      Drei redundante lokale `iter_blocks`-Re-Importe in
+      `comments.py`-`run()`-Methoden entfernt (bereits auf Modulebene
+      importiert); `read_title`/`compile_unit_multilingual_text` (vorher nur
+      lokal importiert) auf Modulebene gezogen — jetzt konsistent mit
+      `naming.py`/`structure.py`/`libraries.py`. Lokale Importe bleiben bewusst
+      nur für `Siemens.*` (begründet: .NET-Typen erst nach Connect verfügbar).
+
+Nach jedem Schritt verifiziert: `.venv/bin/pytest` durchgehend 56/56 grün;
+nach den beiden `gui.py`-berührenden Schritten (`ae4dea4`, indirekt auch
+`9d7f8da`) zusätzlich `TiaLinterApp(...)` live instanziiert (kein Mainloop) als
+Laufzeit-Smoketest für die aufgeteilten Widget-Builder, da dafür keine
+dedizierten Tests existieren.
+
+**Damit sind alle 24 Befunde aus `Review-Qualitaet.md` geschlossen** — reine
+Qualitäts-/Struktur-Verbesserung, keine funktionale Änderung an den
+39 implementierten Prüfpunkten.
+
+Letzter Stand: "Code-Qualitäts-Review vollständig umgesetzt (24/24 Befunde),
+vier Commits (`c9dd24a`, `ae4dea4`, `9d7f8da`, `ecaf2e7`), alle gepusht nach
+`origin/main`. pytest weiterhin 56/56 grün. `Review-Qualitaet.md` mit
+Erledigungsstatus je Befund aktualisiert."
