@@ -3728,3 +3728,32 @@ Nachziehen aller 36 Checkboxen ein eigener, klar abgrenzbarer Folgeauftrag.
 Letzter Stand: "Beide Doku-Lücken aus Runde 13 geschlossen (Pruefpunkte.md um
 1b/1c/12b ergänzt, Terminologie auf 39 vereinheitlicht). Kein Code geändert,
 pytest weiterhin 56/56 grün. Committed und gepusht."
+
+## Runde 15 — Restliche Checkboxen in Pruefpunkte.md nachgezogen (auf User-Anweisung)
+
+Der in Runde 14 dokumentierte Hinweis (alle "alten" 36 Checkboxen standen noch
+auf `- [ ]`, obwohl längst implementiert und verifiziert) wurde auf
+ausdrücklichen User-Wunsch jetzt nachgezogen — reine Dokumentationsänderung,
+kein Code berührt.
+
+- [x] Alle 36 verbleibenden `**Implementiert:** - [ ]`-Zeilen (Detailabschnitte)
+      sowie die entsprechenden 36 Zeilen der Übersichtstabelle am Dateiende
+      auf `- [x]` gesetzt (per `sed`, negativ gefiltert auf "spätere Version"
+      bzw. die Zeile mit "17b" in der Tabelle).
+- [x] Zwei Ausnahmen bewusst unverändert gelassen:
+      - Zeile 10 (Format-Legende `` `- [ ] Stub` → `- [x] Implementiert` ``) —
+        beschreibt nur die Notation, kein echter Status.
+      - Prüfpunkt 17b (Hardware-Typ passt zum Tag-Datentyp) — laut Datei selbst
+        ausdrücklich "(spätere Version)" und weiterhin nicht implementiert
+        (kein Registry-Eintrag in `checks/registry.py`, siehe Runde 13/14).
+- [x] Verifiziert: `grep -n "\- \[ \]"` liefert nach dem Update nur noch genau
+      diese zwei Zeilen (10 und 152/297 für 17b) — keine versehentlich
+      übersprungene oder fälschlich gesetzte Checkbox.
+
+Damit ist `Pruefpunkte.md` jetzt vollständig deckungsgleich mit dem
+tatsächlichen Implementierungsstand (39 implementierte Prüfpunkte auf `[x]`,
+17b als einzige offene "spätere Version").
+
+Letzter Stand: "Alle 36 restlichen Checkboxen in Pruefpunkte.md auf [x]
+gesetzt, 17b und die Format-Legende bewusst ausgenommen. Kein Code geändert.
+Bereit zum Commit/Push."
