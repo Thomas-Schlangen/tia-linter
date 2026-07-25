@@ -8,6 +8,7 @@ from tia_linter.checks._tia_helpers import (
     format_path,
     get_attribute,
     iter_plc_software,
+    leaf_messages,
     read_comment,
     reference_language,
 )
@@ -125,7 +126,7 @@ class KompilierfehlerCheck(BaseCheck):
                 )
                 continue
 
-            for message in _leaf_compiler_messages(getattr(compile_result, "Messages", [])):
+            for message in leaf_messages(getattr(compile_result, "Messages", [])):
                 description = str(getattr(message, "Description", "Compiler-Meldung"))
                 folded_description = description.casefold()
                 if any(text in folded_description for text in ignored_substrings):
@@ -141,17 +142,6 @@ class KompilierfehlerCheck(BaseCheck):
                     )
                 )
         return results
-
-
-def _leaf_compiler_messages(messages: Any) -> list[Any]:
-    leaves = []
-    for message in messages or []:
-        children = list(getattr(message, "Messages", []) or [])
-        if children:
-            leaves.extend(_leaf_compiler_messages(children))
-        else:
-            leaves.append(message)
-    return leaves
 
 
 CHECK_CLASSES = {

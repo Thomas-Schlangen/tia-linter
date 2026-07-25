@@ -30,6 +30,7 @@ import threading
 import time
 from collections.abc import Callable, Iterable
 from datetime import datetime
+from typing import Any
 
 from tia_linter.checks import comments, hardware, libraries, metadata, naming, structure
 from tia_linter.checks._tia_helpers import reset_export_cache
@@ -150,6 +151,99 @@ def _ok_result(definition: CheckDefinition, project_name: str) -> CheckResult:
     )
 
 
+def _disposed_exception_types() -> tuple[type, ...]:
+    """Ermittelt die Exception-Typen, die eine komplett gestorbene
+    Openness-Session anzeigen (siehe ``run_lint``-Docstring). Erfordert eine
+    bereits geladene Openness-DLL — wird daher erst nach dem ersten
+    erfolgreichen ``connector.connect()`` aufgerufen; ohne verfügbaren Typ
+    (z. B. auf Systemen ohne TIA Portal) degradiert die Erkennung auf die
+    generische ``Exception``, statt den Reconnect-Mechanismus ganz
+    auszuschalten."""
+    try:
+        from Siemens.Engineering import EngineeringObjectDisposedException
+
+        return (EngineeringObjectDisposedException,)
+    except ImportError:
+        return (Exception,)
+
+
+def _run_session(
+    project: Any,
+    remaining: list[CheckDefinition],
+    excluded_folders: frozenset[str],
+    excluded_blocks: frozenset[str],
+    resolved_project_name: str,
+    reconnect_every_n_checks: int,
+    cancel_event: threading.Event | None,
+    disposed_exc_types: tuple[type, ...],
+    report: ProgressFn,
+    results: list[CheckResult],
+    done_check_ids: set[str],
+) -> bool:
+    """Führt so viele der noch offenen Prüfpunkte (``remaining``) wie möglich
+    innerhalb der aktuellen TIA-Portal-Session aus. Liefert ``True``, wenn der
+    Nutzer die Prüfung während dieser Session abgebrochen hat.
+
+    ``results``/``done_check_ids`` werden direkt mutiert statt als eigener
+    Rückgabewert kopiert — dadurch bleiben bereits abgeschlossene Checks
+    dieser Session auch dann erhalten, wenn ein späterer Check die Session
+    per disposed-Exception beendet: Diese Exception propagiert unverändert
+    nach außen (siehe ``run_lint``-Docstring für die anschließende
+    Reconnect-Logik), ohne dass die Ergebnisse der zuvor bereits
+    abgeschlossenen Checks verloren gehen.
+
+    Endet außerdem, wenn alle übergebenen Checks fertig sind (dann ohne
+    Abbruch) oder wenn der geplante Reconnect-Schwellenwert
+    (``reconnect_every_n_checks``) erreicht wird (ebenfalls ohne Abbruch —
+    nur ein Session-Wechsel, siehe ``run_lint``-Docstring).
+    """
+    checks_this_session = 0
+    for index, definition in enumerate(remaining, start=1):
+        if cancel_event is not None and cancel_event.is_set():
+            report("Prüfung abgebrochen.")
+            return True
+
+        report(f"Prüfe {definition.name} ... {index}/{len(remaining)}")
+        check = _instantiate_check(definition, excluded_folders, excluded_blocks)
+        if check is None:
+            done_check_ids.add(definition.check_id)
+        else:
+            try:
+                check_results = check.run(project)
+                if not check_results:
+                    check_results = [_ok_result(definition, resolved_project_name)]
+                results.extend(check_results)
+                done_check_ids.add(definition.check_id)
+            except disposed_exc_types:
+                # Session komplett gestorben — nicht als Fehler dieses einen
+                # Checks werten, sondern an den äußeren Reconnect-Handler in
+                # run_lint weiterreichen.
+                raise
+            except Exception as exc:  # noqa: BLE001 — ein Check darf die gesamte Prüfung nicht abbrechen
+                logger.exception("Fehler bei Prüfpunkt %s", definition.check_id)
+                results.append(
+                    CheckResult(
+                        check_id=definition.check_id,
+                        check_name=definition.name,
+                        category=definition.category,
+                        status=CheckStatus.ERROR,
+                        path=resolved_project_name,
+                        description=f"Prüfpunkt konnte nicht ausgeführt werden: {exc}",
+                        recommendation="Log-Datei prüfen — vermutlich ein API-Zugriffsproblem.",
+                    )
+                )
+                done_check_ids.add(definition.check_id)
+            finally:
+                _release_dotnet_objects()
+
+        checks_this_session += 1
+        if checks_this_session >= reconnect_every_n_checks and index < len(remaining):
+            return False  # geplanter Reconnect, siehe run_lint-Docstring — kein Abbruch, nur Session-Wechsel
+
+    report("Prüfung abgeschlossen.")
+    return False
+
+
 def run_lint(
     dll_path: str,
     tia_version: int,
@@ -253,58 +347,21 @@ def run_lint(
                 _reset_run_caches()
 
                 if not disposed_exc_types:
-                    try:
-                        from Siemens.Engineering import EngineeringObjectDisposedException
+                    disposed_exc_types = _disposed_exception_types()
 
-                        disposed_exc_types = (EngineeringObjectDisposedException,)
-                    except ImportError:
-                        disposed_exc_types = (Exception,)
-
-                checks_this_session = 0
-                for index, definition in enumerate(remaining, start=1):
-                    if cancel_event is not None and cancel_event.is_set():
-                        report("Prüfung abgebrochen.")
-                        cancelled = True
-                        break
-
-                    report(f"Prüfe {definition.name} ... {index}/{len(remaining)}")
-                    check = _instantiate_check(definition, excluded_folders_set, excluded_blocks_set)
-                    if check is None:
-                        done_check_ids.add(definition.check_id)
-                    else:
-                        try:
-                            check_results = check.run(project)
-                            if not check_results:
-                                check_results = [_ok_result(definition, resolved_project_name)]
-                            results.extend(check_results)
-                            done_check_ids.add(definition.check_id)
-                        except disposed_exc_types:
-                            # Session komplett gestorben — nicht als Fehler dieses
-                            # einen Checks werten, sondern an den äußeren
-                            # Reconnect-Handler weiterreichen (siehe unten).
-                            raise
-                        except Exception as exc:  # noqa: BLE001 — ein Check darf die gesamte Prüfung nicht abbrechen
-                            logger.exception("Fehler bei Prüfpunkt %s", definition.check_id)
-                            results.append(
-                                CheckResult(
-                                    check_id=definition.check_id,
-                                    check_name=definition.name,
-                                    category=definition.category,
-                                    status=CheckStatus.ERROR,
-                                    path=resolved_project_name,
-                                    description=f"Prüfpunkt konnte nicht ausgeführt werden: {exc}",
-                                    recommendation="Log-Datei prüfen — vermutlich ein API-Zugriffsproblem.",
-                                )
-                            )
-                            done_check_ids.add(definition.check_id)
-                        finally:
-                            _release_dotnet_objects()
-
-                    checks_this_session += 1
-                    if checks_this_session >= reconnect_every_n_checks and index < len(remaining):
-                        break  # geplanter Reconnect, siehe Docstring — kein "Abbruch", nur Session-Wechsel
-                else:
-                    report("Prüfung abgeschlossen.")
+                cancelled = _run_session(
+                    project=project,
+                    remaining=remaining,
+                    excluded_folders=excluded_folders_set,
+                    excluded_blocks=excluded_blocks_set,
+                    resolved_project_name=resolved_project_name,
+                    reconnect_every_n_checks=reconnect_every_n_checks,
+                    cancel_event=cancel_event,
+                    disposed_exc_types=disposed_exc_types,
+                    report=report,
+                    results=results,
+                    done_check_ids=done_check_ids,
+                )
 
             consecutive_failures = 0  # Session ohne Absturz beendet (fertig, geplanter Reconnect oder Abbruch)
         except disposed_exc_types as exc:

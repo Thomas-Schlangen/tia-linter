@@ -10,7 +10,10 @@ from __future__ import annotations
 import logging
 import tempfile
 from pathlib import Path
-from typing import Any, Iterable, Iterator
+from typing import TYPE_CHECKING, Any, Iterable, Iterator
+
+if TYPE_CHECKING:
+    from xml.etree.ElementTree import Element
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +22,25 @@ def format_path(*parts: str) -> str:
     """Baut einen Befund-Pfad im projektweit einheitlichen Format
     ``Teil1 > Teil2 > ...`` (siehe README, Abschnitt "Pfad-Format")."""
     return " > ".join(str(p) for p in parts if p)
+
+
+def leaf_messages(messages: Any) -> list[Any]:
+    """Flacht einen rekursiv verschachtelten ``Messages``-Baum auf die
+    Blattmeldungen ab.
+
+    Sowohl ``UpdateCheckResultMessage`` (Prüfpunkt 22, Bibliotheks-Update-
+    Check) als auch ``CompilerResultMessage`` (Prüfpunkt 21, Kompilierfehler)
+    liefern laut V21-Openness-Referenz keine flache Meldungsliste, sondern
+    rekursiv verschachtelte ``Messages`` — nur die Blattmeldungen (kein
+    eigenes ``Messages``) sind die tatsächlich anzuzeigenden Einzelbefunde."""
+    leaves: list[Any] = []
+    for message in messages or []:
+        children = list(getattr(message, "Messages", []) or [])
+        if children:
+            leaves.extend(leaf_messages(children))
+        else:
+            leaves.append(message)
+    return leaves
 
 
 def iter_plc_software(project: Any) -> Iterator[Any]:
@@ -52,14 +74,6 @@ def iter_plc_targets(project: Any) -> Iterator[tuple[Any, Any, Any]]:
             container = device_item.GetService[SoftwareContainer]()
             if container is not None and isinstance(container.Software, PlcSoftware):
                 yield container.Software, device_item, device
-
-
-def iter_devices_with_items(project: Any) -> Iterator[tuple[Any, Any]]:
-    """Liefert alle ``(device, device_item)``-Paare des Projekts — Basis für
-    Hardware-bezogene Prüfungen (I/O-Adressen, Safety, Zertifikate, ...)."""
-    for device in project.Devices:
-        for device_item in device.DeviceItems:
-            yield device, device_item
 
 
 _ET200SP_BUS_ADAPTER_POSITION = 127
@@ -397,7 +411,7 @@ def reset_export_cache() -> None:
     _export_cache.clear()
 
 
-def export_block_xml(block: Any, plc_software: Any):
+def export_block_xml(block: Any, plc_software: Any) -> Element | None:
     """Exportiert einen Baustein nach SIMATIC ML (XML) und liefert die
     Wurzel des geparsten Dokuments (oder ``None`` bei Exportfehler).
 
@@ -805,66 +819,6 @@ def interface_section_member_paths(xml_root: Any, section_name: str) -> dict[str
     return result
 
 
-def local_variable_access_names(xml_root: Any) -> set[str]:
-    """Liefert die Namen aller eigenen Interface-Member (Input/Output/InOut/
-    Static/Temp), die im Netzwerk-Code eines Bausteins (FB/FC/OB) tatsächlich
-    referenziert werden — unabhängig von der Programmiersprache.
-
-    Live verifiziert (Salzmaschine, SCL-FB ``LSNTP_Server`` und FBD-FB
-    ``40Alm``): Ein Zugriff auf eine eigene Interface-Variable wird in SCL
-    *und* FBD/LAD identisch als ``<Access Scope="LocalVariable">
-    <Symbol><Component Name="..."/>...</Symbol></Access>`` exportiert — nur
-    der äußere Namespace (``StructuredText`` vs. ``FlgNet``) unterscheidet
-    sich. Ein Multiinstanz-FB-Aufruf referenziert seine Instanz (ein eigenes
-    Static-Member) dagegen über ``<Instance Scope="LocalVariable">
-    <Component Name="..."/></Instance>`` — ohne ``Symbol``-Zwischenelement,
-    aber mit demselben ``Scope``-Attribut (ebenfalls live verifiziert, FC
-    ``CtrFcParaRdWr``).
-
-    Bewusst **nicht** über einen naiven Text-/Regex-Scan der exportierten XML
-    gelöst: Ein Bausteinaufruf listet die Parameternamen des *aufgerufenen*
-    Bausteins (``<CallInfo><Parameter Name="..." Section="Input"/>``) — diese
-    haben kein ``Scope="LocalVariable"`` und würden bei einem Textvergleich
-    fälschlich als Verwendung einer gleichnamigen *eigenen* Variablen des
-    aufrufenden Bausteins zählen, sobald beide Bausteine zufällig ein Member
-    mit demselben Namen deklarieren. Nur ``Access``/``Instance``-Elemente mit
-    ``Scope="LocalVariable"`` zählen als echter interner Zugriff.
-
-    Nur die erste ``Component`` unter ``Symbol`` (bzw. direkt unter
-    ``Instance``) wird gezählt — das ist der Name des direkt deklarierten
-    Interface-Members; weitere, verschachtelte ``Component``-Elemente sind
-    Struct-/UDT-Unterfelder desselben Members (analog zur Granularität von
-    ``interface_section_members``)."""
-    if xml_root is None:
-        return set()
-    names: set[str] = set()
-
-    for compile_unit in iter_compile_units(xml_root):
-        for elem in compile_unit.iter():
-            tag = _local_name(elem.tag)
-            if elem.attrib.get("Scope") != "LocalVariable":
-                continue
-            if tag == "Access":
-                for symbol in elem:
-                    if _local_name(symbol.tag) != "Symbol":
-                        continue
-                    for component in symbol:
-                        if _local_name(component.tag) == "Component":
-                            name = component.attrib.get("Name")
-                            if name:
-                                names.add(name)
-                            break
-                    break
-            elif tag == "Instance":
-                for component in elem:
-                    if _local_name(component.tag) == "Component":
-                        name = component.attrib.get("Name")
-                        if name:
-                            names.add(name)
-                        break
-    return names
-
-
 def _symbol_component_chain(symbol_or_instance_elem: Any) -> list[str]:
     """Liest die Namen aller direkten ``Component``-Kinder von ``Symbol``
     (bzw. ``Instance``) in Dokumentreihenfolge.
@@ -882,9 +836,8 @@ def _symbol_component_chain(symbol_or_instance_elem: Any) -> list[str]:
 
     (analog auch an FC ``CtrFcParaRdWr`` bestätigt, z. B. ``lx_Step.Sc``).
     Fortsetzung von ``_first_symbol_component_name``, das bewusst nur die
-    erste ``Component`` lieferte (siehe ``local_variable_access_names``);
-    Grundlage für ``local_variable_access_paths`` (Prüfpunkt 11as
-    Unterelement-Detailprüfung)."""
+    erste ``Component`` liefert; Grundlage für ``local_variable_access_paths``
+    (Prüfpunkt 11as Unterelement-Detailprüfung)."""
     return [
         name
         for component in symbol_or_instance_elem
@@ -893,8 +846,10 @@ def _symbol_component_chain(symbol_or_instance_elem: Any) -> list[str]:
 
 
 def local_variable_access_paths(xml_root: Any) -> set[str]:
-    """Wie ``local_variable_access_names``, aber mit voller Pfadtiefe:
-    liefert dotted Zugriffspfade auf beliebiger Verschachtelungstiefe (z. B.
+    """Liefert die Namen aller eigenen Interface-Member (Input/Output/InOut/
+    Static/Temp), die im Netzwerk-Code eines Bausteins (FB/FC/OB) tatsächlich
+    referenziert werden — unabhängig von der Programmiersprache — als dotted
+    Zugriffspfade auf beliebiger Verschachtelungstiefe (z. B.
     ``"DiagCpu.SubordinateIOState"`` statt nur ``"DiagCpu"``) für
     Prüfpunkt 11as Unterelement-Detailprüfung bei FB/FC/OB
     (``unterelemente_pruefen: true`` in der Config, siehe ``structure.py``).
@@ -933,8 +888,7 @@ def local_variable_access_paths(xml_root: Any) -> set[str]:
 
 def _first_symbol_component_name(access_elem: Any) -> str | None:
     """Liefert den Namen der ersten ``Component`` unter ``Symbol`` eines
-    ``Access``-Elements (das direkt deklarierte Interface-Member, siehe
-    ``local_variable_access_names``)."""
+    ``Access``-Elements (das direkt deklarierte Interface-Member)."""
     for symbol in access_elem:
         if _local_name(symbol.tag) != "Symbol":
             continue
@@ -989,7 +943,7 @@ def local_variable_write_counts(xml_root: Any) -> dict[str, int]:
     im Netzwerk-Code eines Bausteins (FB/FC/OB) tatsächlich **beschrieben**
     (nicht nur gelesen) werden — sprachunabhängig (SCL und FBD/LAD).
 
-    Anders als ``local_variable_access_names`` (das nur "wird überhaupt
+    Anders als ``local_variable_access_paths`` (das nur "wird überhaupt
     verwendet" beantwortet) ist hier die Lese-/Schreibrichtung nötig
     (Prüfpunkt 26: mehrfach beschriebene Output-Parameter). Live an
     Salzmaschine erarbeitet (FB ``LSNTP_Server``, FC ``CtrFcParaRdWr``,

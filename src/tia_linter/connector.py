@@ -16,6 +16,7 @@ import sys
 from abc import ABC, abstractmethod
 from pathlib import Path
 from types import TracebackType
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -81,8 +82,9 @@ class BaseTiaConnector(ABC):
 
         self._clr_loaded = True
 
-    def connect(self, project_path: str | Path):
-        """Öffnet ein TIA-Portal-Projekt (headless) und gibt das Projekt-Objekt zurück."""
+    def connect(self, project_path: str | Path) -> Any:
+        """Öffnet ein TIA-Portal-Projekt (headless) und gibt das Projekt-Objekt
+        zurück (``Siemens.Engineering.Project`` — .NET-Typ, daher ``Any``)."""
         project_path = Path(project_path)
         if not project_path.is_file():
             raise TiaConnectionError(f"Projektdatei nicht gefunden: {project_path}")
@@ -132,7 +134,9 @@ class BaseTiaConnector(ABC):
         self.disconnect()
 
     @property
-    def project(self):
+    def project(self) -> Any:
+        """Das aktuell geöffnete Projekt-Objekt (``Siemens.Engineering.Project``
+        — .NET-Typ, daher ``Any``), oder ``None`` außerhalb einer Verbindung."""
         return self._project
 
 

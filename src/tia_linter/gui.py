@@ -9,7 +9,7 @@ import tkinter as tk
 from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, font as tkfont, messagebox, ttk
-from typing import Callable
+from typing import Any, Callable
 
 from my_logger import setup_logger
 
@@ -180,7 +180,7 @@ class TiaLinterApp(tk.Tk):
         self._cancel_event.set()
         self._status_queue.put(("status", "Abbruch angefordert ..."))
 
-    def _run_lint_thread(self, run_lint_fn: RunLintFn, **kwargs) -> None:
+    def _run_lint_thread(self, run_lint_fn: RunLintFn, **kwargs: Any) -> None:
         try:
             report = run_lint_fn(progress=lambda message: self._status_queue.put(("status", message)), **kwargs)
             self._status_queue.put(("report", report))

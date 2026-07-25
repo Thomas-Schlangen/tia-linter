@@ -7,7 +7,6 @@ from typing import Any
 
 from tia_linter.checks._tia_helpers import (
     format_path,
-    get_attribute,
     iter_blocks,
     iter_data_blocks,
     iter_plc_software,

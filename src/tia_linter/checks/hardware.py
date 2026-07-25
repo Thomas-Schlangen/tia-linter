@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -13,6 +14,8 @@ from tia_linter.checks._tia_helpers import (
 )
 from tia_linter.checks.base import BaseCheck
 from tia_linter.models import CheckResult, CheckStatus
+
+logger = logging.getLogger(__name__)
 
 
 class HardwareVorhandenCheck(BaseCheck):
@@ -34,7 +37,7 @@ class HardwareVorhandenCheck(BaseCheck):
 
     def run(self, project: Any) -> list[CheckResult]:
         results: list[CheckResult] = []
-        for plc_software, device_item, device in iter_plc_targets(project):
+        for plc_software, _device_item, device in iter_plc_targets(project):
             module_count = count_additional_hardware_modules(device)
             if module_count == 0:
                 results.append(
@@ -83,6 +86,11 @@ class SafetyPasswortCheck(BaseCheck):
 
                 safety_admin = device_item.GetService[SafetyAdministration]()
             except Exception:  # noqa: BLE001 — Service evtl. nicht verfügbar (keine F-CPU/keine Lizenz)
+                logger.debug(
+                    "SafetyAdministration nicht verfügbar für '%s' (keine F-CPU/keine Lizenz).",
+                    plc_software.Name,
+                    exc_info=True,
+                )
                 safety_admin = None
 
             if safety_admin is None:
@@ -118,6 +126,11 @@ class ZertifikatCheck(BaseCheck):
 
                 cert_manager = device_item.GetService[LocalCertificateManager]()
             except Exception:  # noqa: BLE001 — Service evtl. nicht verfügbar
+                logger.debug(
+                    "LocalCertificateManager nicht verfügbar für '%s'.",
+                    plc_software.Name,
+                    exc_info=True,
+                )
                 cert_manager = None
 
             certificates = list(getattr(getattr(cert_manager, "LocalCertificateStore", None), "Certificates", []) or [])

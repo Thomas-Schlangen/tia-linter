@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import textwrap
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 import yaml
 from reportlab.lib import colors
@@ -498,8 +498,8 @@ class PdfReporter:
             ]
         )
 
-    def _make_footer(self, project_name: str) -> Callable:
-        def footer(canvas, doc) -> None:
+    def _make_footer(self, project_name: str) -> Callable[[Any, Any], None]:
+        def footer(canvas: Any, doc: Any) -> None:
             canvas.saveState()
             canvas.setFont("Helvetica", 8)
             canvas.setFillColor(colors.HexColor("#666666"))

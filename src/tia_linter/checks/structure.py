@@ -11,6 +11,7 @@ abgefragt, nicht projektweit in einem Aufruf.
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 
@@ -39,6 +40,8 @@ from tia_linter.checks._tia_helpers import (
 )
 from tia_linter.checks.base import BaseCheck
 from tia_linter.models import CheckResult
+
+logger = logging.getLogger(__name__)
 
 
 class LeereNetzwerkeCheck(BaseCheck):
@@ -202,9 +205,9 @@ class UnbenutzteVariablenCheck(BaseCheck):
     FB-/FC-/OB-Interface-Member, dort aber neu über den XML-Export gelöst
     (``interface_section_member_paths()``/``local_variable_access_paths()``):
     anders als bei DBs kannte der bisherige XML-Scan nur Top-Level-Member
-    (``local_variable_access_names()`` nahm ohnehin nur die erste
-    ``Component`` unter ``Symbol`` — Unterfeld-Granularität existierte für
-    FB/FC/OB bislang gar nicht). Beide neuen Funktionen lösen die
+    (der Vorgänger von ``local_variable_access_paths()`` nahm ohnehin nur die
+    erste ``Component`` unter ``Symbol`` — Unterfeld-Granularität existierte
+    für FB/FC/OB bislang gar nicht). Beide neuen Funktionen lösen die
     verschachtelte ``<Sections>``-Deklaration bzw. verschachtelte
     ``Component``-Zugriffsketten rekursiv bis auf Blattebene auf und sind
     noch **nicht** live an einem echten verschachtelten UDT-/Struct-Zugriff
@@ -237,7 +240,12 @@ class UnbenutzteVariablenCheck(BaseCheck):
                     continue  # geprüft über die FB-Definition weiter unten
                 try:
                     service = db.GetService[CrossReferenceService]()
-                except Exception:  # noqa: BLE001
+                except Exception:  # noqa: BLE001 — Service evtl. nicht verfügbar
+                    logger.debug(
+                        "CrossReferenceService nicht verfügbar für DB '%s'.",
+                        db.Name,
+                        exc_info=True,
+                    )
                     service = None
                 if service is None:
                     continue

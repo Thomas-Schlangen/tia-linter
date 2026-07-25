@@ -9,11 +9,11 @@ live verifiziert (Salzmaschine), siehe ``StaticZugriffExternCheck``-Docstring.
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 
 from tia_linter.checks._tia_helpers import (
-    compile_unit_attribute,
     compile_unit_element_count,
     cross_reference_root_source,
     export_block_xml,
@@ -26,6 +26,7 @@ from tia_linter.checks._tia_helpers import (
     iter_data_blocks,
     iter_plc_software,
     iter_tag_tables,
+    leaf_messages,
     local_variable_write_counts,
     read_comment,
     reference_language,
@@ -33,6 +34,8 @@ from tia_linter.checks._tia_helpers import (
 )
 from tia_linter.checks.base import BaseCheck
 from tia_linter.models import CheckResult
+
+logger = logging.getLogger(__name__)
 
 
 class VeralteteBibliothekenCheck(BaseCheck):
@@ -63,20 +66,11 @@ class VeralteteBibliothekenCheck(BaseCheck):
         try:
             update_result = library.UpdateCheck(project, UpdateCheckMode.ReportOutOfDateOnly)
         except Exception:  # noqa: BLE001 — Bibliothek evtl. leer/nicht lizenziert
+            logger.debug("UpdateCheck der Projektbibliothek fehlgeschlagen.", exc_info=True)
             return []
 
-        def _leaf_messages(messages: Any) -> list[Any]:
-            leaves = []
-            for message in messages or []:
-                sub_messages = list(getattr(message, "Messages", []) or [])
-                if sub_messages:
-                    leaves.extend(_leaf_messages(sub_messages))
-                else:
-                    leaves.append(message)
-            return leaves
-
         results: list[CheckResult] = []
-        for message in _leaf_messages(getattr(update_result, "Messages", [])):
+        for message in leaf_messages(getattr(update_result, "Messages", [])):
             description = str(getattr(message, "Description", "Veraltete Bibliotheksinstanz."))
             results.append(
                 self._make_result(
@@ -128,7 +122,8 @@ class SprachenKonsistentCheck(BaseCheck):
         try:
             culture = project.LanguageSettings.ReferenceLanguage.Culture
             actual = str(getattr(culture, "Name", culture)).lower()
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 — Referenzsprache evtl. nicht auslesbar
+            logger.debug("Referenzsprache des Projekts konnte nicht gelesen werden.", exc_info=True)
             return []
 
         if not actual.startswith(expected):
