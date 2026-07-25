@@ -316,6 +316,13 @@ class PdfReporter:
                     ("TEXTCOLOR", (1, 1), (1, 1), COLOR_WARNING),
                     ("TEXTCOLOR", (2, 1), (2, 1), COLOR_OK),
                     ("FONTSIZE", (0, 1), (-1, 1), 20),
+                    # Ohne explizites LEADING bleibt es beim TableStyle-Standard (12) —
+                    # kleiner als die hier gesetzte Schriftgröße (20). Dadurch berechnet
+                    # reportlab die Zeile zu knapp und die Zahl sitzt bei VALIGN "MIDDLE"
+                    # mit der Grundlinie fast am unteren Zellenrand statt zentriert (siehe
+                    # reportlab/platypus/tables.py::_drawCell, MIDDLE-Formel). 1.2×Schrift-
+                    # größe ist der übliche Leading-Richtwert und zentriert sichtbar korrekt.
+                    ("LEADING", (0, 1), (-1, 1), 24),
                     ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
                     ("FONTNAME", (0, 1), (-1, 1), "Helvetica-Bold"),
                     ("ALIGN", (0, 0), (-1, -1), "CENTER"),
