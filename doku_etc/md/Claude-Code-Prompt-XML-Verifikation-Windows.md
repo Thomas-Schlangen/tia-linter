@@ -8,8 +8,8 @@
 
 ```
 Lies zuerst:
-D:\Daten\Projekte\OpennessDev\tia-linter\doku_etc\XML-Optimierung-Fortschritt.md
-D:\Daten\Projekte\OpennessDev\tia-linter\doku_etc\XML-Optimierung-Analysebericht.md
+XML-Optimierung-Fortschritt.md
+XML-Optimierung-Analysebericht.md
 
 Der Lazy Cache für XML-Exporte wurde auf Linux implementiert und committed.
 Jetzt echter Verifikationstest gegen das Salzmaschine-Projekt.
