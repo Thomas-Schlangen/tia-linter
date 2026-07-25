@@ -38,6 +38,46 @@ max_reconnect_attempts: 3
 # lange bevor ein größeres Projekt vollständig geprüft ist — siehe README.
 reconnect_every_n_checks: 10
 
+# Innerhalb der Prüfpunkte 11a/11b/12a/12b/13 (CrossReferenceService pro Tag/
+# Baustein, siehe structure.py) wird alle gc_interval verarbeiteten Objekte
+# zusätzlich eine .NET-Garbage-Collection erzwungen (ohne Reconnect) — bei
+# sehr großen Projekten (mehrere Tausend Tags/Bausteine) kann sonst bereits
+# ein einzelner dieser Checks das oben genannte Handle-Limit reißen, bevor
+# der Check zu Ende ist und reconnect_every_n_checks überhaupt greift.
+gc_interval: 200
+
+# Maximale Anzahl gleichzeitig gecachter Baustein-XML-Exporte (LRU-
+# Verdrängung des am längsten unbenutzten Eintrags, siehe _tia_helpers.py::
+# export_block_xml). Der Cache bleibt über Reconnects hinweg erhalten (siehe
+# runner.py::_reset_run_caches) und wird nur zu Lauf-Beginn geleert — ohne
+# Begrenzung würde er bei sehr großen Projekten (mehrere Tausend Bausteine)
+# unbeschränkt wachsen (mehrere GB RAM möglich).
+xml_cache_max_size: 500
+
+# Maximale Anzahl gleichzeitig gecachter CrossReference-Abfragen (LRU, siehe
+# _tia_helpers.py::cached_cross_reference_locations). Wie der XML-Cache bleibt
+# er über Reconnects hinweg erhalten und wird nur zu Lauf-Beginn geleert —
+# deckt echte Mehrfachabfragen ab, z. B. fragt Prüfpunkt 11a jedes Tag mit
+# demselben Filter ab wie anschließend 12a/12b/13 für Ein-/Ausgänge.
+xref_cache_max_size: 1000
+
+# Gewichtung je Prüfpunkt für den Reconnect-Schwellenwert
+# (reconnect_every_n_checks zählt ab jetzt gewichtet statt 1 Check = 1
+# Einheit). Die fünf CrossReference-intensiven Prüfpunkte 11a/11b/12a/12b/13
+# (siehe structure.py) erzeugen pro Tag/Baustein deutlich mehr .NET-Handles
+# als ein durchschnittlicher Check und liegen zudem alle direkt
+# hintereinander in der Registry-Reihenfolge — ohne Gewichtung würde der
+# Reconnect-Zeitpunkt rein zufällig davon abhängen, wo im Lauf diese Checks
+# gerade liegen. "default" greift für alle nicht einzeln aufgeführten
+# Prüfpunkte.
+check_weights:
+  programmstruktur.unbenutzte_variablen: 5
+  programmstruktur.unbenutzte_bausteine: 5
+  programmstruktur.eingaenge_gelesen: 3
+  programmstruktur.eingaenge_nicht_beschrieben: 3
+  programmstruktur.ausgaenge_mehrfach_schreiben: 3
+  default: 1
+
 # Ordnernamen (Programmbausteine-, Datenbaustein- und Variablentabellen-
 # Ordner), die komplett von der Prüfung ausgenommen werden sollen — z. B.
 # bereits mehrfach geprüfte Bibliotheksordner. Ein ausgeschlossener Ordner

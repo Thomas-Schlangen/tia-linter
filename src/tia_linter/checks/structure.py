@@ -17,11 +17,11 @@ from typing import Any
 
 from tia_linter.checks._tia_helpers import (
     block_programming_language,
+    cached_cross_reference_locations,
     compile_unit_attribute,
     compile_unit_element_count,
     compile_unit_multilingual_text,
     compile_unit_scl_line_count,
-    cross_reference_locations,
     cross_reference_referenced_top_level_names,
     export_block_xml,
     format_path,
@@ -34,6 +34,7 @@ from tia_linter.checks._tia_helpers import (
     local_variable_access_paths,
     normalize_member_path,
     reference_language,
+    release_dotnet_objects,
     strip_cross_reference_prefix,
     tag_direction,
     unused_cross_reference_leaf_names,
@@ -105,7 +106,7 @@ class UnbenutzteVariablenCheck(BaseCheck):
     Global-/Array-DB-Variablen, sowie unbenutzte FB-/FC-/OB-Interface-Member
     (nur interne Verwendung im Baustein selbst zählt).
 
-    PLC-Tags: ``cross_reference_locations`` direkt am Tag (bestätigt
+    PLC-Tags: ``cached_cross_reference_locations`` direkt am Tag (bestätigt
     unterstützter Objekttyp) — leer bedeutet unbenutzt.
 
     Global-/Array-DB-Variablen: ``CrossReferenceFilter.UnusedObjects`` am
@@ -227,11 +228,30 @@ class UnbenutzteVariablenCheck(BaseCheck):
         return results
 
     def _check_tags(self, plc_software: Any) -> list[CheckResult]:
-        """Prüft alle PLC-Tags auf fehlende Cross-Reference-Verwendung im gesamten Programm."""
+        """Prüft alle PLC-Tags auf fehlende Cross-Reference-Verwendung im gesamten Programm.
+
+        Erzwingt alle ``self.gc_interval`` verarbeitete Tags eine .NET-GC
+        (siehe ``release_dotnet_objects``) — bei sehr großen Projekten
+        (mehrere Tausend Tags) erzeugt die CrossReference-Abfrage pro Tag
+        einen eigenen Handle-Baum; ohne zwischenzeitliche GC kann bereits
+        dieser eine Check das .NET-Handle-Limit reißen, bevor der äußere,
+        checkweise GC-Aufruf in ``runner.py`` überhaupt greift (siehe
+        ``Review-Performance.md``, Maßnahme 1).
+
+        Nutzt ``cached_cross_reference_locations`` (Maßnahme 4) — dieser
+        Check fragt als erster in der Registry-Reihenfolge **jedes** Tag mit
+        dem Filter ``AllObjects`` ab; Prüfpunkt 12a/12b/13 fragen exakt
+        dieselben Tags (jeweils nur Ein- bzw. Ausgänge) mit demselben Filter
+        erneut ab und treffen dadurch auf einen bereits gefüllten
+        Cache-Eintrag, statt selbst noch einmal beim CrossReferenceService
+        nachzufragen."""
+        from Siemens.Engineering.CrossReference import CrossReferenceFilter
+
         results: list[CheckResult] = []
+        processed = 0
         for tag_table in iter_tag_tables(plc_software, self.excluded_folders):
             for tag in tag_table.Tags:
-                if not cross_reference_locations(tag):
+                if not cached_cross_reference_locations(tag, CrossReferenceFilter.AllObjects, plc_software.Name):
                     results.append(
                         self._make_result(
                             path=format_path(plc_software.Name, "Variablentabellen", tag_table.Name, tag.Name),
@@ -239,6 +259,9 @@ class UnbenutzteVariablenCheck(BaseCheck):
                             value=tag.Name,
                         )
                     )
+                processed += 1
+                if processed % self.gc_interval == 0:
+                    release_dotnet_objects()
         return results
 
     def _check_db_members(self, plc_software: Any, check_sub_items: bool) -> list[CheckResult]:
@@ -399,10 +422,11 @@ class UnbenutzteBausteineCheck(BaseCheck):
     """
 
     def run(self, project: Any) -> list[CheckResult]:
-        from Siemens.Engineering.CrossReference import ReferenceType
+        from Siemens.Engineering.CrossReference import CrossReferenceFilter
         from Siemens.Engineering.SW.Blocks import OB, DataBlock, InstanceDB
 
         results: list[CheckResult] = []
+        processed = 0
         for plc_software in iter_plc_software(project):
             for block, group_path in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
                 if isinstance(block, OB):
@@ -410,12 +434,14 @@ class UnbenutzteBausteineCheck(BaseCheck):
                 if isinstance(block, DataBlock) and not isinstance(block, InstanceDB):
                     is_used = bool(cross_reference_referenced_top_level_names(block))
                 elif isinstance(block, InstanceDB):
-                    locations = cross_reference_locations(block)
-                    is_used = any(
-                        getattr(loc, "ReferenceType", None) != ReferenceType.InstanceType for loc in locations
+                    locations = cached_cross_reference_locations(
+                        block, CrossReferenceFilter.AllObjects, plc_software.Name
                     )
+                    is_used = any(reference_type != "InstanceType" for _access, reference_type in locations)
                 else:
-                    is_used = bool(cross_reference_locations(block))
+                    is_used = bool(
+                        cached_cross_reference_locations(block, CrossReferenceFilter.AllObjects, plc_software.Name)
+                    )
                 if not is_used:
                     if isinstance(block, InstanceDB):
                         description = f"Baustein '{block.Name}' wird an keinem FB verwendet."
@@ -428,23 +454,74 @@ class UnbenutzteBausteineCheck(BaseCheck):
                             value=block.Name,
                         )
                     )
+                # Erzwingt periodische .NET-GC — analog zu _check_tags in
+                # UnbenutzteVariablenCheck (siehe dort für die Begründung).
+                processed += 1
+                if processed % self.gc_interval == 0:
+                    release_dotnet_objects()
         return results
 
 
+_EINGAENGE_NICHT_BESCHRIEBEN_CHECK_ID = "programmstruktur.eingaenge_nicht_beschrieben"
+
+# Lauf-gebundener Zwischenspeicher für Maßnahme 3 (Review-Performance.md,
+# Befund 4.1): Prüfpunkt 12a und 12b fragten bislang für dieselben
+# Eingangs-Tags unabhängig voneinander denselben CrossReference-Baum ab —
+# eine glatte Verdopplung. Sind beide Prüfpunkte aktiviert, berechnet
+# EingaengeGelesenCheck (läuft laut Registry-/Config-Reihenfolge immer vor
+# EingaengeNichtBeschriebenCheck) beide Ergebnisse in einem gemeinsamen
+# Durchlauf und legt die für 12b bestimmten Rohdaten hier ab; 12b entnimmt
+# sie, statt selbst erneut abzufragen. Ist nur einer der beiden Checks
+# aktiv, bleibt dieser Speicher ungenutzt — beide Checks laufen dann
+# unverändert einzeln (siehe jeweiliges ``run()``). Absichtlich Rohdaten
+# (Pfad, Tag-Name, Schreibzähler) statt fertiger ``CheckResult``-Objekte,
+# damit 12b seine eigene ``_make_result`` (mit der eigenen
+# ``CheckDefinition``, z. B. Schweregrad) für seine Befunde verwendet.
+_pending_write_counts: dict[str, list[tuple[str, str, int]]] = {}
+
+
+def reset_pending_write_counts() -> None:
+    """Leert den Zwischenspeicher aus Maßnahme 3.
+
+    Von ``runner.py`` zu Beginn jedes Lint-Laufs aufgerufen — reines
+    Sicherheitsnetz gegen einen theoretischen Leak zwischen zwei Läufen
+    (z. B. bei einem Abbruch zwischen Prüfpunkt 12a und 12b); im
+    Normalbetrieb wird der Speicher ohnehin noch innerhalb desselben Laufs
+    von 12b vollständig konsumiert."""
+    _pending_write_counts.clear()
+
+
 class EingaengeGelesenCheck(BaseCheck):
-    """Prüfpunkt 12a: Eingangs-Tags, die im Programm nie gelesen werden."""
+    """Prüfpunkt 12a: Eingangs-Tags, die im Programm nie gelesen werden.
+
+    Sind Prüfpunkt 12a und 12b (``EingaengeNichtBeschriebenCheck``) beide
+    aktiviert, berechnet dieser Check zusätzlich die für 12b benötigten
+    Daten (Access.Write-Auszählung) in demselben Durchlauf über alle
+    Eingangs-Tags und legt sie in ``_pending_write_counts`` ab — eine
+    CrossReference-Abfrage pro Tag statt zwei (siehe
+    ``Review-Performance.md``, Maßnahme 3). Ist nur 12a aktiv, läuft dieser
+    Check unverändert einzeln, ohne die zusätzliche Auswertung.
+    """
 
     def run(self, project: Any) -> list[CheckResult]:
-        from Siemens.Engineering.CrossReference import Access
+        if _EINGAENGE_NICHT_BESCHRIEBEN_CHECK_ID in self.enabled_check_ids:
+            return self._run_combined(project)
+        return self._run_standalone(project)
+
+    def _run_standalone(self, project: Any) -> list[CheckResult]:
+        from Siemens.Engineering.CrossReference import CrossReferenceFilter
 
         results: list[CheckResult] = []
+        processed = 0
         for plc_software in iter_plc_software(project):
             for tag_table in iter_tag_tables(plc_software, self.excluded_folders):
                 for tag in tag_table.Tags:
                     if tag_direction(tag) != "I":
                         continue
-                    locations = cross_reference_locations(tag)
-                    has_read = any(getattr(loc, "Access", None) == Access.Read for loc in locations)
+                    locations = cached_cross_reference_locations(
+                        tag, CrossReferenceFilter.AllObjects, plc_software.Name
+                    )
+                    has_read = any(access == "Read" for access, _reference_type in locations)
                     if not has_read:
                         results.append(
                             self._make_result(
@@ -453,6 +530,57 @@ class EingaengeGelesenCheck(BaseCheck):
                                 value=tag.Name,
                             )
                         )
+                    # Erzwingt periodische .NET-GC — siehe UnbenutzteVariablenCheck._check_tags.
+                    processed += 1
+                    if processed % self.gc_interval == 0:
+                        release_dotnet_objects()
+        return results
+
+    def _run_combined(self, project: Any) -> list[CheckResult]:
+        """Wie ``_run_standalone``, wertet aber pro Tag zusätzlich
+        Access.Write aus derselben ``locations``-Liste aus und hinterlegt die
+        Rohdaten für Prüfpunkt 12b in ``_pending_write_counts``."""
+        from Siemens.Engineering.CrossReference import CrossReferenceFilter
+
+        results: list[CheckResult] = []
+        write_counts: list[tuple[str, str, int]] = []
+        processed = 0
+        for plc_software in iter_plc_software(project):
+            for tag_table in iter_tag_tables(plc_software, self.excluded_folders):
+                for tag in tag_table.Tags:
+                    if tag_direction(tag) != "I":
+                        continue
+                    locations = cached_cross_reference_locations(
+                        tag, CrossReferenceFilter.AllObjects, plc_software.Name
+                    )
+                    has_read = False
+                    write_count = 0
+                    for access, _reference_type in locations:
+                        if access == "Read":
+                            has_read = True
+                        elif access == "Write":
+                            write_count += 1
+                    if not has_read:
+                        results.append(
+                            self._make_result(
+                                path=format_path(plc_software.Name, "Variablentabellen", tag_table.Name, tag.Name),
+                                description=f"Eingang '{tag.Name}' wird im Programm nie gelesen.",
+                                value=tag.Name,
+                            )
+                        )
+                    if write_count > 0:
+                        write_counts.append(
+                            (
+                                format_path(plc_software.Name, "Variablentabellen", tag_table.Name, tag.Name),
+                                tag.Name,
+                                write_count,
+                            )
+                        )
+                    # Erzwingt periodische .NET-GC — siehe UnbenutzteVariablenCheck._check_tags.
+                    processed += 1
+                    if processed % self.gc_interval == 0:
+                        release_dotnet_objects()
+        _pending_write_counts[_EINGAENGE_NICHT_BESCHRIEBEN_CHECK_ID] = write_counts
         return results
 
 
@@ -466,19 +594,47 @@ class EingaengeNichtBeschriebenCheck(BaseCheck):
     dem Anwenderprogramm wird beim nächsten Zyklus also ohnehin wieder
     verworfen — er täuscht daher bestenfalls einen Wert vor, der real nie
     ankommt, und deutet meist auf eine Verwechslung mit einem Merker hin.
+
+    Ist Prüfpunkt 12a ebenfalls aktiviert, wurden die hier benötigten Daten
+    bereits von ``EingaengeGelesenCheck._run_combined`` berechnet (siehe
+    ``_pending_write_counts``, ``Review-Performance.md``, Maßnahme 3) —
+    dieser Check entnimmt sie, statt den CrossReference-Baum pro Tag ein
+    zweites Mal abzufragen. Fehlt der Zwischenspeicher (12a nicht aktiv,
+    oder 12a bei einem früheren Check-Fehler nicht bis zum Ende
+    durchgelaufen), fällt dieser Check auf den eigenständigen Durchlauf
+    zurück — funktional identisch zum bisherigen Verhalten.
     """
 
     def run(self, project: Any) -> list[CheckResult]:
-        from Siemens.Engineering.CrossReference import Access
+        stashed = _pending_write_counts.pop(_EINGAENGE_NICHT_BESCHRIEBEN_CHECK_ID, None)
+        if stashed is not None:
+            return [
+                self._make_result(
+                    path=path,
+                    description=(
+                        f"Eingang '{tag_name}' wird im Programm an {write_count} Stelle(n) "
+                        "beschrieben — Eingänge dürfen nicht beschrieben werden."
+                    ),
+                    value=str(write_count),
+                )
+                for path, tag_name, write_count in stashed
+            ]
+        return self._run_standalone(project)
+
+    def _run_standalone(self, project: Any) -> list[CheckResult]:
+        from Siemens.Engineering.CrossReference import CrossReferenceFilter
 
         results: list[CheckResult] = []
+        processed = 0
         for plc_software in iter_plc_software(project):
             for tag_table in iter_tag_tables(plc_software, self.excluded_folders):
                 for tag in tag_table.Tags:
                     if tag_direction(tag) != "I":
                         continue
-                    locations = cross_reference_locations(tag)
-                    write_count = sum(1 for loc in locations if getattr(loc, "Access", None) == Access.Write)
+                    locations = cached_cross_reference_locations(
+                        tag, CrossReferenceFilter.AllObjects, plc_software.Name
+                    )
+                    write_count = sum(1 for access, _reference_type in locations if access == "Write")
                     if write_count > 0:
                         results.append(
                             self._make_result(
@@ -490,6 +646,10 @@ class EingaengeNichtBeschriebenCheck(BaseCheck):
                                 value=str(write_count),
                             )
                         )
+                    # Erzwingt periodische .NET-GC — siehe UnbenutzteVariablenCheck._check_tags.
+                    processed += 1
+                    if processed % self.gc_interval == 0:
+                        release_dotnet_objects()
         return results
 
 
@@ -497,16 +657,19 @@ class AusgaengeMehrfachSchreibenCheck(BaseCheck):
     """Prüfpunkt 13: Ausgangs-Tags, die an mehreren Stellen beschrieben werden."""
 
     def run(self, project: Any) -> list[CheckResult]:
-        from Siemens.Engineering.CrossReference import Access
+        from Siemens.Engineering.CrossReference import CrossReferenceFilter
 
         results: list[CheckResult] = []
+        processed = 0
         for plc_software in iter_plc_software(project):
             for tag_table in iter_tag_tables(plc_software, self.excluded_folders):
                 for tag in tag_table.Tags:
                     if tag_direction(tag) != "Q":
                         continue
-                    locations = cross_reference_locations(tag)
-                    write_count = sum(1 for loc in locations if getattr(loc, "Access", None) == Access.Write)
+                    locations = cached_cross_reference_locations(
+                        tag, CrossReferenceFilter.AllObjects, plc_software.Name
+                    )
+                    write_count = sum(1 for access, _reference_type in locations if access == "Write")
                     if write_count > 1:
                         results.append(
                             self._make_result(
@@ -515,6 +678,10 @@ class AusgaengeMehrfachSchreibenCheck(BaseCheck):
                                 value=str(write_count),
                             )
                         )
+                    # Erzwingt periodische .NET-GC — siehe UnbenutzteVariablenCheck._check_tags.
+                    processed += 1
+                    if processed % self.gc_interval == 0:
+                        release_dotnet_objects()
         return results
 
 

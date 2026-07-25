@@ -247,15 +247,21 @@ class VariablenKommentarCheck(BaseCheck):
             db_name = db.Name
             if get_attribute(db, "InstanceOfName", ""):
                 continue
-            skip_prefixes: list[str] = []
+            # Maßnahme 6 (Review-Performance.md, Befund 3.1): statt bei jedem
+            # Member per Python-Generator über alle bisherigen skip_prefixes
+            # zu iterieren (O(Member × UDT-Member) je DB), wird die exakte
+            # Übereinstimmung als O(1)-Set-Lookup und der "...-Unterfeld"-Fall
+            # als ein einziger, C-seitig implementierter
+            # ``str.startswith(tuple)``-Aufruf geprüft. Beide Strukturen
+            # werden nur erweitert, wenn tatsächlich ein neues UDT-/FB-Member
+            # erkannt wird (seltener als jede Member-Prüfung selbst).
+            skip_prefix_names: set[str] = set()
+            skip_prefix_dotted: tuple[str, ...] = ()
             for member in getattr(getattr(db, "Interface", None), "Members", []):
                 member_name = member.Name
                 if "[" in member_name:
                     continue  # Array-Element (auch verschachtelt darunter) — Array selbst reicht
-                if any(
-                    member_name == prefix or member_name.startswith(prefix + ".")
-                    for prefix in skip_prefixes
-                ):
+                if member_name in skip_prefix_names or member_name.startswith(skip_prefix_dotted):
                     continue  # Item innerhalb eines UDT-Members — wird von Prüfpunkt 1b geprüft
 
                 # UDT-Erkennung MUSS vor den Ausnahme-Continues laufen (unten):
@@ -279,7 +285,8 @@ class VariablenKommentarCheck(BaseCheck):
                 # — siehe "Siebter Bug").
                 data_type_name = normalize_member_path(str(get_attribute(member, "DataTypeName", "") or ""))
                 if data_type_name in udt_names or data_type_name in exception_udts or data_type_name in fb_names:
-                    skip_prefixes.append(member_name)
+                    skip_prefix_names.add(member_name)
+                    skip_prefix_dotted = (*skip_prefix_dotted, member_name + ".")
 
                 if member_name.startswith(exception_prefixes):
                     continue
@@ -364,15 +371,15 @@ class UdtKommentarCheck(BaseCheck):
                             )
                         )
 
-                skip_prefixes: list[str] = []
+                # Maßnahme 6 (Review-Performance.md, Befund 3.1) — siehe
+                # VariablenKommentarCheck._check_db_members für die Begründung.
+                skip_prefix_names: set[str] = set()
+                skip_prefix_dotted: tuple[str, ...] = ()
                 for member in getattr(getattr(udt, "Interface", None), "Members", []):
                     member_name = member.Name
                     if "[" in member_name:
                         continue  # Array-Element (auch verschachtelt darunter) — Array selbst reicht
-                    if any(
-                        member_name == prefix or member_name.startswith(prefix + ".")
-                        for prefix in skip_prefixes
-                    ):
+                    if member_name in skip_prefix_names or member_name.startswith(skip_prefix_dotted):
                         continue  # Item innerhalb eines verschachtelten UDT-Members — eigener Durchlauf
 
                     # UDT-Erkennung vor dem exception_prefixe-Continue (analog zum
@@ -386,7 +393,8 @@ class UdtKommentarCheck(BaseCheck):
                     # dem Abgleich gegen udt_names anwenden.
                     data_type_name = normalize_member_path(str(get_attribute(member, "DataTypeName", "") or ""))
                     if data_type_name in udt_names:
-                        skip_prefixes.append(member_name)
+                        skip_prefix_names.add(member_name)
+                        skip_prefix_dotted = (*skip_prefix_dotted, member_name + ".")
 
                     if member_name.startswith(exception_prefixes):
                         continue

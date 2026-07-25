@@ -21,6 +21,22 @@ class BaseCheck(ABC):
     nicht nur für einen einzelnen Prüfpunkt). Checks, die Bausteine/DBs/
     Variablentabellen rekursiv durchlaufen, reichen diese Sets an die
     entsprechenden ``iter_*``-Hilfsfunktionen aus ``_tia_helpers.py`` weiter.
+
+    ``gc_interval`` kommt aus dem globalen Config-Schlüssel ``gc_interval``
+    (Standard 200) — Checks mit projektweiten CrossReference-Schleifen
+    (Prüfpunkte 11a/11b/12a/12b/13, siehe ``structure.py``) rufen alle
+    ``gc_interval`` verarbeitete Objekte zusätzlich
+    ``_tia_helpers.release_dotnet_objects()`` auf, um bei sehr großen
+    Projekten das .NET-Handle-Limit nicht innerhalb eines einzelnen Checks zu
+    reißen (siehe ``Review-Performance.md``, Maßnahme 1).
+
+    ``enabled_check_ids`` enthält die ``check_id``s aller für diesen Lauf
+    aktivierten Prüfpunkte (nicht nur die eigene) — ermöglicht Checks, die
+    dieselben, teuren Rohdaten wie ein anderer Prüfpunkt benötigen, zu
+    erkennen, ob sich ein gemeinsamer Durchlauf lohnt (aktuell genutzt von
+    Prüfpunkt 12a/12b, siehe ``structure.py::EingaengeGelesenCheck``/
+    ``Review-Performance.md``, Maßnahme 3). Checks, die das nicht brauchen,
+    ignorieren dieses Attribut einfach.
     """
 
     def __init__(
@@ -28,10 +44,14 @@ class BaseCheck(ABC):
         definition: CheckDefinition,
         excluded_folders: frozenset[str] = frozenset(),
         excluded_blocks: frozenset[str] = frozenset(),
+        gc_interval: int = 200,
+        enabled_check_ids: frozenset[str] = frozenset(),
     ) -> None:
         self.definition = definition
         self.excluded_folders = excluded_folders
         self.excluded_blocks = excluded_blocks
+        self.gc_interval = gc_interval
+        self.enabled_check_ids = enabled_check_ids
 
     @abstractmethod
     def run(self, project: Any) -> list[CheckResult]:

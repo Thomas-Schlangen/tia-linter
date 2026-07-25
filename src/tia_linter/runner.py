@@ -33,7 +33,13 @@ from datetime import datetime
 from typing import Any
 
 from tia_linter.checks import comments, hardware, libraries, metadata, naming, structure
-from tia_linter.checks._tia_helpers import reset_export_cache
+from tia_linter.checks._tia_helpers import (
+    release_dotnet_objects,
+    reset_export_cache,
+    reset_xref_cache,
+    set_export_cache_max_size,
+    set_xref_cache_max_size,
+)
 from tia_linter.checks.base import BaseCheck
 from tia_linter.connector import create_connector
 from tia_linter.models import CheckDefinition, CheckResult, CheckStatus, LintReport
@@ -66,52 +72,43 @@ _DUMMY_PATH_TEMPLATES = [
 _STATUS_WEIGHTS = {CheckStatus.ERROR: 0.25, CheckStatus.WARNING: 0.45, CheckStatus.OK: 0.30}
 
 
-def _release_dotnet_objects() -> None:
-    """Erzwingt eine .NET-Garbage-Collection nach jedem Check.
+def _reset_run_caches(xml_cache_max_size: int, xref_cache_max_size: int) -> None:
+    """Leert alle lauf-gebundenen Export-Caches (Block-XML + Projekttexte +
+    CrossReference + Prüfpunkt-12a/12b-Zwischenspeicher) und setzt die
+    LRU-Maxgrößen des XML- und CrossReference-Caches aus der Config.
 
-    Beim ersten Testlauf gegen ein echtes Projekt (288 Bausteine) ist
-    ``run_lint`` bei Check 31/40 mit
-    ``Siemens.Engineering.EngineeringOutOfMemoryException: The maximum
-    number (500000) of instances for this TIA-Portal has been exceeded``
-    abgestürzt — außerhalb der Per-Check-Fehlerisolation, da die Exception
-    tief in pythonnet selbst auftrat. Ursache: TIA Portal Openness zählt
-    intern offene Instanz-Handles (RCW-gewrappte Engineering-Objekte, z. B.
-    aus ``CrossReferenceService``-Ergebnisbäumen oder Baustein-Exports) pro
-    Session und wirft ab diesem harten Limit die Exception — Pythons eigenes
-    Referenzcounting reicht nicht, die zugrunde liegenden .NET-Objekte werden
-    erst bei einem tatsächlichen .NET-GC-Lauf freigegeben, den ein langer
-    Headless-Prozess von sich aus zu selten auslöst, um mit der Anzahl der
-    pro Check erzeugten Objekte Schritt zu halten. Deshalb wird nach jedem
-    einzelnen Check eine .NET-GC erzwungen, um den Instanzzähler regelmäßig
-    zurückzusetzen statt ihn über den ganzen Lauf anwachsen zu lassen.
-    """
-    try:
-        from System import GC
-
-        GC.Collect()
-        GC.WaitForPendingFinalizers()
-        GC.Collect()
-    except Exception:  # noqa: BLE001 — reine Aufräum-Maßnahme, darf den Lauf nicht gefährden
-        logger.debug("GC.Collect() fehlgeschlagen (evtl. kein .NET-Kontext) — ignoriert.", exc_info=True)
-
-
-def _reset_run_caches() -> None:
-    """Leert alle lauf-gebundenen Export-Caches (Block-XML + Projekttexte).
-
-    Muss bei jedem (Neu-)Verbindungsaufbau aufgerufen werden — sowohl beim
-    ersten Connect als auch bei jedem geplanten oder erzwungenen Reconnect
-    (siehe ``run_lint``-Docstring): Nach einem Reconnect sind alle zuvor
-    gecachten .NET-Objekte referenzierenden Zustände ungültig, und ein
-    zwischenzeitlich fehlgeschlagener Export soll erneut versucht werden
-    statt dauerhaft als fehlgeschlagen zu gelten. Siehe
+    Muss einmalig zu Beginn jedes ``run_lint``-Aufrufs erfolgen, damit ein
+    Cache nicht zwischen zwei unabhängigen Läufen in derselben GUI-Session
+    "leakt". **Nicht** bei jedem Reconnect aufrufen (siehe
+    ``Review-Performance.md``, Maßnahme 2/4): Anders als ursprünglich
+    angenommen halten alle drei Caches ausschließlich Python-seitige Daten
+    ohne .NET-Objektreferenzen — ``_export_cache`` einen geparsten
+    ``ElementTree``, ``ProjectTextComments`` reine Strings, ``_xref_cache``
+    extrahierte ``Access``/``ReferenceType``-Strings — die nach einem
+    Reconnect weiterhin gültig sind. Ein zwischenzeitlich fehlgeschlagener
+    Export/Import wird ohnehin **nie** gecacht (siehe ``export_block_xml``
+    bzw. ``ProjectTextComments.load``), der ursprünglich genannte Grund für
+    das Leeren bei jedem Reconnect ("erneuter Versuch nach Fehlschlag")
+    trifft also nicht zu. Ein Reconnect mitten im Lauf leerte den XML-Cache
+    dadurch bislang unnötig — bei einer Check-Reihenfolge, die XML-nutzende
+    Prüfpunkte über mehrere Reconnect-Fenster verteilt, wurde derselbe
+    Baustein dadurch mehrfach statt einmal pro Lauf exportiert. Siehe
     ``XML-Optimierung-Analysebericht.md``.
     """
+    set_export_cache_max_size(xml_cache_max_size)
     reset_export_cache()
+    set_xref_cache_max_size(xref_cache_max_size)
+    reset_xref_cache()
     ProjectTextComments.reset_cache()
+    structure.reset_pending_write_counts()
 
 
 def _instantiate_check(
-    definition: CheckDefinition, excluded_folders: frozenset[str], excluded_blocks: frozenset[str]
+    definition: CheckDefinition,
+    excluded_folders: frozenset[str],
+    excluded_blocks: frozenset[str],
+    gc_interval: int,
+    enabled_check_ids: frozenset[str],
 ) -> BaseCheck | None:
     category_key = definition.check_id.split(".", 1)[0]
     module = _CHECK_MODULES.get(category_key)
@@ -122,7 +119,7 @@ def _instantiate_check(
     if check_class is None:
         logger.warning("Keine Check-Klasse für '%s' gefunden — wird übersprungen.", definition.check_id)
         return None
-    return check_class(definition, excluded_folders, excluded_blocks)
+    return check_class(definition, excluded_folders, excluded_blocks, gc_interval, enabled_check_ids)
 
 
 def _ok_result(definition: CheckDefinition, project_name: str) -> CheckResult:
@@ -167,6 +164,22 @@ def _disposed_exception_types() -> tuple[type, ...]:
         return (Exception,)
 
 
+def _check_weight(check_id: str, check_weights: dict[str, int]) -> int:
+    """Liefert das konfigurierte Reconnect-Gewicht eines Prüfpunkts (Maßnahme
+    5, ``Review-Performance.md``, Befund 5.3): CrossReference-intensive
+    Checks (11a/11b/12a/12b/13, siehe ``structure.py``) erzeugen pro
+    verarbeitetem Tag/Baustein deutlich mehr .NET-Handles als ein
+    durchschnittlicher Check — ein einheitliches "1 Check = 1 Einheit" beim
+    Reconnect-Schwellenwert (``reconnect_every_n_checks``) lässt den
+    Reconnect-Zeitpunkt dadurch zufällig danach richten, *wo* im Lauf gerade
+    besonders teure Checks liegen, statt danach, wie viel tatsächlich
+    verarbeitet wurde. Der konfigurierte Wert für den jeweiligen
+    ``check_id`` gewinnt; ohne passenden Eintrag greift der Schlüssel
+    ``"default"`` in ``check_weights`` (Standard 1), fehlt auch der, wird 1
+    angenommen."""
+    return check_weights.get(check_id, check_weights.get("default", 1))
+
+
 def _run_session(
     project: Any,
     remaining: list[CheckDefinition],
@@ -174,6 +187,9 @@ def _run_session(
     excluded_blocks: frozenset[str],
     resolved_project_name: str,
     reconnect_every_n_checks: int,
+    gc_interval: int,
+    check_weights: dict[str, int],
+    enabled_check_ids: frozenset[str],
     cancel_event: threading.Event | None,
     disposed_exc_types: tuple[type, ...],
     report: ProgressFn,
@@ -196,6 +212,13 @@ def _run_session(
     Abbruch) oder wenn der geplante Reconnect-Schwellenwert
     (``reconnect_every_n_checks``) erreicht wird (ebenfalls ohne Abbruch —
     nur ein Session-Wechsel, siehe ``run_lint``-Docstring).
+
+    ``checks_this_session`` zählt nicht mehr Checks 1:1, sondern gewichtet
+    (siehe ``_check_weight``/``Review-Performance.md``, Maßnahme 5) — ein als
+    besonders CrossReference-intensiv konfigurierter Prüfpunkt zählt mehrfach,
+    wodurch der Reconnect-Schwellenwert bei einer Häufung solcher Checks
+    (z. B. Prüfpunkte 11a-13, die alle direkt hintereinander in der Registry
+    stehen) früher erreicht wird als bei einer reinen Check-Zählung.
     """
     checks_this_session = 0
     for index, definition in enumerate(remaining, start=1):
@@ -204,7 +227,7 @@ def _run_session(
             return True
 
         report(f"Prüfe {definition.name} ... {index}/{len(remaining)}")
-        check = _instantiate_check(definition, excluded_folders, excluded_blocks)
+        check = _instantiate_check(definition, excluded_folders, excluded_blocks, gc_interval, enabled_check_ids)
         if check is None:
             done_check_ids.add(definition.check_id)
         else:
@@ -234,9 +257,9 @@ def _run_session(
                 )
                 done_check_ids.add(definition.check_id)
             finally:
-                _release_dotnet_objects()
+                release_dotnet_objects()
 
-        checks_this_session += 1
+        checks_this_session += _check_weight(definition.check_id, check_weights)
         if checks_this_session >= reconnect_every_n_checks and index < len(remaining):
             return False  # geplanter Reconnect, siehe run_lint-Docstring — kein Abbruch, nur Session-Wechsel
 
@@ -256,6 +279,10 @@ def run_lint(
     cancel_event: threading.Event | None = None,
     max_reconnect_attempts: int = 3,
     reconnect_every_n_checks: int = 10,
+    gc_interval: int = 200,
+    xml_cache_max_size: int = 500,
+    xref_cache_max_size: int = 1000,
+    check_weights: dict[str, int] | None = None,
     excluded_folders: Iterable[str] = (),
     excluded_blocks: Iterable[str] = (),
 ) -> LintReport:
@@ -284,7 +311,7 @@ def run_lint(
     instances ... has been exceeded`` abgestürzt — TIA Portal Openness zählt
     offene Instanz-Handles (u. a. aus ``CrossReferenceService``-Ergebnissen
     und Baustein-Exports) pro Session und lässt sich durch erzwungene
-    .NET-Garbage-Collection (``_release_dotnet_objects``) *nicht* davon
+    .NET-Garbage-Collection (``release_dotnet_objects``) *nicht* davon
     abbringen, den Zähler hochzuzählen — ein zweiter Testlauf mit GC nach
     jedem Check ist an exakt derselben Stelle abgestürzt. Ein periodischer
     Reconnect umgeht das Problem zuverlässig, weil er den Zähler der ganzen
@@ -309,6 +336,8 @@ def run_lint(
             progress(message)
 
     enabled = [d for d in definitions if d.enabled]
+    enabled_check_ids = frozenset(d.check_id for d in enabled)
+    check_weights = check_weights or {}
     excluded_folders_set = frozenset(excluded_folders)
     excluded_blocks_set = frozenset(excluded_blocks)
     results: list[CheckResult] = []
@@ -344,7 +373,8 @@ def run_lint(
                 project = connector.connect(project_path)
                 resolved_project_name = getattr(project, "Name", project_name)
                 report(f"Projekt geöffnet: {resolved_project_name}")
-                _reset_run_caches()
+                if session_number == 1:
+                    _reset_run_caches(xml_cache_max_size, xref_cache_max_size)
 
                 if not disposed_exc_types:
                     disposed_exc_types = _disposed_exception_types()
@@ -356,6 +386,9 @@ def run_lint(
                     excluded_blocks=excluded_blocks_set,
                     resolved_project_name=resolved_project_name,
                     reconnect_every_n_checks=reconnect_every_n_checks,
+                    gc_interval=gc_interval,
+                    check_weights=check_weights,
+                    enabled_check_ids=enabled_check_ids,
                     cancel_event=cancel_event,
                     disposed_exc_types=disposed_exc_types,
                     report=report,
@@ -411,6 +444,10 @@ def simulate_lint_run(
     cancel_event: threading.Event | None = None,
     max_reconnect_attempts: int = 3,
     reconnect_every_n_checks: int = 10,
+    gc_interval: int = 200,
+    xml_cache_max_size: int = 500,
+    xref_cache_max_size: int = 1000,
+    check_weights: dict[str, int] | None = None,
     excluded_folders: Iterable[str] = (),
     excluded_blocks: Iterable[str] = (),
 ) -> LintReport:
@@ -419,9 +456,11 @@ def simulate_lint_run(
 
     Nimmt dieselben Parameter wie ``run_lint`` entgegen (inkl. ``dll_path``/
     ``tia_version``/``max_reconnect_attempts``/``reconnect_every_n_checks``/
-    ``excluded_folders``/``excluded_blocks``, hier ungenutzt), damit die GUI
-    beide Funktionen ohne Anpassung gegeneinander austauschen kann.
-    ``cancel_event`` erlaubt sauberes Abbrechen zwischen zwei Dummy-Checks.
+    ``gc_interval``/``xml_cache_max_size``/``xref_cache_max_size``/
+    ``check_weights``/``excluded_folders``/``excluded_blocks``, hier
+    ungenutzt), damit die GUI beide Funktionen ohne Anpassung gegeneinander
+    austauschen kann. ``cancel_event`` erlaubt sauberes Abbrechen zwischen
+    zwei Dummy-Checks.
     """
 
     def report(message: str) -> None:

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import tempfile
+from collections import OrderedDict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable, Iterator
 
@@ -389,7 +390,57 @@ def _local_name(tag: str) -> str:
     return tag.rsplit("}", 1)[-1]
 
 
-_export_cache: dict[tuple[str, str], Any] = {}
+def release_dotnet_objects() -> None:
+    """Erzwingt eine .NET-Garbage-Collection.
+
+    Beim ersten Testlauf gegen ein echtes Projekt (288 Bausteine) ist
+    ``run_lint`` bei Check 31/40 mit
+    ``Siemens.Engineering.EngineeringOutOfMemoryException: The maximum
+    number (500000) of instances for this TIA-Portal has been exceeded``
+    abgestürzt — außerhalb der Per-Check-Fehlerisolation, da die Exception
+    tief in pythonnet selbst auftrat. Ursache: TIA Portal Openness zählt
+    intern offene Instanz-Handles (RCW-gewrappte Engineering-Objekte, z. B.
+    aus ``CrossReferenceService``-Ergebnisbäumen oder Baustein-Exports) pro
+    Session und wirft ab diesem harten Limit die Exception — Pythons eigenes
+    Referenzcounting reicht nicht, die zugrunde liegenden .NET-Objekte werden
+    erst bei einem tatsächlichen .NET-GC-Lauf freigegeben, den ein langer
+    Headless-Prozess von sich aus zu selten auslöst, um mit der Anzahl der
+    erzeugten Objekte Schritt zu halten.
+
+    ``runner.py`` ruft dies nach jedem einzelnen Check auf. Zusätzlich rufen
+    Checks mit projektweiten CrossReference-Schleifen (Prüfpunkte 11a/11b/
+    12a/12b/13, siehe ``structure.py``) dies **innerhalb** der Schleife alle
+    ``gc_interval`` verarbeitete Objekte auf — bei großen Projekten (mehrere
+    Tausend Tags/Bausteine) kann sonst bereits ein einzelner Check das
+    500.000-Handle-Limit reißen, bevor der Check zu Ende ist und der äußere
+    Aufruf überhaupt greift (live beobachtet, siehe Analysebericht
+    ``Review-Performance.md``).
+    """
+    try:
+        from System import GC
+
+        GC.Collect()
+        GC.WaitForPendingFinalizers()
+        GC.Collect()
+    except Exception:  # noqa: BLE001 — reine Aufräum-Maßnahme, darf den Lauf nicht gefährden
+        logger.debug("GC.Collect() fehlgeschlagen (evtl. kein .NET-Kontext) — ignoriert.", exc_info=True)
+
+
+_export_cache: "OrderedDict[tuple[str, str], Any]" = OrderedDict()
+_export_cache_max_size = 500
+
+
+def set_export_cache_max_size(max_size: int) -> None:
+    """Setzt die maximale Anzahl gleichzeitig gecachter Baustein-XML-Exporte
+    (LRU-Verdrängung, siehe ``export_block_xml``) — von ``runner.py`` einmalig
+    zu Lauf-Beginn aus der Config (``xml_cache_max_size``) gesetzt.
+
+    Ohne Begrenzung wächst der Cache unbeschränkt mit der Anzahl exportierter
+    Bausteine — bei sehr großen Projekten (mehrere Tausend Bausteine) kann
+    der geparste ``ElementTree`` jedes Bausteins mehrere MB belegen, in Summe
+    also mehrere GB RAM (siehe ``Review-Performance.md``, Befund 2.1)."""
+    global _export_cache_max_size
+    _export_cache_max_size = max(1, max_size)
 
 
 def reset_export_cache() -> None:
@@ -401,12 +452,15 @@ def reset_export_cache() -> None:
     bis zu 8-mal pro Lauf. Der Cache ist bewusst **kein** Modul-globaler
     Zustand, der über die Prozesslaufzeit hinweg bestehen bleibt, sondern
     muss von ``runner.py`` explizit zu Beginn jedes Lint-Laufs geleert
-    werden (sonst "leakt" er zwischen zwei unabhängigen Läufen in der GUI)
-    — sowie nach jedem TIA-Portal-Reconnect: Nach einem Reconnect sind alle
-    zuvor gültigen .NET-Objekte disposed, ein zwischenzeitlich
-    fehlgeschlagener Export soll beim nächsten Zugriff erneut versucht
-    werden statt dauerhaft als fehlgeschlagen zu gelten (fehlgeschlagene
-    Exporte werden ohnehin nie gecacht, siehe ``export_block_xml``).
+    werden (sonst "leakt" er zwischen zwei unabhängigen Läufen in der GUI).
+
+    **Nicht** mehr bei jedem TIA-Portal-Reconnect aufrufen (siehe
+    ``Review-Performance.md``, Maßnahme 2): Der Cache enthält ausschließlich
+    einen geparsten, rein Python-seitigen ``ElementTree`` ohne .NET-
+    Objektreferenz — er bleibt nach einem Reconnect gültig. Ein
+    zwischenzeitlich fehlgeschlagener Export wird ohnehin nie gecacht (siehe
+    ``export_block_xml``) und beim nächsten Zugriff automatisch erneut
+    versucht, unabhängig davon, ob der Cache dazwischen geleert wurde.
     """
     _export_cache.clear()
 
@@ -438,9 +492,17 @@ def export_block_xml(block: Any, plc_software: Any) -> Element | None:
     entsprechendes .NET-Objekt ist. Der PLC-Software-Name ist Teil des Keys,
     weil Blocknamen nur innerhalb einer PLC eindeutig sind, nicht projektweit
     über mehrere PLC-Geräte hinweg.
+
+    LRU-begrenzt auf ``_export_cache_max_size`` Einträge (siehe
+    ``set_export_cache_max_size``/``Review-Performance.md``, Maßnahme 2) —
+    ohne Begrenzung würde der Cache bei sehr großen Projekten (mehrere
+    Tausend Bausteine) unbeschränkt wachsen, da jeder Check dieselben
+    Prüfpunkte in derselben Baustein-Reihenfolge durchläuft und der Cache
+    bis dahin nie geleert wird.
     """
     cache_key = (str(getattr(plc_software, "Name", "")), str(block.Name))
     if cache_key in _export_cache:
+        _export_cache.move_to_end(cache_key)  # zuletzt verwendet -> ans LRU-Ende
         return _export_cache[cache_key]
 
     import xml.etree.ElementTree as ET
@@ -458,6 +520,8 @@ def export_block_xml(block: Any, plc_software: Any) -> Element | None:
             return None  # bewusst nicht gecacht — nächster Zugriff versucht erneut zu exportieren
 
     _export_cache[cache_key] = xml_root
+    if len(_export_cache) > _export_cache_max_size:
+        _export_cache.popitem(last=False)  # ältesten (am längsten unbenutzten) Eintrag verdrängen
     return xml_root
 
 
@@ -539,10 +603,16 @@ def compile_unit_multilingual_text(compile_unit: Any, composition_name: str, cul
 # Liste — sie tauchen aber als texbasierte (UnderlyingObject == null)
 # Kind-Objekte unter ``SourceObject.Children`` auf, siehe
 # ``find_source_child_by_name``.
-def cross_reference_root_source(engineering_object: Any) -> Any | None:
+def cross_reference_root_source(engineering_object: Any, cross_reference_filter: Any = None) -> Any | None:
     """Ruft ``CrossReferenceService`` auf einem unterstützten STEP-7-Objekt ab
     und liefert dessen (einziges) Root-``SourceObject``, oder ``None`` wenn
-    der Dienst für diesen Objekttyp nicht verfügbar ist."""
+    der Dienst für diesen Objekttyp nicht verfügbar ist.
+
+    ``cross_reference_filter`` ist optional und defaultet auf
+    ``CrossReferenceFilter.AllObjects`` (bisheriges Verhalten, unverändert für
+    alle bestehenden Aufrufer) — ``cached_cross_reference_locations`` übergibt
+    hier gezielt einen anderen Filter, ohne dass Aufrufer mit dem
+    Standardfilter etwas anpassen müssen."""
     from Siemens.Engineering.CrossReference import CrossReferenceFilter, CrossReferenceService
 
     try:
@@ -551,26 +621,87 @@ def cross_reference_root_source(engineering_object: Any) -> Any | None:
         return None
     if service is None:
         return None
-    result = service.GetCrossReferences(CrossReferenceFilter.AllObjects)
+    if cross_reference_filter is None:
+        cross_reference_filter = CrossReferenceFilter.AllObjects
+    result = service.GetCrossReferences(cross_reference_filter)
     sources = list(getattr(result, "Sources", []) or [])
     return sources[0] if sources else None
 
 
-def cross_reference_locations(engineering_object: Any) -> list[Any]:
-    """Liefert alle ``Location``-Objekte (mit ``Access``: Lesen/Schreiben)
-    über alle Kreuzreferenzen eines Openness-Objekts — nur für die laut
-    V21-Referenz bestätigt unterstützten Objekttypen sinnvoll (siehe
-    ``cross_reference_root_source``); bei nicht unterstützten Typen liefert
-    der Dienst ``None`` zurück und diese Funktion entsprechend eine leere
-    Liste, statt abzustürzen."""
-    source = cross_reference_root_source(engineering_object)
-    if source is None:
-        return []
-    locations = []
-    for reference in getattr(source, "References", []) or []:
-        for location in getattr(reference, "Locations", []) or []:
-            locations.append(location)
-    return locations
+_xref_cache: "OrderedDict[tuple[str, str, str], list[tuple[str, str]]]" = OrderedDict()
+_xref_cache_max_size = 1000
+
+
+def set_xref_cache_max_size(max_size: int) -> None:
+    """Setzt die maximale Anzahl gleichzeitig gecachter CrossReference-
+    Abfragen (LRU-Verdrängung, siehe ``cached_cross_reference_locations``) —
+    von ``runner.py`` einmalig zu Lauf-Beginn aus der Config
+    (``xref_cache_max_size``) gesetzt (siehe ``Review-Performance.md``,
+    Maßnahme 4, analog zu ``set_export_cache_max_size``/Maßnahme 2)."""
+    global _xref_cache_max_size
+    _xref_cache_max_size = max(1, max_size)
+
+
+def reset_xref_cache() -> None:
+    """Leert den lauf-gebundenen Cache von ``cached_cross_reference_locations``.
+
+    Wie beim XML-Cache (``reset_export_cache``, Maßnahme 2) **nicht** bei
+    jedem Reconnect aufrufen, nur einmalig zu Lauf-Beginn: Der Cache enthält
+    ausschließlich extrahierte Python-Strings (``Access``/``ReferenceType``
+    als Text), keine .NET-Objektreferenzen — er bleibt nach einem Reconnect
+    gültig, da sich die tatsächliche Verwendung eines Tags/Bausteins während
+    eines rein lesenden Lint-Laufs nicht ändert."""
+    _xref_cache.clear()
+
+
+def cached_cross_reference_locations(
+    engineering_object: Any, cross_reference_filter: Any, plc_name: str
+) -> list[tuple[str, str]]:
+    """LRU-gecachte CrossReference-Abfrage für ein einzelnes STEP-7-Objekt
+    (Tag oder Baustein) mit einem bestimmten Filter — liefert je Location ein
+    ``(access, reference_type)``-Tupel aus reinen Python-Strings statt roher
+    .NET-``Location``-Objekte (siehe ``Review-Performance.md``, Befund 4.2/
+    Maßnahme 4: **keine** .NET-Objekte cachen, das würde das Handle-Problem
+    nur in den Cache verlagern statt es zu lösen).
+
+    Der Cache-Key ``(plc_name, obj_name, filter)`` ist — analog zu
+    ``export_block_xml``, Maßnahme 2 — ein stabiler String statt des
+    Objekts selbst, bleibt also über einen TIA-Portal-Reconnect hinweg
+    gültig. Das deckt echte Mehrfachabfragen ab, die bislang unabhängig
+    voneinander erfolgten: Prüfpunkt 11a fragt z. B. **jedes** Tag mit dem
+    Filter ``AllObjects`` ab, bevor 12a/12b/13 (dieselben Tags, derselbe
+    Filter, jeweils nur für Ein- bzw. Ausgänge) erneut abfragen — nach dieser
+    Umstellung trifft der zweite und jeder weitere Zugriff auf denselben
+    Cache-Eintrag.
+
+    ``access``/``reference_type`` sind ``str(...)`` des jeweiligen .NET-Enum-
+    Werts (``Location.Access``/``.ReferenceType``) — noch nicht live gegen
+    ein echtes TIA-Portal-Projekt verifiziert, dass ``str()`` eines
+    pythonnet-.NET-Enums exakt den Member-Namen liefert (z. B. ``"Read"``
+    statt eines vollqualifizierten Strings); Aufrufer vergleichen entsprechend
+    gegen die erwarteten Namen (``"Read"``/``"Write"``/``"InstanceType"``)
+    statt gegen die ursprünglichen Enum-Konstanten.
+    """
+    obj_name = str(getattr(engineering_object, "Name", ""))
+    filter_key = str(cross_reference_filter)
+    cache_key = (plc_name, obj_name, filter_key)
+    if cache_key in _xref_cache:
+        _xref_cache.move_to_end(cache_key)
+        return _xref_cache[cache_key]
+
+    source = cross_reference_root_source(engineering_object, cross_reference_filter)
+    extracted: list[tuple[str, str]] = []
+    if source is not None:
+        for reference in getattr(source, "References", []) or []:
+            for location in getattr(reference, "Locations", []) or []:
+                access = str(getattr(location, "Access", "") or "")
+                reference_type = str(getattr(location, "ReferenceType", "") or "")
+                extracted.append((access, reference_type))
+
+    _xref_cache[cache_key] = extracted
+    if len(_xref_cache) > _xref_cache_max_size:
+        _xref_cache.popitem(last=False)  # ältesten (am längsten unbenutzten) Eintrag verdrängen
+    return extracted
 
 
 def unused_cross_reference_leaf_names(sources: Iterable[Any]) -> Iterator[str]:

@@ -25,8 +25,12 @@ from tia_linter.checks._tia_helpers import (
     local_variable_access_paths,
     multilingual_text,
     normalize_member_path,
+    cached_cross_reference_locations,
     read_comment,
     reset_export_cache,
+    reset_xref_cache,
+    set_export_cache_max_size,
+    set_xref_cache_max_size,
     strip_cross_reference_prefix,
 )
 
@@ -505,6 +509,7 @@ class TestExportBlockXmlCache:
 
     def teardown_method(self) -> None:
         reset_export_cache()
+        set_export_cache_max_size(500)  # Standardwert aus default.yaml wiederherstellen
 
     def test_second_call_with_same_block_uses_cache(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _install_fake_dotnet_modules(monkeypatch)
@@ -574,6 +579,215 @@ class TestExportBlockXmlCache:
         assert export_block_xml(block, plc) is None
         assert export_block_xml(block, plc) is not None
         assert block.export_call_count == 2
+
+    def test_lru_eviction_drops_oldest_unused_entry(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Maßnahme 2 (Review-Performance.md): Cache-Größe begrenzt, damit er
+        # bei sehr großen Projekten (mehrere Tausend Bausteine) nicht
+        # unbeschränkt wächst — das am längsten unbenutzte Element muss beim
+        # Erreichen der Maxgröße verdrängt werden.
+        _install_fake_dotnet_modules(monkeypatch)
+        set_export_cache_max_size(2)
+        block_a = FakeExportableBlock("FB_A")
+        block_b = FakeExportableBlock("FB_B")
+        block_c = FakeExportableBlock("FB_C")
+        plc = FakePlcSoftwareForExport("PLC_1")
+
+        export_block_xml(block_a, plc)
+        export_block_xml(block_b, plc)
+        export_block_xml(block_c, plc)  # verdrängt FB_A (ältester Eintrag, Cache voll)
+
+        export_block_xml(block_b, plc)
+        assert block_b.export_call_count == 1  # war noch im Cache
+
+        export_block_xml(block_a, plc)
+        assert block_a.export_call_count == 2  # musste erneut exportiert werden (wurde verdrängt)
+
+    def test_lru_access_refreshes_entry_order(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _install_fake_dotnet_modules(monkeypatch)
+        set_export_cache_max_size(2)
+        block_a = FakeExportableBlock("FB_A")
+        block_b = FakeExportableBlock("FB_B")
+        block_c = FakeExportableBlock("FB_C")
+        plc = FakePlcSoftwareForExport("PLC_1")
+
+        export_block_xml(block_a, plc)
+        export_block_xml(block_b, plc)
+        export_block_xml(block_a, plc)  # FB_A erneut zugegriffen -> jetzt zuletzt verwendet
+        export_block_xml(block_c, plc)  # verdrängt FB_B, nicht FB_A
+
+        export_block_xml(block_a, plc)
+        assert block_a.export_call_count == 1  # war noch im Cache
+
+        export_block_xml(block_b, plc)
+        assert block_b.export_call_count == 2  # musste erneut exportiert werden
+
+
+class _FakeGenericMethod:
+    """Simuliert pythonnets generische Methodensyntax ``obj.Method[Type]()``
+    (hier: ``obj.GetService[CrossReferenceService]()``) — ``__getitem__``
+    ignoriert den Typ-Parameter und liefert immer denselben gebundenen
+    Rückgabewert, das reicht für die Tests hier."""
+
+    def __init__(self, return_value: object) -> None:
+        self._return_value = return_value
+
+    def __getitem__(self, _type: object) -> object:
+        return lambda: self._return_value
+
+
+class FakeXrefLocation:
+    def __init__(self, access: str, reference_type: str) -> None:
+        self.Access = access
+        self.ReferenceType = reference_type
+
+
+class FakeXrefReference:
+    def __init__(self, locations: list[FakeXrefLocation]) -> None:
+        self.Locations = locations
+
+
+class FakeXrefSourceObject:
+    def __init__(self, references: list[FakeXrefReference]) -> None:
+        self.References = references
+
+
+class FakeXrefResult:
+    def __init__(self, sources: list[FakeXrefSourceObject]) -> None:
+        self.Sources = sources
+
+
+class FakeCrossReferenceService:
+    def __init__(self, sources: list[FakeXrefSourceObject]) -> None:
+        self._sources = sources
+        self.call_count = 0
+
+    def GetCrossReferences(self, cross_reference_filter: object) -> FakeXrefResult:
+        self.call_count += 1
+        return FakeXrefResult(self._sources)
+
+
+class FakeXrefObject:
+    def __init__(self, name: str, service: FakeCrossReferenceService) -> None:
+        self.Name = name
+        self.GetService = _FakeGenericMethod(service)
+
+
+def _install_fake_cross_reference_module(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ersetzt ``Siemens.Engineering.CrossReference`` durch ein Fake-Modul,
+    damit ``cross_reference_root_source``/``cached_cross_reference_locations``
+    (lokaler Import von ``CrossReferenceFilter``/``CrossReferenceService``)
+    ohne echtes TIA Portal getestet werden können."""
+    cross_reference = types.ModuleType("Siemens.Engineering.CrossReference")
+    cross_reference.CrossReferenceService = object()
+    cross_reference.CrossReferenceFilter = types.SimpleNamespace(
+        AllObjects="AllObjects", UnusedObjects="UnusedObjects", ObjectsWithReferences="ObjectsWithReferences"
+    )
+    engineering = types.ModuleType("Siemens.Engineering")
+    engineering.CrossReference = cross_reference
+    siemens = types.ModuleType("Siemens")
+    siemens.Engineering = engineering
+
+    monkeypatch.setitem(sys.modules, "Siemens", siemens)
+    monkeypatch.setitem(sys.modules, "Siemens.Engineering", engineering)
+    monkeypatch.setitem(sys.modules, "Siemens.Engineering.CrossReference", cross_reference)
+
+
+class TestCachedCrossReferenceLocations:
+    """Maßnahme 4 (Review-Performance.md, Befund 4.2): CrossReference-
+    Abfragen wurden bislang unabhängig voneinander wiederholt, obwohl
+    mehrere Prüfpunkte (11a, 12a/12b, 13) dieselben Tags mit demselben
+    Filter abfragen. Der Cache muss zwei Aufrufe mit identischem
+    (plc_name, obj_name, filter) auf genau einen echten
+    ``GetCrossReferences()``-Aufruf reduzieren, dabei aber unterschiedliche
+    PLCs/Filter weiterhin unabhängig behandeln, extrahierte Python-Strings
+    statt roher .NET-Objekte liefern und nach einem expliziten Reset erneut
+    abfragen."""
+
+    def setup_method(self) -> None:
+        reset_xref_cache()
+
+    def teardown_method(self) -> None:
+        reset_xref_cache()
+        set_xref_cache_max_size(1000)  # Standardwert aus default.yaml wiederherstellen
+
+    def test_extracts_access_and_reference_type_as_strings(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _install_fake_cross_reference_module(monkeypatch)
+        source = FakeXrefSourceObject([FakeXrefReference([FakeXrefLocation("Read", "UsedBy")])])
+        service = FakeCrossReferenceService([source])
+        obj = FakeXrefObject("Sensor1", service)
+
+        result = cached_cross_reference_locations(obj, "AllObjects", "PLC_1")
+
+        assert result == [("Read", "UsedBy")]
+
+    def test_second_call_with_same_key_uses_cache(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _install_fake_cross_reference_module(monkeypatch)
+        source = FakeXrefSourceObject([FakeXrefReference([FakeXrefLocation("Write", "UsedBy")])])
+        service = FakeCrossReferenceService([source])
+        obj = FakeXrefObject("Sensor1", service)
+
+        first = cached_cross_reference_locations(obj, "AllObjects", "PLC_1")
+        second = cached_cross_reference_locations(obj, "AllObjects", "PLC_1")
+
+        assert service.call_count == 1
+        assert first == second == [("Write", "UsedBy")]
+
+    def test_different_plc_name_is_queried_separately(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Objektnamen sind nur innerhalb einer PLC eindeutig, siehe Docstring
+        # von cached_cross_reference_locations -- der Cache-Key muss die PLC
+        # mit einbeziehen (analog zu export_block_xml, Maßnahme 2).
+        _install_fake_cross_reference_module(monkeypatch)
+        source = FakeXrefSourceObject([FakeXrefReference([FakeXrefLocation("Read", "UsedBy")])])
+        service = FakeCrossReferenceService([source])
+        obj = FakeXrefObject("Sensor1", service)
+
+        cached_cross_reference_locations(obj, "AllObjects", "PLC_1")
+        cached_cross_reference_locations(obj, "AllObjects", "PLC_2")
+
+        assert service.call_count == 2
+
+    def test_different_filter_is_queried_separately(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _install_fake_cross_reference_module(monkeypatch)
+        source = FakeXrefSourceObject([FakeXrefReference([FakeXrefLocation("Read", "UsedBy")])])
+        service = FakeCrossReferenceService([source])
+        obj = FakeXrefObject("Sensor1", service)
+
+        cached_cross_reference_locations(obj, "AllObjects", "PLC_1")
+        cached_cross_reference_locations(obj, "UnusedObjects", "PLC_1")
+
+        assert service.call_count == 2
+
+    def test_reset_xref_cache_forces_requery(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _install_fake_cross_reference_module(monkeypatch)
+        source = FakeXrefSourceObject([FakeXrefReference([FakeXrefLocation("Read", "UsedBy")])])
+        service = FakeCrossReferenceService([source])
+        obj = FakeXrefObject("Sensor1", service)
+
+        cached_cross_reference_locations(obj, "AllObjects", "PLC_1")
+        reset_xref_cache()
+        cached_cross_reference_locations(obj, "AllObjects", "PLC_1")
+
+        assert service.call_count == 2
+
+    def test_lru_eviction_drops_oldest_unused_entry(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _install_fake_cross_reference_module(monkeypatch)
+        set_xref_cache_max_size(2)
+        service_a = FakeCrossReferenceService([FakeXrefSourceObject([])])
+        service_b = FakeCrossReferenceService([FakeXrefSourceObject([])])
+        service_c = FakeCrossReferenceService([FakeXrefSourceObject([])])
+        obj_a = FakeXrefObject("Sensor_A", service_a)
+        obj_b = FakeXrefObject("Sensor_B", service_b)
+        obj_c = FakeXrefObject("Sensor_C", service_c)
+
+        cached_cross_reference_locations(obj_a, "AllObjects", "PLC_1")
+        cached_cross_reference_locations(obj_b, "AllObjects", "PLC_1")
+        cached_cross_reference_locations(obj_c, "AllObjects", "PLC_1")  # verdrängt Sensor_A (ältester Eintrag)
+
+        cached_cross_reference_locations(obj_b, "AllObjects", "PLC_1")
+        assert service_b.call_count == 1  # war noch im Cache
+
+        cached_cross_reference_locations(obj_a, "AllObjects", "PLC_1")
+        assert service_a.call_count == 2  # musste erneut abgefragt werden (wurde verdrängt)
 
 
 if __name__ == "__main__":

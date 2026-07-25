@@ -72,6 +72,19 @@ class AppConfig(BaseModel):
     logging: LoggingConfig = LoggingConfig()
     max_reconnect_attempts: int = Field(default=3, ge=1)
     reconnect_every_n_checks: int = Field(default=10, ge=1)
+    gc_interval: int = Field(default=200, ge=1)
+    xml_cache_max_size: int = Field(default=500, ge=1)
+    xref_cache_max_size: int = Field(default=1000, ge=1)
+    check_weights: dict[str, int] = Field(
+        default_factory=lambda: {
+            "programmstruktur.unbenutzte_variablen": 5,
+            "programmstruktur.unbenutzte_bausteine": 5,
+            "programmstruktur.eingaenge_gelesen": 3,
+            "programmstruktur.eingaenge_nicht_beschrieben": 3,
+            "programmstruktur.ausgaenge_mehrfach_schreiben": 3,
+            "default": 1,
+        }
+    )
     ausgeschlossene_ordner: list[str] = Field(default_factory=list)
     ausgeschlossene_bausteine: list[str] = Field(default_factory=list)
 
