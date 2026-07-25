@@ -139,13 +139,13 @@ erfolgt headless über `TiaPortalMode.WithoutUserInterface`.
 | Hardware & Konfiguration | 17–18c |
 | Projektmetadaten | 19–21 |
 | Bibliotheken & Typen | 22–23 |
-| Siemens Styleguide | 24–34 |
+| Siemens Styleguide | 24–33 |
 
 Details zu allen Prüfpunkten: siehe `config/default.yaml`
 (`description`/`recommendation` je Prüfpunkt).
 
 **Prüfpunkt 1b — UDT ohne Kommentar** (`kommentare.udt_kommentar`, Standard-
-Schweregrad Warnung): war in der ursprünglichen Liste der 34 Prüfpunkte kein
+Schweregrad Warnung): war in der ursprünglichen Liste der 33 Prüfpunkte kein
 eigener Punkt, ergänzt aber Prüfpunkt 1 um PLC-Datentypen (UDTs). Prüfpunkt 1
 prüft Items *innerhalb* eines UDT-typisierten DB-Members bewusst nicht mehr
 einzeln (analog zu Array-Elementen genügt ein Kommentar auf dem UDT-Member
@@ -247,11 +247,11 @@ tia-linter/
 │   │       ├── structure.py  # Prüfpunkte 10-16
 │   │       ├── hardware.py   # Prüfpunkte 17-18c
 │   │       ├── metadata.py   # Prüfpunkte 19-21
-│   │       └── libraries.py  # Prüfpunkte 22-34
+│   │       └── libraries.py  # Prüfpunkte 22-33
 │   ├── config_loader/        # Wiederverwendbare YAML/JSON-Config-Bibliothek
 │   └── my_logger/            # Wiederverwendbare Logging-Bibliothek
 ├── config/
-│   └── default.yaml          # Standard-Konfiguration (alle 34 Prüfpunkte)
+│   └── default.yaml          # Standard-Konfiguration (alle 33 Prüfpunkte)
 ├── tests/
 ├── pyproject.toml
 └── LICENSE

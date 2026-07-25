@@ -1,6 +1,6 @@
 # TIA Linter — Standard-Konfiguration
 #
-# Enthält alle 34 Prüfpunkte aus Pruefpunkte.md (einige Prüfpunkte sind hier
+# Enthält alle 33 Prüfpunkte aus Pruefpunkte.md (einige Prüfpunkte sind hier
 # als mehrere separat schaltbare Einträge abgebildet, z. B. Prüfpunkt 6 als
 # plc_tag_eingaenge + plc_tag_ausgaenge).
 #
@@ -396,26 +396,20 @@ checks:
       enabled: true
       severity: error
 
-    # Prüfpunkt 27 — Timer/Zähler/FB-Aufruf verwendet einen Einzel-
-    # Instanz-DB statt einer Multi-Instanz.
-    multi_instanzen:
-      enabled: true
-      severity: warning
-
-    # Prüfpunkt 28 — Identische STRUCT-Definition kommt in mehreren DBs vor,
+    # Prüfpunkt 27 — Identische STRUCT-Definition kommt in mehreren DBs vor,
     # ohne als UDT ausgelagert zu sein.
     udt_wiederkehrende_strukturen:
       enabled: true
       severity: warning
 
-    # Prüfpunkt 29 — OB1 (Main) enthält mehr Netzwerke mit eigener Logik als
+    # Prüfpunkt 28 — OB1 (Main) enthält mehr Netzwerke mit eigener Logik als
     # der konfigurierte Schwellenwert.
     ob1_komplexitaet:
       enabled: true
       severity: warning
       max_netzwerke_mit_logik: 5
 
-    # Prüfpunkt 30 — Know-how-geschützter Baustein ist nicht als solcher
+    # Prüfpunkt 29 — Know-how-geschützter Baustein ist nicht als solcher
     # dokumentiert.
     know_how_schutz:
       enabled: true
@@ -425,26 +419,26 @@ checks:
       # muss, damit der Know-how-Schutz als dokumentiert gilt.
       dokumentations_hinweise: ["know-how", "knowhow"]
 
-    # Prüfpunkt 31 — Tag-Tabelle enthält Tags außerhalb des I-/
+    # Prüfpunkt 30 — Tag-Tabelle enthält Tags außerhalb des I-/
     # Q-Adressbereichs.
     tag_tabellen_nur_io:
       enabled: true
       severity: warning
 
-    # Prüfpunkt 32 — Baustein ist mit Standard- statt optimiertem
+    # Prüfpunkt 31 — Baustein ist mit Standard- statt optimiertem
     # Bausteinzugriff projektiert.
     nicht_optimierte_bausteine:
       enabled: true
       severity: warning
 
-    # Prüfpunkt 33 — Mehr Bausteine im Wurzelordner als der konfigurierte
+    # Prüfpunkt 32 — Mehr Bausteine im Wurzelordner als der konfigurierte
     # Schwellenwert.
     bausteine_im_root:
       enabled: true
       severity: warning
       max_bausteine_root: 20
 
-    # Prüfpunkt 34 (neu in V21) — Baustein hat Schreibschutz, der nicht
+    # Prüfpunkt 33 (neu in V21) — Baustein hat Schreibschutz, der nicht
     # dokumentiert ist.
     schreibschutz:
       enabled: true

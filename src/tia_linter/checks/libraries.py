@@ -1,4 +1,4 @@
-"""Prüfpunkte 22-34: Bibliotheken & Typen sowie Siemens Styleguide & Best Practices.
+"""Prüfpunkte 22-33: Bibliotheken & Typen sowie Siemens Styleguide & Best Practices.
 
 Gegen die TIA Portal V21 Openness-Referenz (Manual 03/2026, lokal unter
 ~/Dokumente/ObsidianVault/Projekte/TiaOpenness/) geprüft. Check 25 (Static-
@@ -33,16 +33,6 @@ from tia_linter.checks._tia_helpers import (
 )
 from tia_linter.checks.base import BaseCheck
 from tia_linter.models import CheckResult
-
-# Häufige Siemens-System-/IEC-Bausteine, die typischerweise als Multi-Instanz
-# statt als eigener Instanz-DB aufgerufen werden sollten (Heuristik für
-# Prüfpunkt 27 — keine erschöpfende Liste).
-_MULTI_INSTANCE_CANDIDATES = (
-    "TON", "TOF", "TP", "TONR",
-    "CTU", "CTD", "CTUD",
-    "IEC_Timer", "IEC_Counter",
-    "S_ODT", "S_OFFDT", "S_PULSE",
-)
 
 
 class VeralteteBibliothekenCheck(BaseCheck):
@@ -333,39 +323,8 @@ class OutputMehrfachBeschriebenCheck(BaseCheck):
         return results
 
 
-class MultiInstanzenCheck(BaseCheck):
-    """Prüfpunkt 27: Timer/Zähler als Einzel-Instanz-DB statt Multi-Instanz.
-
-    Heuristik anhand einer Liste bekannter Siemens-/IEC-System-Bausteine
-    (``_MULTI_INSTANCE_CANDIDATES``) — erkennt keine kundeneigenen
-    FBs, die ebenfalls besser als Multi-Instanz aufgerufen würden.
-    """
-
-    def run(self, project: Any) -> list[CheckResult]:
-        from Siemens.Engineering.SW.Blocks import InstanceDB
-
-        results: list[CheckResult] = []
-        for plc_software in iter_plc_software(project):
-            for db, group_path in iter_data_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
-                if not isinstance(db, InstanceDB):
-                    continue
-                instance_of = str(get_attribute(db, "InstanceOfName", "") or "")
-                if instance_of in _MULTI_INSTANCE_CANDIDATES:
-                    results.append(
-                        self._make_result(
-                            path=format_path(plc_software.Name, "Datenbaustein", *group_path, db.Name),
-                            description=(
-                                f"Instanz-DB '{db.Name}' für '{instance_of}' — "
-                                "als Multi-Instanz statt Einzel-Instanz-DB anlegen."
-                            ),
-                            value=instance_of,
-                        )
-                    )
-        return results
-
-
 class UdtWiederkehrendeStrukturenCheck(BaseCheck):
-    """Prüfpunkt 28: Identische Member-Struktur kommt in mehreren DBs vor, ohne UDT zu sein."""
+    """Prüfpunkt 27: Identische Member-Struktur kommt in mehreren DBs vor, ohne UDT zu sein."""
 
     def run(self, project: Any) -> list[CheckResult]:
         results: list[CheckResult] = []
@@ -401,7 +360,7 @@ class UdtWiederkehrendeStrukturenCheck(BaseCheck):
 
 
 class Ob1KomplexitaetCheck(BaseCheck):
-    """Prüfpunkt 29: OB1 (Main) enthält mehr Netzwerke mit eigener Logik als der Schwellenwert."""
+    """Prüfpunkt 28: OB1 (Main) enthält mehr Netzwerke mit eigener Logik als der Schwellenwert."""
 
     def run(self, project: Any) -> list[CheckResult]:
         from Siemens.Engineering.SW.Blocks import OB
@@ -438,7 +397,7 @@ _DEFAULT_KNOW_HOW_HINWEISE = ("know-how", "knowhow")
 
 
 class KnowHowSchutzCheck(BaseCheck):
-    """Prüfpunkt 30: Know-how-geschützte Bausteine ohne entsprechenden Vermerk.
+    """Prüfpunkt 29: Know-how-geschützte Bausteine ohne entsprechenden Vermerk.
 
     ``PlcBlock.Comment`` ist mehrsprachig (``MultilingualText``, siehe
     ``comments.py::VariablenKommentarCheck``) — Lesen über ``read_comment``
@@ -477,7 +436,7 @@ class KnowHowSchutzCheck(BaseCheck):
 
 
 class TagTabellenNurIoCheck(BaseCheck):
-    """Prüfpunkt 31: Tag-Tabelle mischt I/O-Tags mit Nicht-I/O-Tags."""
+    """Prüfpunkt 30: Tag-Tabelle mischt I/O-Tags mit Nicht-I/O-Tags."""
 
     def run(self, project: Any) -> list[CheckResult]:
         results: list[CheckResult] = []
@@ -503,7 +462,7 @@ class TagTabellenNurIoCheck(BaseCheck):
 
 
 class NichtOptimierteBausteineCheck(BaseCheck):
-    """Prüfpunkt 32: Bausteine mit Standard- statt optimiertem Bausteinzugriff.
+    """Prüfpunkt 31: Bausteine mit Standard- statt optimiertem Bausteinzugriff.
 
     Attribut ``MemoryLayout`` (enum, Werte ``Standard``/``Optimized``) ist in
     der V21-Openness-Referenz als allgemeines Bausteinattribut bestätigt
@@ -528,7 +487,7 @@ class NichtOptimierteBausteineCheck(BaseCheck):
 
 
 class BausteineImRootCheck(BaseCheck):
-    """Prüfpunkt 33: Zu viele Bausteine direkt im Wurzelordner ohne Gruppierung."""
+    """Prüfpunkt 32: Zu viele Bausteine direkt im Wurzelordner ohne Gruppierung."""
 
     def run(self, project: Any) -> list[CheckResult]:
         results: list[CheckResult] = []
@@ -554,7 +513,7 @@ _DEFAULT_SCHREIBSCHUTZ_HINWEISE = ("schreibschutz", "write-protect")
 
 
 class SchreibschutzCheck(BaseCheck):
-    """Prüfpunkt 34 (neu in V21): Schreibschutz von Bausteinen ohne Dokumentation.
+    """Prüfpunkt 33 (neu in V21): Schreibschutz von Bausteinen ohne Dokumentation.
 
     Attribut ``IsWriteProtected`` (Bool) ist als allgemeines Bausteinattribut
     in der V21-Openness-Referenz bestätigt (Manual 03/2026, Tabelle der
@@ -572,7 +531,7 @@ class SchreibschutzCheck(BaseCheck):
     Neuer Parameter ``dokumentations_hinweise`` (Standard
     ``["schreibschutz", "write-protect"]``, User-Auftrag 24.07.2026, analog
     zu ``ignorierte_meldungen`` bei Prüfpunkt 21 sowie demselben Parameter
-    bei Prüfpunkt 30): Liste literaler Teiltexte (kein Regex), von denen
+    bei Prüfpunkt 29): Liste literaler Teiltexte (kein Regex), von denen
     mindestens einer case-insensitiv in der Kopfbeschreibung vorkommen muss.
     """
 
@@ -607,7 +566,6 @@ CHECK_CLASSES = {
     "styleguide.sprachen_konsistent": SprachenKonsistentCheck,
     "styleguide.static_zugriff_extern": StaticZugriffExternCheck,
     "styleguide.output_mehrfach_beschrieben": OutputMehrfachBeschriebenCheck,
-    "styleguide.multi_instanzen": MultiInstanzenCheck,
     "styleguide.udt_wiederkehrende_strukturen": UdtWiederkehrendeStrukturenCheck,
     "styleguide.ob1_komplexitaet": Ob1KomplexitaetCheck,
     "styleguide.know_how_schutz": KnowHowSchutzCheck,

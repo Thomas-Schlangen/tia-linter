@@ -211,7 +211,7 @@ class TiaLinterApp(tk.Tk):
             return
         output_folder = self.main_page.output_folder.get().strip() or "."
         try:
-            output_path = PdfReporter(self.config.report).generate(self._report, output_folder)
+            output_path = PdfReporter(self.config).generate(self._report, output_folder)
         except OSError as exc:
             messagebox.showerror("TIA Linter", f"PDF-Report konnte nicht erstellt werden:\n{exc}")
             return
@@ -365,7 +365,7 @@ class MainPage(ttk.Frame):
 
         log_frame = ttk.LabelFrame(self, text="Log")
         log_frame.pack(fill="both", expand=True, **pad)
-        self._log_text = tk.Text(log_frame, height=8, state="disabled", wrap="word")
+        self._log_text = tk.Text(log_frame, height=6, state="disabled", wrap="word")
         log_scroll = ttk.Scrollbar(log_frame, orient="vertical", command=self._log_text.yview)
         self._log_text.configure(yscrollcommand=log_scroll.set)
         self._log_text.pack(side="left", fill="both", expand=True)
@@ -374,7 +374,7 @@ class MainPage(ttk.Frame):
     # Anzahl Kategorie-Spalten nebeneinander in der Prüfpunkte-Übersicht —
     # nutzt die verfügbare horizontale Breite besser aus, statt alle 7
     # Kategorien stur untereinander zu stapeln.
-    _CATEGORY_COLUMNS = 3
+    _CATEGORY_COLUMNS = 4
 
     def rebuild_check_tree(self) -> None:
         """Baut die Checkbox-Gruppen aus ``app.definitions`` neu auf — z. B.

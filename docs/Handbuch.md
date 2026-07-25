@@ -6,7 +6,7 @@
 
 > **Hinweis zum Bearbeitungsstand:** Dieses Handbuch ist inhaltlich
 > vollständig — alle Kapitel 1–9 (grundsätzliche Funktion und Bedienung der
-> Oberfläche) sowie Kapitel 10 mit allen 34 Prüfpunkten (siehe
+> Oberfläche) sowie Kapitel 10 mit allen 33 Prüfpunkten (siehe
 > [Übersichtstabelle am Anfang von Kapitel 10](#10-die-prüfpunkte-im-detail))
 > sind ausgearbeitet. Es trägt weiterhin die Kennzeichnung "Entwurf", bis
 > eine erste vollständige Durchsicht stattgefunden hat.
@@ -61,7 +61,7 @@ Der Aufbau folgt bewusst vom Allgemeinen zum Speziellen:
 - Die **Kapitel 1–9** erklären, was das Programm tut, wie es aufgebaut ist
   und wie man es bedient — unabhängig davon, welche einzelnen Prüfpunkte
   gerade aktiv sind.
-- **Kapitel 10** enthält für jeden einzelnen der 34 Prüfpunkte eine eigene,
+- **Kapitel 10** enthält für jeden einzelnen der 33 Prüfpunkte eine eigene,
   ausführliche Beschreibung (was genau geprüft wird, warum das wichtig ist,
   und wie ein Befund behoben wird).
 
@@ -504,7 +504,7 @@ wieder vorausgefüllt.
 Der PDF-Report ist das zentrale Ergebnisdokument einer Prüfung und wird über
 den Button "PDF-Report erstellen" auf der Ergebnisseite erzeugt (siehe
 [Abschnitt 6.4](#64-die-ergebnisseite)). Er ist im DIN-A4-Format aufgebaut
-und gliedert sich in drei Teile:
+und gliedert sich in fünf Teile:
 
 **1. Deckblatt**
 
@@ -514,20 +514,40 @@ Prüfers und der Firma (siehe [Abschnitt 5.3](#53-angaben-für-den-report)).
 
 ![Beispiel-Deckblatt eines PDF-Reports mit Projektname, TIA-Portal-Version, Prüfdatum, Prüfer und Firma](images/report-deckblatt.png)
 
-**2. Zusammenfassung**
+**2. Prüfpunkte-Übersicht**
+
+Eine Tabelle mit **allen** im TIA Linter vorhandenen Prüfpunkten (nicht nur
+den in diesem Lauf aktivierten) — je Zeile: ob der Prüfpunkt durchgeführt
+wurde, ob er dabei technisch erfolgreich durchgelaufen ist (im Unterschied
+zu einem inhaltlichen Verstoß, den ein Prüfpunkt meldet), sowie die Anzahl
+Fehler und Warnungen. Eine abschließende Gesamtzeile fasst diese Spalten
+zusammen. So lässt sich auf einen Blick erkennen, welche Prüfpunkte
+überhaupt gelaufen sind, ohne erst die Detailseiten durchsuchen zu müssen.
+
+**3. Zusammenfassung**
 
 Eine Übersichtsseite mit der Gesamtzahl an Fehlern, Warnungen und
 OK-Befunden sowie einer Aufschlüsselung dieser Zahlen je Kategorie.
 
 ![Beispiel-Zusammenfassungsseite eines PDF-Reports mit Gesamtzahlen zu Fehlern, Warnungen und OK-Befunden sowie der Aufschlüsselung je Kategorie](images/report-zusammenfassung.png)
 
-**3. Details**
+**4. Details**
 
 Für jede Kategorie eine eigene Tabelle mit allen zugehörigen Befunden
 (Status, Pfad, Beschreibung, Empfehlung zur Behebung) — farblich
 hervorgehoben analog zur Befundtabelle in der Oberfläche.
 
 ![Beispiel-Detailseite eines PDF-Reports mit der Befundtabelle einer einzelnen Kategorie](images/report-detailseite.png)
+
+**5. Anhang A — Verwendete Konfiguration**
+
+Der vollständige Parameterinhalt der YAML-Konfigurationsdatei, mit der
+diese Prüfung durchgeführt wurde (ohne die erläuternden Kommentare der
+Originaldatei, bis auf einen Verweis auf die jeweilige Prüfpunkt-Nummer
+über jedem Prüfpunkt-Eintrag) — so bleibt dauerhaft nachvollziehbar, unter
+welchen Einstellungen (Schwellenwerte, Regex-Muster, Ausnahmelisten usw.)
+ein bestimmter Report entstanden ist, auch wenn sich die Konfigurationsdatei
+später ändert.
 
 Der Dateiname wird automatisch nach folgendem Schema vergeben und im
 gewählten Output-Ordner gespeichert:
@@ -620,7 +640,7 @@ Dieses Kapitel wird schrittweise ausgebaut. Der aktuelle Bearbeitungsstand:
 | [10.4](#104-hardware-konfiguration-prüfpunkte-17-18c) | Hardware & Konfiguration | 17–18c | ausgearbeitet |
 | [10.5](#105-projektmetadaten-prüfpunkte-19-21) | Projektmetadaten | 19–21 | ausgearbeitet |
 | [10.6](#106-bibliotheken-typen-prüfpunkte-22-23) | Bibliotheken & Typen | 22–23 | ausgearbeitet |
-| [10.7](#107-siemens-styleguide-best-practices-prüfpunkte-24-34) | Siemens Styleguide & Best Practices | 24–34 | ausgearbeitet |
+| [10.7](#107-siemens-styleguide-best-practices-prüfpunkte-24-33) | Siemens Styleguide & Best Practices | 24–33 | ausgearbeitet |
 
 ### 10.1 Kommentare & Beschreibungen (Prüfpunkte 1-4)
 
@@ -2266,7 +2286,7 @@ Verwaisten Instanz-DB entfernen oder den zugehörigen FB wiederherstellen.
 
 ---
 
-### 10.7 Siemens Styleguide & Best Practices (Prüfpunkte 24-34)
+### 10.7 Siemens Styleguide & Best Practices (Prüfpunkte 24-33)
 
 Diese letzte und umfangreichste Kategorie fasst Empfehlungen aus dem
 Siemens Standardisierungsleitfaden sowie allgemein anerkannte
@@ -2429,54 +2449,7 @@ PLC_1 > Programmbausteine > FB_Regler > Fehlercode
 Schreibzugriffe auf den Output-Parameter auf eine Stelle im Baustein
 konsolidieren.
 
-#### Prüfpunkt 27 — Multi-Instanzen statt Einzel-Instanzen
-
-| | |
-|---|---|
-| **Kategorie** | Siemens Styleguide & Best Practices |
-| **Standard-Schweregrad** | Warnung |
-| **Config-Schlüssel** | `checks.styleguide.multi_instanzen` |
-
-**Was wird geprüft?**
-Für jeden Instanz-Datenbaustein wird geprüft, ob er einen bekannten
-Standard-Timer oder -Zähler (z. B. TON, TOF, CTU, IEC_Timer) als
-eigenständigen Einzel-Instanz-DB aufruft, statt ihn als Multi-Instanz
-innerhalb des aufrufenden Bausteins zu führen.
-
-**Warum ist das wichtig?**
-Jeder Einzel-Instanz-DB ist ein eigenständiges Objekt im Projekt, das
-Speicher belegt und die Bausteinliste unnötig aufbläht. Bei Timern und
-Zählern, die typischerweise nur innerhalb eines einzigen aufrufenden
-Bausteins gebraucht werden, ist eine Multi-Instanz — die als Teil des
-Instanz-DBs des aufrufenden Bausteins mitgeführt wird — meist die sauberere
-und ressourcenschonendere Lösung.
-
-**Parameter**
-Dieser Prüfpunkt hat keine konfigurierbaren Parameter in der
-Konfigurationsdatei — die erkannten Timer-/Zähler-Bausteintypen sind fest
-im Programmcode hinterlegt.
-
-**Beispiel**
-
-```
-PLC_1 > Datenbaustein > TON_Instanz_3
-→ Instanz-DB 'TON_Instanz_3' für 'TON' — als Multi-Instanz statt
-  Einzel-Instanz-DB anlegen.
-```
-
-**Besonderheiten**
-
-- Dieser Prüfpunkt arbeitet mit einer festen Liste bekannter
-  Siemens-/IEC-Standardbausteine (u. a. `TON`, `TOF`, `TP`, `TONR`, `CTU`,
-  `CTD`, `CTUD`, `IEC_Timer`, `IEC_Counter`, `S_ODT`, `S_OFFDT`,
-  `S_PULSE`). Eigene, kundenspezifische Funktionsbausteine, die ebenfalls
-  besser als Multi-Instanz aufgerufen würden, werden von diesem Prüfpunkt
-  nicht erkannt.
-
-**Empfehlung zur Behebung**
-Aufruf auf Multi-Instanz umstellen (spart Bausteine und Datenbausteine).
-
-#### Prüfpunkt 28 — UDT für wiederkehrende Strukturen
+#### Prüfpunkt 27 — UDT für wiederkehrende Strukturen
 
 | | |
 |---|---|
@@ -2519,7 +2492,7 @@ PLC_1 > Datenbaustein > DB_Rezept_A
 Wiederkehrende Struktur als PLC-Datentyp (UDT) anlegen und in den
 betroffenen Datenbausteinen referenzieren.
 
-#### Prüfpunkt 29 — OB1 (Main) Komplexität
+#### Prüfpunkt 28 — OB1 (Main) Komplexität
 
 | | |
 |---|---|
@@ -2564,7 +2537,7 @@ PLC_1 > Programmbausteine > Main [OB1]
 Logik aus OB1 in eigene Bausteine auslagern — OB1 sollte primär Bausteine
 aufrufen.
 
-#### Prüfpunkt 30 — Know-How-Schutz dokumentiert
+#### Prüfpunkt 29 — Know-How-Schutz dokumentiert
 
 | | |
 |---|---|
@@ -2609,7 +2582,7 @@ PLC_1 > Programmbausteine > FB_Rezeptalgorithmus
 Know-how-Schutz im Bausteinkopf bzw. in der Projektdokumentation
 vermerken.
 
-#### Prüfpunkt 31 — Tag-Tabellen nur I/O-Tags
+#### Prüfpunkt 30 — Tag-Tabellen nur I/O-Tags
 
 | | |
 |---|---|
@@ -2647,7 +2620,7 @@ PLC_1 > Variablentabellen > Tags_Allgemein
 **Empfehlung zur Behebung**
 Nicht-I/O-Tags (z. B. Merker) in eine eigene Tag-Tabelle verschieben.
 
-#### Prüfpunkt 32 — Nicht-optimierte Bausteine
+#### Prüfpunkt 31 — Nicht-optimierte Bausteine
 
 | | |
 |---|---|
@@ -2689,7 +2662,7 @@ PLC_1 > Programmbausteine > DB_Altsystem
 Bausteinzugriff auf "Optimiert" umstellen, sofern kein technischer Grund
 dagegenspricht.
 
-#### Prüfpunkt 33 — Bausteine im Root ohne Ordnerstruktur
+#### Prüfpunkt 32 — Bausteine im Root ohne Ordnerstruktur
 
 | | |
 |---|---|
@@ -2726,7 +2699,7 @@ PLC_1 > Programmbausteine
 **Empfehlung zur Behebung**
 Bausteine in thematische Unterordner/Gruppen einsortieren.
 
-#### Prüfpunkt 34 — Schreibschutz von Bausteinen
+#### Prüfpunkt 33 — Schreibschutz von Bausteinen
 
 | | |
 |---|---|
@@ -2741,7 +2714,7 @@ Kopfbeschreibung einen entsprechenden Hinweis enthält (die Begriffe
 Befund erzeugt.
 
 **Warum ist das wichtig?**
-Analog zu [Prüfpunkt 30](#prüfpunkt-30-know-how-schutz-dokumentiert) lässt
+Analog zu [Prüfpunkt 29](#prüfpunkt-29-know-how-schutz-dokumentiert) lässt
 sich ein schreibgeschützter Baustein zwar weiterhin einsehen, aber nicht
 mehr verändern. Ohne Dokumentationshinweis ist nicht sofort erkennbar,
 dass Änderungsversuche am Baustein absichtlich blockiert sind, was bei
