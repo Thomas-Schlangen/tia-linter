@@ -26,7 +26,7 @@ from tia_linter.project_texts import ProjectTextComments
 
 
 class VariablenKommentarCheck(BaseCheck):
-    """Prüfpunkt 1: PLC-Tags und DB-Variablen ohne Kommentar.
+    """Prüfpunkt 1a: PLC-Tags und DB-Variablen ohne Kommentar.
 
     ``PlcTag.Comment`` ist wie im Schwesterprojekt ``tia-tag-exporter``
     (dort bereits gelöst, siehe dessen ``extractor.py::_read_comment``) ein
@@ -269,7 +269,7 @@ class UdtKommentarCheck(BaseCheck):
     """Prüfpunkt 1b: PLC-Datentypen (UDTs) ohne Kommentar.
 
     War in der ursprünglichen Liste der Prüfpunkte kein eigener Punkt —
-    ergänzt Prüfpunkt 1 um genau die Items, die dort seit dem "Vierter Bug"
+    ergänzt Prüfpunkt 1a um genau die Items, die dort seit dem "Vierter Bug"
     genannten Fix bewusst nicht mehr geprüft werden (Items *innerhalb* eines
     UDT-typisierten Members). Geprüft werden zwei unabhängige Dinge:
 
@@ -294,7 +294,7 @@ class UdtKommentarCheck(BaseCheck):
     wird unabhängig davon geprüft, wenn die äußere Schleife bei ihm
     ankommt (jede UDT wird einmal für sich betrachtet, nicht rekursiv über
     ihre Verwendungsstellen). Array-Elemente (``[...]``) werden wie bei
-    Prüfpunkt 1 übersprungen — ein Kommentar auf dem Array selbst reicht.
+    Prüfpunkt 1a übersprungen — ein Kommentar auf dem Array selbst reicht.
     """
 
     def run(self, project: Any) -> list[CheckResult]:
@@ -375,7 +375,7 @@ class FbMemberKommentarCheck(BaseCheck):
     """Prüfpunkt 1c: Interface-Member von Funktionsbausteinen (FBs) ohne Kommentar.
 
     War in der ursprünglichen Liste der Prüfpunkte kein eigener Punkt — ergänzt
-    Prüfpunkt 1 um die Lücke, die durch dessen "Siebter Bug"-Fix entstanden ist
+    Prüfpunkt 1a um die Lücke, die durch dessen "Siebter Bug"-Fix entstanden ist
     (siehe ``VariablenKommentarCheck``): Multi-Instanz-FB-Aufrufe (z. B.
     ``Man4805_27M11`` vom Typ ``ManStFcPump``) werden dort seitdem wie
     UDT-typisierte Member behandelt — ihre Items werden nicht mehr einzeln
@@ -384,10 +384,10 @@ class FbMemberKommentarCheck(BaseCheck):
 
     Deckt seit dem "Achter Bug/Design-Entscheidung" in ``VariablenKommentarCheck``
     zusätzlich **alle Instanz-DB-Member** ab, nicht nur verschachtelte
-    Multi-Instanzen innerhalb einer DB: Prüfpunkt 1 prüfte dort ursprünglich
+    Multi-Instanzen innerhalb einer DB: Prüfpunkt 1a prüfte dort ursprünglich
     jedes Instanz-DB-Member einzeln (mit Fallback auf den FB-Kommentar), was
     zu doppelten Befunden für dasselbe Grundproblem führte (einer an der
-    Instanz, einer an der FB-Definition). Instanz-DBs werden bei Prüfpunkt 1
+    Instanz, einer an der FB-Definition). Instanz-DBs werden bei Prüfpunkt 1a
     daher komplett übersprungen — dieser Prüfpunkt ist jetzt die alleinige
     Quelle für Kommentar-Befunde zu FB-Interface-Membern, unabhängig davon,
     ob der FB als eigenständige Instanz-DB oder als verschachtelte
@@ -401,7 +401,7 @@ class FbMemberKommentarCheck(BaseCheck):
     (``kommentare.baustein_beschreibung``) und wird hier nicht erneut geprüft.
 
     **Live-Befund während der Implementierung:** Anders als bei
-    ``DataBlock.Interface.Members`` (Prüfpunkt 1) und ``PlcType.Interface.Members``
+    ``DataBlock.Interface.Members`` (Prüfpunkt 1a) und ``PlcType.Interface.Members``
     (Prüfpunkt 1b) liefert ``PlcBlock.Interface.Members`` direkt auf einem FB
     **immer eine leere Liste** — verifiziert an allen 127 FBs des
     Salzmaschine-Projekts, unabhängig von Know-how-Schutz (keiner der FBs war

@@ -13,6 +13,11 @@ report:
   firma: ""
   logo_pfad: ""
 
+logging:
+  level: "INFO"
+  file: null
+  console: true
+
 tia_versionen:
   verfuegbar:
     - name: "TIA Portal V21"
@@ -59,7 +64,7 @@ ausgeschlossene_bausteine: []
 
 checks:
   kommentare:
-    # Prüfpunkt 1 — PLC-Tags und DB-Variablen ohne Kommentar.
+    # Prüfpunkt 1a — PLC-Tags und DB-Variablen ohne Kommentar.
     variablen_kommentar:
       enabled: true
       severity: warning
@@ -89,7 +94,7 @@ checks:
       #   - "IEC_TIMER"
 
     # Prüfpunkt 1b — war in der ursprünglichen Liste kein eigener Punkt,
-    # ergänzt Prüfpunkt 1: Items innerhalb eines UDT-typisierten Members
+    # ergänzt Prüfpunkt 1a: Items innerhalb eines UDT-typisierten Members
     # werden dort bewusst nicht mehr einzeln geprüft (analog zu Array-
     # Elementen reicht ein Kommentar auf dem UDT-Member selbst) — stattdessen
     # prüft dieser Punkt den PLC-Datentyp (UDT) direkt: sowohl seinen eigenen
@@ -101,7 +106,7 @@ checks:
 
     # Prüfpunkt 1c — war in der ursprünglichen Liste kein eigener Punkt,
     # ergänzt Prüfpunkt 1b: Multi-Instanz-FB-Aufrufe (Membertyp ist der Name
-    # eines Funktionsbausteins, keines PLC-Datentyps) werden bei Prüfpunkt 1
+    # eines Funktionsbausteins, keines PLC-Datentyps) werden bei Prüfpunkt 1a
     # ebenfalls bewusst nicht mehr in die Tiefe geprüft — dieser Punkt prüft
     # stattdessen die Kommentare der FB-Interface-Member direkt an der
     # FB-Definition (nicht der FB-Kopfkommentar selbst, siehe baustein_beschreibung).
@@ -209,7 +214,7 @@ checks:
       # deaktiviert, jedes leere Netzwerk wird wie bisher gemeldet.
       ausnahme_titel_regex: '^#{5,}[^#]+#{5,}$'
 
-    # Prüfpunkt 11 — PLC-Tag/DB-Variable wird im gesamten Programm nirgends
+    # Prüfpunkt 11a — PLC-Tag/DB-Variable wird im gesamten Programm nirgends
     # referenziert (Dead Code).
     unbenutzte_variablen:
       enabled: true
@@ -230,7 +235,7 @@ checks:
       enabled: true
       severity: warning
 
-    # Prüfpunkt 12 — Eingangs-Tag wird im Programm nie gelesen.
+    # Prüfpunkt 12a — Eingangs-Tag wird im Programm nie gelesen.
     eingaenge_gelesen:
       enabled: true
       severity: warning
@@ -289,7 +294,7 @@ checks:
       enabled: true
       severity: error
 
-    # Prüfpunkt 18 — CPU-Typ oder Firmware-Version sind in den
+    # Prüfpunkt 18a — CPU-Typ oder Firmware-Version sind in den
     # Projekteigenschaften nicht vermerkt.
     cpu_firmware_dokumentiert:
       enabled: true
@@ -447,8 +452,3 @@ checks:
       # mindestens einer case-insensitiv in der Kopfbeschreibung vorkommen
       # muss, damit der Schreibschutz als dokumentiert gilt.
       dokumentations_hinweise: ["schreibschutz", "write-protect"]
-
-logging:
-  level: "INFO"
-  file: null
-  console: true

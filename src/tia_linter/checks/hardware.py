@@ -50,7 +50,7 @@ class HardwareVorhandenCheck(BaseCheck):
 
 
 class CpuFirmwareDokumentiertCheck(BaseCheck):
-    """Prüfpunkt 18: CPU-Typ und Firmware-Version in den Projekteigenschaften."""
+    """Prüfpunkt 18a: CPU-Typ und Firmware-Version in den Projekteigenschaften."""
 
     def run(self, project: Any) -> list[CheckResult]:
         results: list[CheckResult] = []

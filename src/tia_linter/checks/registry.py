@@ -40,16 +40,16 @@ CHECK_REGISTRY: dict[str, CheckMeta] = {
     "kommentare.variablen_kommentar": CheckMeta(
         name="Variablen ohne Kommentar",
         category=KOMMENTARE,
-        description="Prüfpunkt 1: PLC-Tags und DB-Variablen ohne Kommentar.",
+        description="Prüfpunkt 1a: PLC-Tags und DB-Variablen ohne Kommentar.",
         recommendation="Kommentar mit Beschreibung der Funktion/Bedeutung der Variable ergänzen.",
-        nummer="1",
+        nummer="1a",
     ),
     "kommentare.udt_kommentar": CheckMeta(
         name="UDT ohne Kommentar",
         category=KOMMENTARE,
         description=(
             "Prüfpunkt 1b: PLC-Datentyp (UDT) selbst oder eines seiner Items ohne Kommentar. "
-            "Ergänzt Prüfpunkt 1, dessen DB-Variablen-Prüfung Items innerhalb eines "
+            "Ergänzt Prüfpunkt 1a, dessen DB-Variablen-Prüfung Items innerhalb eines "
             "UDT-typisierten Members bewusst nicht mehr einzeln erfasst."
         ),
         recommendation="Kommentar auf dem PLC-Datentyp bzw. dem betroffenen Item ergänzen.",
@@ -61,7 +61,7 @@ CHECK_REGISTRY: dict[str, CheckMeta] = {
         description=(
             "Prüfpunkt 1c: Interface-Member eines Funktionsbausteins (FB) ohne Kommentar "
             "(nur die Member selbst, nicht der FB-Kopfkommentar — siehe Prüfpunkt 2). "
-            "Ergänzt Prüfpunkt 1, dessen DB-Variablen-Prüfung Items innerhalb einer "
+            "Ergänzt Prüfpunkt 1a, dessen DB-Variablen-Prüfung Items innerhalb einer "
             "Multi-Instanz-FB-Variable bewusst nicht mehr einzeln erfasst."
         ),
         recommendation="Kommentar auf dem betroffenen FB-Interface-Member ergänzen.",
@@ -165,9 +165,9 @@ CHECK_REGISTRY: dict[str, CheckMeta] = {
     "programmstruktur.unbenutzte_variablen": CheckMeta(
         name="Unbenutzte Variablen (Dead Code)",
         category=PROGRAMMSTRUKTUR,
-        description="Prüfpunkt 11: PLC-Tag/DB-Variable wird im gesamten Programm nirgends referenziert.",
+        description="Prüfpunkt 11a: PLC-Tag/DB-Variable wird im gesamten Programm nirgends referenziert.",
         recommendation="Unbenutzte Variable entfernen oder Verwendung ergänzen.",
-        nummer="11",
+        nummer="11a",
     ),
     "programmstruktur.unbenutzte_bausteine": CheckMeta(
         name="Unbenutzte Bausteine",
@@ -179,9 +179,9 @@ CHECK_REGISTRY: dict[str, CheckMeta] = {
     "programmstruktur.eingaenge_gelesen": CheckMeta(
         name="Eingänge min. 1x gelesen",
         category=PROGRAMMSTRUKTUR,
-        description="Prüfpunkt 12: Eingangs-Tag wird im Programm nie gelesen.",
+        description="Prüfpunkt 12a: Eingangs-Tag wird im Programm nie gelesen.",
         recommendation="Prüfen ob der Eingang tatsächlich benötigt wird, sonst Beschaltung/Tag entfernen.",
-        nummer="12",
+        nummer="12a",
     ),
     "programmstruktur.eingaenge_nicht_beschrieben": CheckMeta(
         name="Eingänge dürfen nicht beschrieben werden",
@@ -232,9 +232,9 @@ CHECK_REGISTRY: dict[str, CheckMeta] = {
     "hardware.cpu_firmware_dokumentiert": CheckMeta(
         name="CPU-Typ und Firmware-Version dokumentiert",
         category=HARDWARE,
-        description="Prüfpunkt 18: CPU-Typ oder Firmware-Version sind in den Projekteigenschaften nicht vermerkt.",
+        description="Prüfpunkt 18a: CPU-Typ oder Firmware-Version sind in den Projekteigenschaften nicht vermerkt.",
         recommendation="CPU-Typ und Firmware-Version in den Projekteigenschaften dokumentieren.",
-        nummer="18",
+        nummer="18a",
     ),
     "hardware.safety_passwort": CheckMeta(
         name="Passwortschutz bei Sicherheits-SPS",

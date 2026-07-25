@@ -182,7 +182,7 @@ class StaticZugriffExternCheck(BaseCheck):
     Meta-Eintrag mit ``ReferenceType.InstanceType`` in den Locations, dessen
     ``ReferenceLocation`` nicht auf eine echte Codestelle zeigt, sondern nur
     die Typbeziehung beschreibt (``@"4805PrgMan".Man4805_27M11 ▶ Data type``)
-    — dasselbe Muster wie die bereits in Prüfpunkt 11 behandelte
+    — dasselbe Muster wie die bereits in Prüfpunkt 11a behandelte
     Instanz-DB-Selbstreferenz (``@<DBName> ▶ Type``), nur hier auf
     Member-Ebene. Ohne Filter wurde dieser Meta-Eintrag als Zugriff von einem
     (nicht existierenden) Baustein namens ``'"4805PrgMan".Man4805_27M11'``
@@ -268,7 +268,7 @@ class OutputMehrfachBeschriebenCheck(BaseCheck):
     Baustein selbst, ``Children`` leer). ``find_source_child_by_name`` fand
     dadurch nie ein Member, der Check meldete seit Einführung nichts.
 
-    Fix: Wie bei Prüfpunkt 11 wird stattdessen der XML-Export des Bausteins
+    Fix: Wie bei Prüfpunkt 11a wird stattdessen der XML-Export des Bausteins
     direkt nach eigenen Schreibzugriffen durchsucht
     (``local_variable_write_counts()``, siehe ``_tia_helpers.py``) —
     funktioniert sprachunabhängig (SCL: Zuweisungsziel bzw.

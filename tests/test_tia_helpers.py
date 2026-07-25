@@ -330,7 +330,7 @@ class TestFindSourceChildByName:
 
 
 class TestStripCrossReferencePrefix:
-    """Prüfpunkt 11 (DB-Zweig): das DB-Namenspräfix, das SourceObject.Name im
+    """Prüfpunkt 11a (DB-Zweig): das DB-Namenspräfix, das SourceObject.Name im
     Kreuzreferenzbaum gegenüber dem unqualifizierten Namen trägt."""
 
     def test_strips_unquoted_prefix(self) -> None:
@@ -347,7 +347,7 @@ class TestStripCrossReferencePrefix:
 
 
 class TestInterfaceSectionMemberPaths:
-    """Prüfpunkt 11 (FB/FC/OB-Zweig, ``unterelemente_pruefen``): vollständige
+    """Prüfpunkt 11a (FB/FC/OB-Zweig, ``unterelemente_pruefen``): vollständige
     Blattpfad-Auflösung je Top-Level-Member aus der Interface-Deklaration."""
 
     def test_scalar_member_is_its_own_single_leaf(self) -> None:
@@ -390,7 +390,7 @@ class TestInterfaceSectionMemberPaths:
 
 
 class TestLocalVariableAccessPaths:
-    """Prüfpunkt 11 (FB/FC/OB-Zweig): dotted Zugriffspfade auf beliebiger
+    """Prüfpunkt 11a (FB/FC/OB-Zweig): dotted Zugriffspfade auf beliebiger
     Verschachtelungstiefe aus verschachtelten ``Component``-Zugriffsketten."""
 
     def test_scalar_access_yields_top_level_name(self) -> None:

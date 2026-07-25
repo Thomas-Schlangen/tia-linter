@@ -146,7 +146,7 @@ Details zu allen Prüfpunkten: siehe `config/default.yaml`
 
 **Prüfpunkt 1b — UDT ohne Kommentar** (`kommentare.udt_kommentar`, Standard-
 Schweregrad Warnung): war in der ursprünglichen Liste der 33 Prüfpunkte kein
-eigener Punkt, ergänzt aber Prüfpunkt 1 um PLC-Datentypen (UDTs). Prüfpunkt 1
+eigener Punkt, ergänzt aber Prüfpunkt 1a um PLC-Datentypen (UDTs). Prüfpunkt 1a
 prüft Items *innerhalb* eines UDT-typisierten DB-Members bewusst nicht mehr
 einzeln (analog zu Array-Elementen genügt ein Kommentar auf dem UDT-Member
 selbst) — Prüfpunkt 1b schließt die dadurch entstehende Lücke, indem er
@@ -157,7 +157,7 @@ geprüft, wenn die Prüfung bei ihm ankommt.
 
 **Prüfpunkt 1c — FB-Interface-Member ohne Kommentar** (`kommentare.fb_member_kommentar`,
 Standard-Schweregrad Warnung): analog zu Prüfpunkt 1b, aber für
-Funktionsbausteine (FBs) statt PLC-Datentypen — Prüfpunkt 1 prüft Items
+Funktionsbausteine (FBs) statt PLC-Datentypen — Prüfpunkt 1a prüft Items
 *innerhalb* einer Multi-Instanz-FB-Variable **und** sämtliche Member von
 Instanz-DBs bewusst nicht mehr einzeln. Prüfpunkt 1c ist damit die alleinige
 Quelle für Kommentar-Befunde zu FB-Interface-Membern im gesamten Projekt —
@@ -179,7 +179,7 @@ netzwerkbezogenen Prüfpunkte, z. B. Prüfpunkt 3).
 
 **Prüfpunkt 12b — Eingänge dürfen nicht beschrieben werden** (`programmstruktur.eingaenge_nicht_beschrieben`,
 Standard-Schweregrad Fehler): war in der ursprünglichen Liste der 35
-Prüfpunkte kein eigener Punkt, ergänzt aber Prüfpunkt 12 um eine der
+Prüfpunkte kein eigener Punkt, ergänzt aber Prüfpunkt 12a um eine der
 grundlegendsten SPS-Programmierregeln — Eingänge werden jeden Zyklus vom
 Prozessabbild aus der Hardware überschrieben, ein Schreibzugriff aus dem
 Anwenderprogramm wird daher ohnehin verworfen und deutet meist auf eine

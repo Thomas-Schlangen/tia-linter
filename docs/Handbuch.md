@@ -1,6 +1,6 @@
 # TIA Linter — Benutzerhandbuch
 
-**Version dieses Handbuchs:** 0.52 (Entwurf)
+**Version dieses Handbuchs:** 0.53 (Entwurf)
 **Stand:** 25.07.2026
 **Programmversion:** 0.1.0
 
@@ -318,7 +318,7 @@ Berücksichtigung von Groß-/Kleinschreibung.
 > für Programmbausteine und Datenbausteine — nicht für Variablentabellen
 > oder einzelne PLC-Tags. Wer einzelne Variablen von der
 > Kommentarprüfung ausnehmen möchte, nutzt stattdessen `ausnahme_prefixe`
-> bei [Prüfpunkt 1](#prüfpunkt-1-variablen-ohne-kommentar).
+> bei [Prüfpunkt 1a](#prüfpunkt-1a-variablen-ohne-kommentar).
 
 ### 5.3 Angaben für den Report
 
@@ -651,7 +651,7 @@ an Kolleginnen und Kollegen oder an den Kunden.
 
 ![Beispiel aus TIA Portal: eine Variablentabelle mit teilweise fehlenden Kommentaren in der Spalte "Kommentar"](images/beispiel-kommentare-tia-portal.png)
 
-#### Prüfpunkt 1 — Variablen ohne Kommentar
+#### Prüfpunkt 1a — Variablen ohne Kommentar
 
 | | |
 |---|---|
@@ -747,7 +747,7 @@ ob dieses einen Kommentar hat. Fehlt einer der beiden, wird je ein
 eigener Befund erzeugt.
 
 **Warum ist das wichtig?**
-Prüfpunkt 1 prüft Items *innerhalb* eines UDT-typisierten
+Prüfpunkt 1a prüft Items *innerhalb* eines UDT-typisierten
 Datenbaustein-Members bewusst nicht mehr einzeln (siehe dortige
 Besonderheiten) — ein Kommentar auf der Variable selbst genügt dort,
 analog zu Array-Elementen. Ohne diesen eigenen Prüfpunkt blieben die
@@ -776,14 +776,14 @@ PLC_1 > PLC-Datentypen > U_Motor > Member > Drehzahl
 **Besonderheiten**
 
 - War in der ursprünglichen Liste der 34 Prüfpunkte kein eigener Punkt —
-  ergänzt Prüfpunkt 1 um eine Lücke, die erst durch dessen eigene
+  ergänzt Prüfpunkt 1a um eine Lücke, die erst durch dessen eigene
   UDT-Sonderbehandlung entstanden ist (siehe dort).
 - Ist ein Item selbst wieder vom Typ eines (anderen oder desselben) UDT,
   wird ab dort **nicht** weiter in die Tiefe geprüft — dieses
   verschachtelte UDT wird eigenständig geprüft, sobald die Prüfung bei
   ihm ankommt. Jeder UDT wird also genau einmal an seiner Definition
   geprüft, unabhängig davon, wie oft und wo er im Projekt verwendet wird.
-- Wie bei Prüfpunkt 1 genügt bei UDT-Items, die Arrays sind, ein
+- Wie bei Prüfpunkt 1a genügt bei UDT-Items, die Arrays sind, ein
   Kommentar auf dem Array selbst.
 
 **Empfehlung zur Behebung**
@@ -811,7 +811,7 @@ Ganzes wird hier **nicht** geprüft — das übernimmt bereits
 [Prüfpunkt 2](#prüfpunkt-2-bausteine-ohne-kopfbeschreibung).
 
 **Warum ist das wichtig?**
-Prüfpunkt 1 prüft Items *innerhalb* einer Multi-Instanz-FB-Variable sowie
+Prüfpunkt 1a prüft Items *innerhalb* einer Multi-Instanz-FB-Variable sowie
 sämtliche Member von Instanz-DBs bewusst nicht mehr einzeln (siehe
 dortige Besonderheiten) — ein Kommentar auf einem FB-Interface-Member
 "gehört" konzeptionell zur FB-Definition, nicht zur einzelnen
@@ -840,7 +840,7 @@ PLC_1 > Programmbausteine > FB_Motor > Member > Drehzahl
 **Besonderheiten**
 
 - War in der ursprünglichen Liste der 34 Prüfpunkte kein eigener Punkt —
-  ergänzt Prüfpunkt 1 um eine Lücke, die erst durch dessen eigene
+  ergänzt Prüfpunkt 1a um eine Lücke, die erst durch dessen eigene
   Multi-Instanz-Sonderbehandlung entstanden ist (siehe dort).
 - Technischer Sonderfall: Anders als bei Datenbausteinen und
   PLC-Datentypen liefert die Openness-API für Funktionsbausteine über die
@@ -857,7 +857,7 @@ PLC_1 > Programmbausteine > FB_Motor > Member > Drehzahl
 - Deckt auch Instanz-DBs ab, die als eigenständige Bausteine im Projekt
   angelegt sind (nicht nur verschachtelte Multi-Instanzen innerhalb einer
   DB) — siehe die Besonderheiten und den dortigen Tradeoff bei
-  [Prüfpunkt 1](#prüfpunkt-1-variablen-ohne-kommentar).
+  [Prüfpunkt 1a](#prüfpunkt-1a-variablen-ohne-kommentar).
 
 **Empfehlung zur Behebung**
 Kommentar auf dem betroffenen FB-Interface-Member ergänzen — da ein FB
@@ -1358,7 +1358,7 @@ Leeres Netzwerk mit Logik befüllen oder entfernen — oder, falls absichtlich
 als Kapitelüberschrift verwendet, den Titel auf `ausnahme_titel_regex`
 abstimmen.
 
-#### Prüfpunkt 11 — Unbenutzte Variablen (Dead Code)
+#### Prüfpunkt 11a — Unbenutzte Variablen (Dead Code)
 
 | | |
 |---|---|
@@ -1421,7 +1421,7 @@ PLC_1 > Programmbausteine > OrgPrg > Member > test
   Zwischen-Member selbst und nicht den Datenbaustein als Ganzes — ob ein
   Datenbaustein komplett unbenutzt ist, prüft ohnehin eigenständig
   [Prüfpunkt 11b](#prüfpunkt-11b-unbenutzte-bausteine).
-- Wie bei Prüfpunkt 1 gilt: Ein Kommentar bzw. hier eine Verwendung auf dem
+- Wie bei Prüfpunkt 1a gilt: Ein Kommentar bzw. hier eine Verwendung auf dem
   Array selbst reicht — einzelne Array-Elemente (z. B. `Rezepte[3]`) werden
   nicht separat als unbenutzt gemeldet, ein großes Array-Member könnte sonst
   tausende Einzelbefunde erzeugen.
@@ -1450,7 +1450,7 @@ Unbenutzte Variable entfernen oder die fehlende Verwendung ergänzen.
 | **Config-Schlüssel** | `checks.programmstruktur.unbenutzte_bausteine` |
 
 **Was wird geprüft?**
-Ergänzend zu Prüfpunkt 11, aber auf Bausteinebene: Für jeden
+Ergänzend zu Prüfpunkt 11a, aber auf Bausteinebene: Für jeden
 Funktionsbaustein (FB), jede Funktion (FC) und jeden Datenbaustein (DB)
 wird geprüft, ob er von irgendeiner Stelle im Projekt aufgerufen bzw.
 referenziert wird.
@@ -1487,7 +1487,7 @@ PLC_1 > Programmbausteine > FB_Reserve_Alt
   unerwünscht ist und separat von [Prüfpunkt 25](#prüfpunkt-25--direkter-zugriff-auf-static-tags-von-außen)
   gemeldet wird).
 - **Global- und Array-Datenbausteine** werden dagegen anhand ihrer Member
-  geprüft (wie bei [Prüfpunkt 11](#prüfpunkt-11--unbenutzte-variablen-dead-code)):
+  geprüft (wie bei [Prüfpunkt 11a](#prüfpunkt-11a--unbenutzte-variablen-dead-code)):
   Ein normaler DB wird nie "als Ganzes" aufgerufen, sondern immer nur über
   einzelne Variablen gelesen/geschrieben — eine direkte Referenz auf den
   DB selbst gibt es dafür in der Kreuzreferenz-Baumstruktur nicht. Der DB
@@ -1497,7 +1497,7 @@ PLC_1 > Programmbausteine > FB_Reserve_Alt
 **Empfehlung zur Behebung**
 Unbenutzten Baustein entfernen oder den fehlenden Aufruf ergänzen.
 
-#### Prüfpunkt 12 — Eingänge mindestens einmal gelesen
+#### Prüfpunkt 12a — Eingänge mindestens einmal gelesen
 
 | | |
 |---|---|
@@ -1528,7 +1528,7 @@ PLC_1 > Variablentabellen > Tags_Eingaenge > I_Reserve_03
 
 **Besonderheiten**
 
-- Anders als Prüfpunkt 11 (irgendeine Verwendung genügt) unterscheidet
+- Anders als Prüfpunkt 11a (irgendeine Verwendung genügt) unterscheidet
   dieser Prüfpunkt gezielt zwischen **Lese-** und **Schreibzugriffen** —
   geprüft wird ausschließlich, ob tatsächlich gelesen wird. Ob ein Eingang
   fälschlich auch **beschrieben** wird, prüft der separate
@@ -1588,7 +1588,7 @@ PLC_1 > Variablentabellen > Tags_Eingaenge > I_Sensor_01
   Eingänge dürfen grundsätzlich gar nicht beschrieben werden.
 - Der Standard-Schweregrad ist **Fehler**, nicht Warnung wie bei den
   meisten übrigen Prüfpunkten dieser Kategorie.
-- Wie bei Prüfpunkt 12: Es werden ausschließlich echte PLC-Tags mit
+- Wie bei Prüfpunkt 12a: Es werden ausschließlich echte PLC-Tags mit
   Hardware-Adresse geprüft, keine DB-Member (siehe dortige Besonderheiten
   zum I/O-Spiegel-Pattern).
 
@@ -1632,7 +1632,7 @@ PLC_1 > Variablentabellen > Tags_Ausgaenge > Q_Ventil_02
 - Der Standard-Schweregrad ist hier **Fehler** statt Warnung wie bei den
   meisten übrigen Prüfpunkten dieser Kategorie — das unterstreicht, wie
   ernst dieser Verstoß typischerweise einzustufen ist.
-- Wie bei Prüfpunkt 12: Es werden ausschließlich echte PLC-Tags mit
+- Wie bei Prüfpunkt 12a: Es werden ausschließlich echte PLC-Tags mit
   Hardware-Adresse geprüft, keine DB-Member (siehe dortige Besonderheiten
   zum I/O-Spiegel-Pattern).
 
@@ -1856,7 +1856,7 @@ PLC_1 > Hardwarekonfiguration
 Hardware-Konfiguration prüfen — fehlendes Modul projektieren/aktivieren
 oder nicht mehr benötigten Tag entfernen.
 
-#### Prüfpunkt 18 — CPU-Typ und Firmware-Version dokumentiert
+#### Prüfpunkt 18a — CPU-Typ und Firmware-Version dokumentiert
 
 | | |
 |---|---|
@@ -2928,3 +2928,4 @@ zu der Übersicht, die bereits am Anfang der Markdown-Datei steht.
 | 0.50 | 24.07.2026 | Erweiterung bei Prüfpunkt 26 (User-Auftrag: "Funktioniert auch, aber ich brauch auch hier noch eine Erweiterung. Es gibt innerhalb von FBs und FCs sowohl Output-Tags als auch InputOutput-Tags. Bei denen müsste die gleiche Prüfung durchgeführt werden. Darf nur 1x beschrieben werden."): `OutputMehrfachBeschriebenCheck` prüfte bislang ausschließlich die Interface-Section `"Output"`. Fix: Zusätzlich wird die Section `"InOut"` (VAR_IN_OUT, bereits an anderer Stelle im Projekt als Sektionsname bestätigt, siehe `comments.py`/`structure.py`) gleichermaßen auf Mehrfach-Schreibzugriffe geprüft; die Meldung nennt die jeweilige Parameterart (`Output-Parameter '...'` bzw. `InOut-Parameter '...'`). Live gegen das Salzmaschine-Projekt vorher/nachher verglichen (`git stash`-Vergleich): 229 → 340 Befunde, die 111 neu hinzugekommenen sind durchgängig korrekt als `InOut-Parameter` beschriftet, die ursprünglichen 229 Output-Befunde blieben unverändert. `pytest` weiterhin 51/51 grün. Titel, "Was wird geprüft?" und Besonderheiten bei Prüfpunkt 26 entsprechend ergänzt; doppelte "Besonderheiten"-Überschrift (redaktionelles Überbleibsel aus einer früheren Version) im Zuge dessen zu einem Abschnitt zusammengeführt. |
 | 0.51 | 24.07.2026 | Neuer Parameter bei Prüfpunkt 30 und Prüfpunkt 34 (User-Auftrag im Anschluss an eine Erklärung des Unterschieds beider Prüfpunkte: "Kannst du sowohl bei PP30 als auch bei PP34 die Strings, die du in den Kommentaren suchst (schreibschutz, ...), so wie bei PP21 mit in die YAML-Datei als Parameter aufnehmen. Dann ist der Benutzer flexibler."): Beide Checks (`KnowHowSchutzCheck`, `SchreibschutzCheck`, `libraries.py`) hatten die gesuchten Dokumentationshinweise bislang fest im Code verdrahtet (`"know-how"`/`"knowhow"` bzw. `"schreibschutz"`/`"write-protect"`). Neuer Parameter `dokumentations_hinweise` bei beiden (Standardwerte identisch zu den bisherigen fest verdrahteten Texten) — Liste literaler Teiltexte, case-insensitiv, kein Regex (bewusst analog zu `ignorierte_meldungen` bei Prüfpunkt 21, siehe Version 0.47: Klammern/Sonderzeichen in einer eigenen Formulierung hätten als Regex sonst denselben Fallstrick). Beide YAML-Dateien ergänzt. `pytest` weiterhin 51/51 grün (Config-Ladetest bestätigt korrekte Standardwerte in beiden Dateien). Parameter-Tabelle und Besonderheiten bei Prüfpunkt 30/34 entsprechend ergänzt. |
 | 0.52 | 25.07.2026 | Prüfpunkt 27 ("Multi-Instanzen statt Einzel-Instanzen") komplett entfernt (User-Entscheidung nach dem in Version 0.-Historie/`review_fortschritt.md` dokumentierten Zweifel aus Runde 52: "die Einzelinstanz-DB landet in den allermeisten Fällen im Systemordner und wird dann sowieso nicht geprüft") und alle nachfolgenden Prüfpunkte 28–34 um 1 nach vorne auf 27–33 verschoben — analog zur Streichung von Prüfpunkt 22 in Version 0.48 betraf das durchgängig Code (`MultiInstanzenCheck`-Klasse und `_MULTI_INSTANCE_CANDIDATES`-Liste aus `libraries.py` entfernt, Registry-Eintrag entfernt, alle Docstrings/Kommentare 28–34 umnummeriert), beide YAML-Dateien (Konfigurationsblock entfernt, verbleibende Kommentare neu nummeriert, Kopfkommentar "34 Prüfpunkte" → "33"), README sowie die außerhalb des Code-Repos liegende Checkliste `doku_etc/Pruefpunkte.md`. Zusätzlich: Prüfpunkt 26 in der Oberfläche umbenannt zu "InOut und Output-Tag nur einmal beschrieben" (Titel/Anzeigename, der Config-Schlüssel `output_mehrfach_beschrieben` blieb unverändert). PDF-Report um zwei neue Kapitel erweitert — Kapitel 7 dieses Handbuchs entsprechend überarbeitet (siehe dort für Details zu "Prüfpunkte-Übersicht" und "Anhang A"). GUI-Kosmetik (nicht gesondert dokumentiert, siehe README/Code): Log-Fenster verkleinert, Prüfpunkte-Übersicht auf der Eingabeseite von 3 auf 4 Kategorie-Spalten umgestellt. `pytest` weiterhin 51/51 grün. |
+| 0.53 | 25.07.2026 | Umnummerierung auf User-Wunsch: Bei allen Prüfpunkten, die mindestens einen "b"-Unterpunkt haben, trägt der bisherige "nackte" Basispunkt jetzt zusätzlich ein "a" — Prüfpunkt 1/1b/1c → 1a/1b/1c, 11/11b → 11a/11b, 12/12b → 12a/12b, 18/18b/18c → 18a/18b/18c (Prüfpunkt 17/17b bewusst ausgenommen: 17b ist in `doku_etc/Pruefpunkte.md` nur als unimplementierter Planungs-Stub "(spätere Version)" vermerkt, existiert nirgends im tatsächlichen Programm — 17 bleibt daher unverändert "17", kein "17a"). Betrifft `registry.py` (`nummer`-Felder sowie alle Beschreibungstexte), sämtliche Check-Module mit entsprechenden Docstring-Querverweisen (`comments.py`, `structure.py`, `hardware.py`, `libraries.py`, `_tia_helpers.py`), beide YAML-Dateien (Kommentare), `tests/test_tia_helpers.py`/`test_models.py`, README, dieses Handbuch (Überschriften, Fließtext-Querverweise **und** die zugehörigen Anker-Links — z. B. `#prüfpunkt-1-...` → `#prüfpunkt-1a-...`) sowie `doku_etc/Pruefpunkte.md`. Kapitelweite Bereichsangaben wie "Prüfpunkte 1-4" oder "Prüfpunkte 17-18c" bleiben bewusst unverändert (sie bezeichnen eine Spanne, keinen Einzelpunkt). Historische Zeitpunkt-Aufzeichnungen (Anhang-C-Einträge dieser Tabelle vor Version 0.53, `doku_etc/review_fortschritt.md`) bleiben wie bei früheren Umnummerierungen bewusst bei der zum jeweiligen Zeitpunkt gültigen Nummerierung. Die GUI übernimmt die neue Nummerierung automatisch (zeigt `definition.nummer` direkt aus der Registry, keine eigene Code-Änderung nötig). `pytest` weiterhin 51/51 grün. |

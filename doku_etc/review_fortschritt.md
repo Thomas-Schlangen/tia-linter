@@ -3282,3 +3282,107 @@ Prüfpunkte-Übersicht (neu), Zusammenfassung, Details, Anhang A — verwendete
 Konfiguration (neu). Log-Fenster verkleinert, Prüfpunkte-Übersicht auf 4
 Spalten umgestellt. pytest 51/51 grün, committet (`51b52dc`), noch nicht
 gepusht."
+
+## Runde 55 — PDF-Report: Zahlen in der Zusammenfassungs-Kachel vertikal zentriert
+
+**Ausgangspunkt (User-Meldung, Screenshot in `doku_etc` abgelegt):** "eine
+kleine Unschönheit im PDF Report. Kannst du das fixen oder ist das ein
+externes Problem vom PDF Reator?" — Screenshot zeigte die
+Fehler/Warnungen/OK-Kachel aus Kapitel 3 ("Zusammenfassung"): die großen
+farbigen Zahlen (0/0/1) saßen sichtbar zu weit oben in ihrer Zelle, mit viel
+Freiraum darunter statt zentriert.
+
+**Untersuchung:** Kein externes reportlab-Problem — reproduzierbar anhand
+von `reportlab/platypus/tables.py::_drawCell` (MIDDLE-Formel) direkt
+nachgerechnet: `("FONTSIZE", (0, 1), (-1, 1), 20)` setzt die Schriftgröße der
+Zahlenzeile auf 20pt, ohne zugehöriges `LEADING` bleibt es aber beim
+TableStyle-Standardwert 12 — kleiner als die Schriftgröße selbst. Dadurch
+berechnete reportlab die Zeilenhöhe zu knapp (24pt statt der für 20pt-Schrift
+nötigen ~36pt) und die Grundlinie der Zahl landete rechnerisch bei `-2pt`
+relativ zum unteren Zellenrand (statt zentriert) — die Zahl "klebte" fast am
+unteren Rand, mit entsprechend viel Luft darüber.
+
+**Fix:** Explizites `("LEADING", (0, 1), (-1, 1), 24)` ergänzt (1,2×
+Schriftgröße, der übliche Leading-Richtwert) — Zeilenhöhe wächst dadurch auf
+36pt, Grundlinie liegt danach bei `+10pt` (statt `-2pt`), Abstand
+oberhalb/unterhalb der Ziffer damit nahezu symmetrisch (~11,6pt/10pt statt
+~11,6pt/−2pt).
+
+**Verifiziert:** Nachrechnung anhand von `Table._rowHeights`/`_cellStyles`
+vor und nach dem Fix (kein PDF-Rasterizer in dieser Umgebung verfügbar, daher
+rechnerisch statt visuell verifiziert). `pytest` weiterhin 51/51 grün,
+Test-PDF-Erzeugung via `simulate_lint_run` weiterhin fehlerfrei.
+
+**Dokumentiert:** Kein Handbuch-Eintrag (reine Rendering-Korrektur ohne
+Verhaltensänderung). Committet als `211221f` auf `main`, direkt gepusht (User
+bat explizit um "commit and push").
+
+Letzter Stand: "Vertikale Zentrierung der Zahlen in der
+Zusammenfassungs-Kachel des PDF-Reports behoben (fehlendes LEADING bei
+FONTSIZE 20) — kein reportlab-Fremdproblem, sondern eigener Config-Fehler in
+`reporter.py`. pytest 51/51 grün, committet (`211221f`) und gepusht."
+
+## Runde 56 — Umnummerierung: alle Prüfpunkte mit "b"-Unterpunkt bekommen "a" (1→1a, 11→11a, 12→12a, 18→18a)
+
+**Ausgangspunkt (User-Auftrag):** "kannst du bitte eine kleine
+Umnummerierung vornehmen, überall da, wo es einen Punkt b gibt. Aktuell gibt
+es z. B. die Punkte 1, 1b und 1c. Ich möchte, dass es die Punkte 1a, 1b und
+1c gibt. [...] bitte bei allen Punkten wo es mindestens einen b-Punkt gibt.
+Bitte überall ändern, doku, yaml, gui, ...."
+
+**Betroffene Gruppen (in `registry.py` identifiziert):** 1/1b/1c
+(`kommentare.variablen_kommentar`/`udt_kommentar`/`fb_member_kommentar`),
+11/11b (`programmstruktur.unbenutzte_variablen`/`unbenutzte_bausteine`),
+12/12b (`programmstruktur.eingaenge_gelesen`/`eingaenge_nicht_beschrieben`),
+18/18b/18c (`hardware.cpu_firmware_dokumentiert`/`safety_passwort`/`zertifikat`)
+— jeweils der bisher "nackte" Basispunkt (1, 11, 12, 18) wurde zu 1a/11a/12a/18a.
+**Bewusst ausgenommen:** Prüfpunkt 17 — `doku_etc/Pruefpunkte.md` listet dort
+zwar einen "17b"-Eintrag, aber nur als unimplementierter Planungs-Stub
+"(spätere Version)"; im tatsächlichen Programm (`registry.py`) existiert kein
+17b. 17 bleibt daher "17", nicht "17a".
+
+**Umsetzung:** `nummer`-Felder in `registry.py` direkt angepasst (4 Stellen).
+Für alle Fließtext-Vorkommen ("Prüfpunkt 1", "Prüfpunkt 11", "Prüfpunkt 12",
+"Prüfpunkt 18", jeweils als eigenständiges Wort, nicht Teil von "1b"/"11b"/
+Zehnerstellen wie "10"/"19" oder Bereichsangaben wie "Prüfpunkte 1-4") ein
+Python-Skript mit Regex-Wortgrenzen-Ersetzung über alle betroffenen Dateien
+laufen lassen: `registry.py`, `comments.py`, `structure.py`, `hardware.py`,
+`libraries.py`, `_tia_helpers.py`, beide YAML-Dateien, `README.md`,
+`tests/test_tia_helpers.py`, `tests/test_models.py`. Für `docs/Handbuch.md`
+zusätzlich die historische Anhang-C-Tabelle (Zeilen ab "## Anhang C") von der
+automatischen Ersetzung ausgenommen (bleibt bei der zum jeweiligen Zeitpunkt
+gültigen Nummerierung, analog zum Vorgehen bei Runde 49/54) sowie im
+Anschluss die drei betroffenen Markdown-Anker-Links manuell nachgezogen
+(`#prüfpunkt-1-...` → `#prüfpunkt-1a-...`, `#prüfpunkt-11--...` →
+`#prüfpunkt-11a--...` — Anker werden von der Überschrift automatisch aus dem
+Text generiert und folgen nicht immer demselben Muster, z. B. teils
+Doppel-Bindestrich durch den Halbgeviertstrich in der Überschrift). Für
+`doku_etc/Pruefpunkte.md` (außerhalb des Code-Repos) separates Skript für die
+Abschnittsüberschriften (`### N.`) und die Zusammenfassungstabelle
+(`| N |`). Bereichsangaben wie "Prüfpunkte 1-4"/"Prüfpunkte 17-18c" bewusst
+unverändert gelassen (Spannenangabe, kein Einzelpunkt-Bezug). Genitiv-Stellen
+wie "Prüfpunkt 11s Unterelement-Detailprüfung" (`_tia_helpers.py`) wurden vom
+selben Skript automatisch korrekt zu "Prüfpunkt 11as" — grammatisch
+konsistente Fortführung der bereits vorher informell genutzten
+Genitiv-Endung ohne Apostroph.
+
+**Verifiziert:** Python-Skript mit vollständiger Regex-Wortgrenzen-Prüfung
+über den kompletten Baum (`code/` + `doku_etc/`, historische Dateien
+ausgenommen) bestätigt: keine verbliebenen unkonvertierten Einzel-Erwähnungen
+von "Prüfpunkt 1/11/12/18" mehr vorhanden. `CHECK_REGISTRY`-Dump bestätigt
+alle zehn betroffenen Einträge korrekt: 1a/1b/1c, 11a/11b, 12a/12b,
+18a/18b/18c. `pytest` weiterhin 51/51 grün. GUI benötigte keine eigene
+Code-Änderung (`gui.py` zeigt `definition.nummer` bereits dynamisch aus der
+Registry, keine hartkodierten Nummern gefunden).
+
+**Dokumentiert:** `docs/Handbuch.md` (Version 0.53 — Anhang-C-Eintrag; keine
+inhaltliche Kapitel-10-Anpassung nötig außer den Nummern/Ankern selbst),
+`README.md`, `doku_etc/Pruefpunkte.md`. Noch nicht committet.
+
+Letzter Stand: "Alle Prüfpunkte mit mindestens einem 'b'-Unterpunkt haben
+jetzt einen 'a'-Basispunkt: 1a/1b/1c, 11a/11b, 12a/12b, 18a/18b/18c
+(Prüfpunkt 17/17b bewusst ausgenommen, 17b ist nur ein unimplementierter
+Planungs-Stub). Vollständig über Code, beide YAML-Dateien, Tests, README,
+Handbuch (inkl. Anker-Links) und die externe Pruefpunkte.md-Checkliste
+gezogen, historische Aufzeichnungen unangetastet gelassen. pytest 51/51
+grün, noch nicht committet."

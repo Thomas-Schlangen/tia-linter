@@ -542,7 +542,7 @@ def unused_cross_reference_leaf_names(sources: Iterable[Any]) -> Iterator[str]:
     Array-Elemente (Name enthält ``[...]``) werden übersprungen — live
     verifiziert, dass ein einziges großes Array-Member sonst tausende
     Einzelindizes als separate Blattknoten liefert (analog zum bereits
-    bestehenden Array-Skip bei Prüfpunkt 1)."""
+    bestehenden Array-Skip bei Prüfpunkt 1a)."""
     for source in sources:
         children = list(getattr(source, "Children", None) or [])
         if children:
@@ -562,7 +562,7 @@ def strip_cross_reference_prefix(name: str, root_name: str) -> str:
     ``"<root_name>".`` oder ``<root_name>.`` quotiert oder unquotiert.
     Extrahiert aus ``find_source_child_by_name`` (dort ursprünglich eine
     lokale Closure), zusätzlich von ``cross_reference_referenced_top_level_names``
-    und Prüfpunkt 11 (``structure.py``) genutzt. Ohne Präfix-Treffer wird
+    und Prüfpunkt 11a (``structure.py``) genutzt. Ohne Präfix-Treffer wird
     ``name`` unverändert zurückgegeben."""
     if root_name:
         for prefix in (f'"{root_name}".', f"{root_name}."):
@@ -638,7 +638,7 @@ def find_source_child_by_name(source_object: Any, name: str) -> Any | None:
     Instanz-DB ``01PrgDb``) immer den Namen des abgefragten Wurzelobjekts als
     qualifizierendes Präfix — z. B. ``'"01PrgDb".lx_30M1StopGap'`` statt
     ``'lx_30M1StopGap'`` (Präfix als ``"<Name>".`` oder ``<Name>.``, analog
-    zum bereits in Prüfpunkt 11 behandelten Fall bei
+    zum bereits in Prüfpunkt 11a behandelten Fall bei
     ``unused_cross_reference_leaf_names``). Ohne diesen Präfix-Abgleich fand
     diese Funktion **kein einziges** einfaches (nicht verschachteltes)
     Interface-Member — betraf Prüfpunkt 25 (``static_zugriff_extern``), das
@@ -724,7 +724,7 @@ def interface_section_member_paths(xml_root: Any, section_name: str) -> dict[str
     verschachtelten ``<Sections>`` innerhalb des ``<Member>``-Elements
     selbst (siehe ``interface_section_members``, Absatz zu
     Multiinstanz-/UDT-Membern -- dort bewusst übersprungen, hier gezielt
-    ausgewertet). Grundlage für Prüfpunkt 11s Unterelement-Detailprüfung
+    ausgewertet). Grundlage für Prüfpunkt 11as Unterelement-Detailprüfung
     bei FB/FC/OB (``unterelemente_pruefen``, siehe ``structure.py``)."""
     if xml_root is None:
         return {}
@@ -842,7 +842,7 @@ def _symbol_component_chain(symbol_or_instance_elem: Any) -> list[str]:
     (analog auch an FC ``CtrFcParaRdWr`` bestätigt, z. B. ``lx_Step.Sc``).
     Fortsetzung von ``_first_symbol_component_name``, das bewusst nur die
     erste ``Component`` lieferte (siehe ``local_variable_access_names``);
-    Grundlage für ``local_variable_access_paths`` (Prüfpunkt 11s
+    Grundlage für ``local_variable_access_paths`` (Prüfpunkt 11as
     Unterelement-Detailprüfung)."""
     return [
         name
@@ -855,7 +855,7 @@ def local_variable_access_paths(xml_root: Any) -> set[str]:
     """Wie ``local_variable_access_names``, aber mit voller Pfadtiefe:
     liefert dotted Zugriffspfade auf beliebiger Verschachtelungstiefe (z. B.
     ``"DiagCpu.SubordinateIOState"`` statt nur ``"DiagCpu"``) für
-    Prüfpunkt 11s Unterelement-Detailprüfung bei FB/FC/OB
+    Prüfpunkt 11as Unterelement-Detailprüfung bei FB/FC/OB
     (``unterelemente_pruefen: true`` in der Config, siehe ``structure.py``).
     Ein Zugriff auf ein UDT-/Struct-Member als Ganzes (z. B. als
     Aufrufparameter einer anderen Bausteininstanz) liefert nur den

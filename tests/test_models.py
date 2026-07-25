@@ -45,7 +45,7 @@ class TestCheckDefinition:
             severity=CheckSeverity.WARNING,
             description="...",
             recommendation="...",
-            nummer="1",
+            nummer="1a",
         )
         assert definition.params == {}
 

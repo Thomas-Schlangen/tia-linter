@@ -98,7 +98,7 @@ class LeereNetzwerkeCheck(BaseCheck):
 
 
 class UnbenutzteVariablenCheck(BaseCheck):
-    """Prüfpunkt 11: PLC-Tags ohne jegliche Referenz im Programm, unbenutzte
+    """Prüfpunkt 11a: PLC-Tags ohne jegliche Referenz im Programm, unbenutzte
     Global-/Array-DB-Variablen, sowie unbenutzte FB-/FC-/OB-Interface-Member
     (nur interne Verwendung im Baustein selbst zählt).
 
@@ -132,7 +132,7 @@ class UnbenutzteVariablenCheck(BaseCheck):
     (siehe ``_tia_helpers.py``) steigt rekursiv ab und liefert nur echte
     Blattknoten; Array-Elemente werden dabei übersprungen (ein einzelnes
     großes Array-Member lieferte live tausende Einzelindizes als separate
-    Blätter, analog zum Array-Skip bei Prüfpunkt 1). Der vom DB-Namen
+    Blätter, analog zum Array-Skip bei Prüfpunkt 1a). Der vom DB-Namen
     führende Pfadanteil wird für eine lesbare Anzeige abgeschnitten
     (``DiagCpu.DNNmode`` statt ``"DB_PrgFieldbusOkDb".DiagCpu.DNNmode``).
 
@@ -337,7 +337,7 @@ class UnbenutzteBausteineCheck(BaseCheck):
     Dieser Prüfpunkt hätte dadurch **jeden** Global-/Array-DB im Projekt
     als unbenutzt gemeldet. Fix: Global-/Array-DBs (nicht Instanz-DBs)
     werden stattdessen über ``cross_reference_referenced_top_level_names()``
-    geprüft (dieselbe Hilfsfunktion wie bei Prüfpunkt 11) — ein DB gilt als
+    geprüft (dieselbe Hilfsfunktion wie bei Prüfpunkt 11a) — ein DB gilt als
     verwendet, sobald irgendein Member irgendwo referenziert ist. Live
     verifiziert: 23 → 2 Befunde (alle 21 Global-/Array-DB-Fehlalarme
     verschwunden, die verbleibenden 2 (``BibVersion``, ``LGF_Description``)
@@ -398,7 +398,7 @@ class UnbenutzteBausteineCheck(BaseCheck):
 
 
 class EingaengeGelesenCheck(BaseCheck):
-    """Prüfpunkt 12: Eingangs-Tags, die im Programm nie gelesen werden."""
+    """Prüfpunkt 12a: Eingangs-Tags, die im Programm nie gelesen werden."""
 
     def run(self, project: Any) -> list[CheckResult]:
         from Siemens.Engineering.CrossReference import Access
@@ -425,7 +425,7 @@ class EingaengeGelesenCheck(BaseCheck):
 class EingaengeNichtBeschriebenCheck(BaseCheck):
     """Prüfpunkt 12b: Eingangs-Tags dürfen im Programm nicht beschrieben werden.
 
-    Ergänzung zu Prüfpunkt 12 (liest nur, ob ein Eingang gelesen wird) — war
+    Ergänzung zu Prüfpunkt 12a (liest nur, ob ein Eingang gelesen wird) — war
     in der ursprünglichen Prüfpunkte-Liste kein eigener Punkt, ist aber eine
     der grundlegendsten SPS-Programmierregeln: Eingänge werden jeden Zyklus
     vom Prozessabbild aus der Hardware überschrieben, ein Schreibzugriff aus
