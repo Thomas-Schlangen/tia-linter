@@ -217,103 +217,129 @@ class UnbenutzteVariablenCheck(BaseCheck):
     _INTERFACE_SECTIONS = ("Input", "Output", "InOut", "Static", "Temp")
 
     def run(self, project: Any) -> list[CheckResult]:
-        from Siemens.Engineering.CrossReference import CrossReferenceFilter, CrossReferenceService
-        from Siemens.Engineering.SW.Blocks import FB, FC, OB, InstanceDB
-
         check_sub_items = bool(self.definition.params.get("unterelemente_pruefen", False))
 
         results: list[CheckResult] = []
         for plc_software in iter_plc_software(project):
-            for tag_table in iter_tag_tables(plc_software, self.excluded_folders):
-                for tag in tag_table.Tags:
-                    if not cross_reference_locations(tag):
-                        results.append(
-                            self._make_result(
-                                path=format_path(plc_software.Name, "Variablentabellen", tag_table.Name, tag.Name),
-                                description=f"Variable '{tag.Name}' wird im gesamten Programm nicht verwendet.",
-                                value=tag.Name,
-                            )
-                        )
+            results.extend(self._check_tags(plc_software))
+            results.extend(self._check_db_members(plc_software, check_sub_items))
+            results.extend(self._check_block_interface_members(plc_software, check_sub_items))
+        return results
 
-            for db, group_path in iter_data_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
-                if isinstance(db, InstanceDB):
-                    continue  # geprüft über die FB-Definition weiter unten
-                try:
-                    service = db.GetService[CrossReferenceService]()
-                except Exception:  # noqa: BLE001 — Service evtl. nicht verfügbar
-                    logger.debug(
-                        "CrossReferenceService nicht verfügbar für DB '%s'.",
-                        db.Name,
-                        exc_info=True,
-                    )
-                    service = None
-                if service is None:
-                    continue
-                unused_result = service.GetCrossReferences(CrossReferenceFilter.UnusedObjects)
-                sources = getattr(unused_result, "Sources", []) or []
-                unused_names: list[str] = []
-                for raw_name in unused_cross_reference_leaf_names(sources):
-                    # Blattnamen sind mit dem DB-Namen als Pfadpräfix
-                    # qualifiziert (z. B. '"DB_X".DiagCpu.DNNmode' oder
-                    # 'DB_X.DiagCpu.DNNmode') — für eine lesbare Anzeige
-                    # abschneiden, analog zum bereits an anderer Stelle
-                    # üblichen Member-Pfad-Format.
-                    name = normalize_member_path(strip_cross_reference_prefix(raw_name, db.Name))
-                    if not name or name == db.Name:
-                        continue
-                    unused_names.append(name)
-
-                if not check_sub_items and unused_names:
-                    # Ist ein Top-Level-Member auf irgendeiner Tiefe
-                    # referenziert (z. B. als Ganzes an einen anderen
-                    # Baustein übergeben), gilt es als "verwendet" — seine
-                    # weiterhin einzeln unbenutzten Unterfelder werden dann
-                    # nicht gemeldet (siehe Klassendocstring,
-                    # "Vierundzwanzigster Bug/Feature").
-                    used_top_level = cross_reference_referenced_top_level_names(db)
-                    unused_names = [
-                        name for name in unused_names if name.split(".", 1)[0] not in used_top_level
-                    ]
-
-                for name in unused_names:
+    def _check_tags(self, plc_software: Any) -> list[CheckResult]:
+        """Prüft alle PLC-Tags auf fehlende Cross-Reference-Verwendung im gesamten Programm."""
+        results: list[CheckResult] = []
+        for tag_table in iter_tag_tables(plc_software, self.excluded_folders):
+            for tag in tag_table.Tags:
+                if not cross_reference_locations(tag):
                     results.append(
                         self._make_result(
-                            path=format_path(plc_software.Name, "Datenbaustein", *group_path, db.Name, "Member", name),
-                            description=f"DB-Variable '{name}' wird im gesamten Programm nicht verwendet.",
-                            value=name,
+                            path=format_path(plc_software.Name, "Variablentabellen", tag_table.Name, tag.Name),
+                            description=f"Variable '{tag.Name}' wird im gesamten Programm nicht verwendet.",
+                            value=tag.Name,
                         )
                     )
+        return results
 
-            for block, group_path in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
-                if not isinstance(block, (FB, FC, OB)):
+    def _check_db_members(self, plc_software: Any, check_sub_items: bool) -> list[CheckResult]:
+        """Prüft unbenutzte Member aller Global-/Array-DBs über den
+        ``CrossReferenceService``-Baum (``UnusedObjects``). Instanz-DBs werden
+        übersprungen — ihre Member werden stattdessen über
+        ``_check_block_interface_members`` an der FB-Definition geprüft
+        (siehe Klassen-Docstring, "Neunzehnter Bug/Design-Entscheidung")."""
+        from Siemens.Engineering.CrossReference import CrossReferenceFilter, CrossReferenceService
+        from Siemens.Engineering.SW.Blocks import InstanceDB
+
+        results: list[CheckResult] = []
+        for db, group_path in iter_data_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
+            if isinstance(db, InstanceDB):
+                continue  # geprüft über die FB-Definition, siehe _check_block_interface_members
+            try:
+                service = db.GetService[CrossReferenceService]()
+            except Exception:  # noqa: BLE001 — Service evtl. nicht verfügbar
+                logger.debug(
+                    "CrossReferenceService nicht verfügbar für DB '%s'.",
+                    db.Name,
+                    exc_info=True,
+                )
+                service = None
+            if service is None:
+                continue
+            unused_result = service.GetCrossReferences(CrossReferenceFilter.UnusedObjects)
+            sources = getattr(unused_result, "Sources", []) or []
+            unused_names: list[str] = []
+            for raw_name in unused_cross_reference_leaf_names(sources):
+                # Blattnamen sind mit dem DB-Namen als Pfadpräfix
+                # qualifiziert (z. B. '"DB_X".DiagCpu.DNNmode' oder
+                # 'DB_X.DiagCpu.DNNmode') — für eine lesbare Anzeige
+                # abschneiden, analog zum bereits an anderer Stelle
+                # üblichen Member-Pfad-Format.
+                name = normalize_member_path(strip_cross_reference_prefix(raw_name, db.Name))
+                if not name or name == db.Name:
                     continue
-                xml_root = export_block_xml(block, plc_software)
-                declared_paths: dict[str, list[str]] = {}
-                for section_name in self._INTERFACE_SECTIONS:
-                    declared_paths.update(interface_section_member_paths(xml_root, section_name))
-                if not declared_paths:
-                    continue
-                used_paths = local_variable_access_paths(xml_root)
+                unused_names.append(name)
 
-                for member_name, leaf_paths in sorted(declared_paths.items()):
-                    if check_sub_items:
-                        unused_leaves = [path for path in leaf_paths if path not in used_paths]
-                    else:
-                        member_used = member_name in used_paths or any(
-                            path.startswith(f"{member_name}.") for path in used_paths
-                        )
-                        unused_leaves = [] if member_used else leaf_paths
+            if not check_sub_items and unused_names:
+                # Ist ein Top-Level-Member auf irgendeiner Tiefe
+                # referenziert (z. B. als Ganzes an einen anderen
+                # Baustein übergeben), gilt es als "verwendet" — seine
+                # weiterhin einzeln unbenutzten Unterfelder werden dann
+                # nicht gemeldet (siehe Klassendocstring,
+                # "Vierundzwanzigster Bug/Feature").
+                used_top_level = cross_reference_referenced_top_level_names(db)
+                unused_names = [
+                    name for name in unused_names if name.split(".", 1)[0] not in used_top_level
+                ]
 
-                    for leaf_path in unused_leaves:
-                        results.append(
-                            self._make_result(
-                                path=format_path(
-                                    plc_software.Name, "Programmbausteine", *group_path, block.Name, "Member", leaf_path
-                                ),
-                                description=f"Variable '{leaf_path}' wird im Baustein '{block.Name}' nirgends verwendet.",
-                                value=leaf_path,
-                            )
+            for name in unused_names:
+                results.append(
+                    self._make_result(
+                        path=format_path(plc_software.Name, "Datenbaustein", *group_path, db.Name, "Member", name),
+                        description=f"DB-Variable '{name}' wird im gesamten Programm nicht verwendet.",
+                        value=name,
+                    )
+                )
+        return results
+
+    def _check_block_interface_members(self, plc_software: Any, check_sub_items: bool) -> list[CheckResult]:
+        """Prüft unbenutzte Interface-Member (Input/Output/InOut/Static/Temp)
+        aller FB/FC/OB über den XML-Export (``local_variable_access_paths``)
+        — deckt auch Instanz-DB-Member ab, unabhängig von der Anzahl ihrer
+        Instanzen (siehe Klassen-Docstring, "Neunzehnter
+        Bug/Design-Entscheidung")."""
+        from Siemens.Engineering.SW.Blocks import FB, FC, OB
+
+        results: list[CheckResult] = []
+        for block, group_path in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
+            if not isinstance(block, (FB, FC, OB)):
+                continue
+            xml_root = export_block_xml(block, plc_software)
+            declared_paths: dict[str, list[str]] = {}
+            for section_name in self._INTERFACE_SECTIONS:
+                declared_paths.update(interface_section_member_paths(xml_root, section_name))
+            if not declared_paths:
+                continue
+            used_paths = local_variable_access_paths(xml_root)
+
+            for member_name, leaf_paths in sorted(declared_paths.items()):
+                if check_sub_items:
+                    unused_leaves = [path for path in leaf_paths if path not in used_paths]
+                else:
+                    member_used = member_name in used_paths or any(
+                        path.startswith(f"{member_name}.") for path in used_paths
+                    )
+                    unused_leaves = [] if member_used else leaf_paths
+
+                for leaf_path in unused_leaves:
+                    results.append(
+                        self._make_result(
+                            path=format_path(
+                                plc_software.Name, "Programmbausteine", *group_path, block.Name, "Member", leaf_path
+                            ),
+                            description=f"Variable '{leaf_path}' wird im Baustein '{block.Name}' nirgends verwendet.",
+                            value=leaf_path,
                         )
+                    )
         return results
 
 

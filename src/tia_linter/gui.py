@@ -123,31 +123,19 @@ class TiaLinterApp(tk.Tk):
     def start_lint_run(self) -> None:
         if self._lint_thread is not None and self._lint_thread.is_alive():
             return
+        if not self._validate_inputs():
+            return
 
         project_path_str = self.main_page.project_path.get().strip()
         output_folder = self.main_page.output_folder.get().strip()
-        if not project_path_str:
-            messagebox.showerror("TIA Linter", "Bitte zuerst eine TIA-Projektdatei auswählen.")
-            return
-        if not output_folder:
-            messagebox.showerror("TIA Linter", "Bitte zuerst einen Output-Ordner auswählen.")
-            return
-
         enabled_definitions = self.main_page.collect_enabled_definitions()
-        if not enabled_definitions:
-            messagebox.showerror("TIA Linter", "Bitte mindestens einen Prüfpunkt auswählen.")
-            return
 
         version_name = self.main_page.tia_version.get()
         version_entry = self.config.tia_versionen.find(version_name)
         dll_path = version_entry.dll_pfad if version_entry else ""
         version_number = version_entry.version if version_entry else 0
 
-        if self.config.logging.file:
-            project_name = Path(project_path_str).stem
-            log_name = f"Lintlog_{project_name}_{_timestamp()}.log"
-            log_config = self.config.logging.model_copy(update={"file": str(Path(output_folder) / log_name)})
-            setup_logger(log_config)
+        self._setup_run_logger(output_folder, project_path_str)
 
         self.main_page.clear_log()
         self._cancel_event = threading.Event()
@@ -175,6 +163,32 @@ class TiaLinterApp(tk.Tk):
             daemon=True,
         )
         self._lint_thread.start()
+
+    def _validate_inputs(self) -> bool:
+        """Prüft die Eingaben der Eingabeseite vor Start eines Lint-Laufs
+        (Projektdatei, Output-Ordner, mindestens ein aktivierter Prüfpunkt)
+        und zeigt bei einem Mangel eine Fehlermeldung an. Liefert ``True``,
+        wenn der Lauf gestartet werden darf."""
+        if not self.main_page.project_path.get().strip():
+            messagebox.showerror("TIA Linter", "Bitte zuerst eine TIA-Projektdatei auswählen.")
+            return False
+        if not self.main_page.output_folder.get().strip():
+            messagebox.showerror("TIA Linter", "Bitte zuerst einen Output-Ordner auswählen.")
+            return False
+        if not self.main_page.collect_enabled_definitions():
+            messagebox.showerror("TIA Linter", "Bitte mindestens einen Prüfpunkt auswählen.")
+            return False
+        return True
+
+    def _setup_run_logger(self, output_folder: str, project_path_str: str) -> None:
+        """Richtet die Log-Datei für diesen Lauf ein, sofern in der Config
+        eine Dateiausgabe konfiguriert ist (``config.logging.file``)."""
+        if not self.config.logging.file:
+            return
+        project_name = Path(project_path_str).stem
+        log_name = f"Lintlog_{project_name}_{_timestamp()}.log"
+        log_config = self.config.logging.model_copy(update={"file": str(Path(output_folder) / log_name)})
+        setup_logger(log_config)
 
     def cancel_lint_run(self) -> None:
         self._cancel_event.set()
@@ -234,6 +248,8 @@ class MainPage(ttk.Frame):
     """Eingabeseite: Projektdatei, Output-Ordner, Config, TIA-Version,
     Prüfpunkt-Checkboxen, Start/Abbrechen, Fortschritt und Log."""
 
+    _PAD = {"padx": 8, "pady": 4}
+
     def __init__(self, parent: tk.Widget, app: TiaLinterApp) -> None:
         super().__init__(parent)
         self.app = app
@@ -258,10 +274,17 @@ class MainPage(ttk.Frame):
         self.rebuild_check_tree()
 
     def _build_widgets(self, version_names: list[str], default_version: str) -> None:
-        pad = {"padx": 8, "pady": 4}
+        self._build_form(version_names, default_version)
+        big_font = self._setup_big_button_style()
+        self._build_check_area()
+        self._build_buttons(big_font)
+        self._build_log_area()
 
+    def _build_form(self, version_names: list[str], default_version: str) -> None:
+        """Baut das obere Formular: Projektdatei, Output-Ordner,
+        Konfigurationsdatei, TIA-Version und Testmodus-Checkbox."""
         form = ttk.Frame(self)
-        form.pack(fill="x", **pad)
+        form.pack(fill="x", **self._PAD)
         form.columnconfigure(1, weight=1)
 
         ttk.Label(form, text="TIA-Projektdatei:").grid(row=0, column=0, sticky="w")
@@ -289,17 +312,24 @@ class MainPage(ttk.Frame):
             variable=self.test_mode,
         ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(4, 0))
 
-        # ~50% größere Schrift für die hervorgehobenen Buttons unten (skaliert
-        # relativ zur tatsächlichen Basisschriftgröße, statt eine feste
-        # Punktgröße zu hart zu kodieren).
+    def _setup_big_button_style(self) -> tkfont.Font:
+        """Konfiguriert den ttk-Style ``"Big.TButton"`` (~50% größere Schrift,
+        skaliert relativ zur tatsächlichen Basisschriftgröße statt eine feste
+        Punktgröße hart zu kodieren) für die hervorgehobenen Buttons unten.
+        Liefert dieselbe Font zusätzlich zurück, da der Start-Button
+        (``_build_buttons``) als reines ``tk.Button`` keinen ttk-Style
+        annehmen kann und die Font explizit gesetzt bekommen muss."""
         default_font = tkfont.nametofont("TkDefaultFont")
         big_font = default_font.copy()
         big_font.configure(size=round(default_font.cget("size") * 1.5))
         style = ttk.Style()
         style.configure("Big.TButton", font=big_font, padding=(12, 8))
+        return big_font
 
+    def _build_check_area(self) -> None:
+        """Baut den scrollbaren Prüfpunkt-Bereich samt "Alle (ab)wählen"-Buttons."""
         checks_outer = ttk.LabelFrame(self, text="Prüfpunkte")
-        checks_outer.pack(fill="both", expand=True, **pad)
+        checks_outer.pack(fill="both", expand=True, **self._PAD)
 
         global_buttons = ttk.Frame(checks_outer)
         global_buttons.pack(fill="x", padx=4, pady=(4, 0))
@@ -328,8 +358,10 @@ class MainPage(ttk.Frame):
         scrollbar.pack(side="right", fill="y")
         self._checks_canvas = canvas
 
+    def _build_buttons(self, big_font: tkfont.Font) -> None:
+        """Baut Start-/Abbrechen-Buttons, Fortschrittsbalken und Statuszeile."""
         action_frame = ttk.Frame(self)
-        action_frame.pack(fill="x", **pad)
+        action_frame.pack(fill="x", **self._PAD)
         action_frame_inner = ttk.Frame(action_frame)
         action_frame_inner.pack()
         # Reines tk.Button statt ttk.Button: ttk-Buttons ignorieren unter den
@@ -358,13 +390,15 @@ class MainPage(ttk.Frame):
         self._cancel_button.pack(side="left", padx=(8, 0))
 
         self._progress = ttk.Progressbar(self, mode="indeterminate")
-        self._progress.pack(fill="x", **pad)
+        self._progress.pack(fill="x", **self._PAD)
 
         self._status_var = tk.StringVar(value="Bereit.")
         ttk.Label(self, textvariable=self._status_var).pack(fill="x", padx=8)
 
+    def _build_log_area(self) -> None:
+        """Baut den Log-Bereich (scrollbares, nicht editierbares Textfeld)."""
         log_frame = ttk.LabelFrame(self, text="Log")
-        log_frame.pack(fill="both", expand=True, **pad)
+        log_frame.pack(fill="both", expand=True, **self._PAD)
         self._log_text = tk.Text(log_frame, height=6, state="disabled", wrap="word")
         log_scroll = ttk.Scrollbar(log_frame, orient="vertical", command=self._log_text.yview)
         self._log_text.configure(yscrollcommand=log_scroll.set)

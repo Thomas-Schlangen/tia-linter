@@ -25,6 +25,24 @@ from tia_linter.models import CheckResult
 from tia_linter.project_texts import ProjectTextComments
 
 
+def _all_udt_names(plc_software: Any) -> set[str]:
+    """Namen aller PLC-Datentypen (UDTs) der PLC-Software — bewusst
+    unabhängig von ``excluded_folders``, siehe ``VariablenKommentarCheck``-
+    Docstring ("Neunter Bug"): dient nur der Klassifizierung eines
+    Member-Datentyps, nicht der Auswahl, was selbst geprüft wird."""
+    return {t.Name for t, _ in iter_plc_types(plc_software)}
+
+
+def _all_fb_names(plc_software: Any) -> set[str]:
+    """Namen aller Funktionsbausteine (FBs) der PLC-Software — bewusst
+    unabhängig von ``excluded_folders``/``excluded_blocks``, analog zu
+    ``_all_udt_names`` (siehe ``VariablenKommentarCheck``-Docstring,
+    "Siebter"/"Neunter Bug")."""
+    from Siemens.Engineering.SW.Blocks import FB
+
+    return {block.Name for block, _ in iter_blocks(plc_software) if isinstance(block, FB)}
+
+
 class VariablenKommentarCheck(BaseCheck):
     """Prüfpunkt 1a: PLC-Tags und DB-Variablen ohne Kommentar.
 
@@ -153,8 +171,6 @@ class VariablenKommentarCheck(BaseCheck):
     """
 
     def run(self, project: Any) -> list[CheckResult]:
-        from Siemens.Engineering.SW.Blocks import FB
-
         results: list[CheckResult] = []
         exception_prefixes = tuple(self.definition.params.get("ausnahme_prefixe", []))
         exception_variables = frozenset(self.definition.params.get("ausnahme_variables", []))
@@ -162,106 +178,127 @@ class VariablenKommentarCheck(BaseCheck):
         language = reference_language(project)
 
         for plc_software in iter_plc_software(project):
-            plc_name = plc_software.Name
+            results.extend(
+                self._check_tags(plc_software, language, exception_prefixes, exception_variables)
+            )
+            results.extend(
+                self._check_db_members(
+                    project, plc_software, exception_prefixes, exception_variables, exception_udts
+                )
+            )
+        return results
 
-            for tag_table in iter_tag_tables(plc_software, self.excluded_folders):
-                for tag in tag_table.Tags:
-                    tag_name = tag.Name
-                    if tag_name.startswith(exception_prefixes):
-                        continue
-                    if tag_name in exception_variables:
-                        continue
-                    comment = read_comment(tag, language)
-                    if not comment:
-                        results.append(
-                            self._make_result(
-                                path=format_path(
-                                    plc_name, "Variablentabellen", tag_table.Name, tag_name
-                                ),
-                                description=f"Variable '{tag_name}' hat keinen Kommentar.",
-                                value=tag_name,
-                            )
-                        )
+    def _check_tags(
+        self,
+        plc_software: Any,
+        language: Any,
+        exception_prefixes: tuple[str, ...],
+        exception_variables: frozenset[str],
+    ) -> list[CheckResult]:
+        """Prüft alle PLC-Tags (Variablentabellen) der PLC-Software auf Kommentar."""
+        results: list[CheckResult] = []
+        plc_name = plc_software.Name
 
-            project_texts = ProjectTextComments.load(project)
-            # Neunter Bug (User-Meldung): udt_names/fb_names dienen hier nur der
-            # *Klassifizierung* eines Member-Datentyps (UDT oder FB?), nicht der
-            # Auswahl, was selbst geprüft wird — sie müssen daher unabhängig von
-            # ausgeschlossene_ordner/ausgeschlossene_bausteine ALLE UDTs/FBs der
-            # PLC-Software enthalten. Live verifiziert: ein UDT im ausgeschlossenen
-            # Ordner "ProjektLib" tauchte hier vorher nicht in udt_names auf, wodurch
-            # ein damit typisiertes DB-Member fälschlich als "kein UDT" behandelt und
-            # in seine (nicht einsehbaren) Items hinein geprüft wurde — obwohl das
-            # Ausnehmen des Ordners nur bedeutet, dass der UDT selbst nicht geprüft
-            # wird, nicht dass sein Typ unbekannt ist.
-            udt_names = {t.Name for t, _ in iter_plc_types(plc_software)}
-            fb_names = {
-                block.Name
-                for block, _ in iter_blocks(plc_software)
-                if isinstance(block, FB)
-            }
-
-            for db, group_path in iter_data_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
-                db_name = db.Name
-                if get_attribute(db, "InstanceOfName", ""):
-                    # Instanz-DB: alle Member gehören zur Interface-Definition der
-                    # Quell-FB und werden ausschließlich von Prüfpunkt 1c geprüft —
-                    # siehe Klassen-Docstring, "Achter Bug/Design-Entscheidung".
+        for tag_table in iter_tag_tables(plc_software, self.excluded_folders):
+            for tag in tag_table.Tags:
+                tag_name = tag.Name
+                if tag_name.startswith(exception_prefixes):
                     continue
-                skip_prefixes: list[str] = []
-                for member in getattr(getattr(db, "Interface", None), "Members", []):
-                    member_name = member.Name
-                    if "[" in member_name:
-                        continue  # Array-Element (auch verschachtelt darunter) — Array selbst reicht
-                    if any(
-                        member_name == prefix or member_name.startswith(prefix + ".")
-                        for prefix in skip_prefixes
-                    ):
-                        continue  # Item innerhalb eines UDT-Members — wird von Prüfpunkt 1b geprüft
-
-                    # UDT-Erkennung MUSS vor den Ausnahme-Continues laufen (unten):
-                    # Sechster Bug (User-Meldung) — ein Member, das per
-                    # ausnahme_prefixe/ausnahme_variables von der eigenen
-                    # Kommentarprüfung ausgenommen wird, aber selbst UDT-typisiert
-                    # ist, wurde nie als Skip-Präfix registriert, weil der jeweilige
-                    # `continue` schon vorher griff — seine Items blieben dadurch
-                    # ungeschützt einzeln geprüft (live an
-                    # LSNTP_ServerDb > lastTimeSet, zusätzlich in ausnahme_variables
-                    # eingetragen, verifiziert). Die UDT-Erkennung entscheidet daher
-                    # jetzt unabhängig von diesen Ausnahmen, ob die Items eines
-                    # Members übersprungen werden — nur ob der Member *selbst* einen
-                    # Befund bekommt, hängt weiterhin von ausnahme_prefixe/
-                    # ausnahme_variables ab. DataTypeName quotet UDT-Referenzen
-                    # unabhängig davon, ob der Name selbst eine Quotierung bräuchte
-                    # (z. B. '"U_VisBit"' statt 'U_VisBit', live verifiziert) —
-                    # normalize_member_path() vor dem Abgleich anwenden.
-                    # fb_names deckt Multi-Instanz-FB-Aufrufe ab (Member-Typ ist
-                    # der Name eines Funktionsbausteins, nicht eines PLC-Datentyps
-                    # — siehe "Siebter Bug").
-                    data_type_name = normalize_member_path(str(get_attribute(member, "DataTypeName", "") or ""))
-                    if data_type_name in udt_names or data_type_name in exception_udts or data_type_name in fb_names:
-                        skip_prefixes.append(member_name)
-
-                    if member_name.startswith(exception_prefixes):
-                        continue
-                    if member_name in exception_variables:
-                        continue
-                    norm_member = normalize_member_path(member_name)
-                    comment = project_texts.get(
-                        normalize_member_path(plc_name),
-                        normalize_member_path(db_name),
-                        norm_member,
-                    )
-                    if not comment:
-                        results.append(
-                            self._make_result(
-                                path=format_path(
-                                    plc_name, "Datenbaustein", *group_path, db_name, "Member", member_name
-                                ),
-                                description=f"DB-Variable '{member_name}' hat keinen Kommentar.",
-                                value=member_name,
-                            )
+                if tag_name in exception_variables:
+                    continue
+                comment = read_comment(tag, language)
+                if not comment:
+                    results.append(
+                        self._make_result(
+                            path=format_path(plc_name, "Variablentabellen", tag_table.Name, tag_name),
+                            description=f"Variable '{tag_name}' hat keinen Kommentar.",
+                            value=tag_name,
                         )
+                    )
+        return results
+
+    def _check_db_members(
+        self,
+        project: Any,
+        plc_software: Any,
+        exception_prefixes: tuple[str, ...],
+        exception_variables: frozenset[str],
+        exception_udts: frozenset[str],
+    ) -> list[CheckResult]:
+        """Prüft alle Global-/Array-DB-Member der PLC-Software auf Kommentar.
+
+        Instanz-DBs werden komplett übersprungen — ihre Member gehören zur
+        Interface-Definition der Quell-FB und werden ausschließlich von
+        Prüfpunkt 1c geprüft (siehe Klassen-Docstring, "Achter
+        Bug/Design-Entscheidung"). ``udt_names``/``fb_names`` (siehe
+        ``_all_udt_names``/``_all_fb_names``) dienen hier nur der
+        Klassifizierung eines Member-Datentyps, nicht der Auswahl, was selbst
+        geprüft wird (siehe Klassen-Docstring, "Neunter Bug").
+        """
+        results: list[CheckResult] = []
+        plc_name = plc_software.Name
+        project_texts = ProjectTextComments.load(project)
+        udt_names = _all_udt_names(plc_software)
+        fb_names = _all_fb_names(plc_software)
+
+        for db, group_path in iter_data_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
+            db_name = db.Name
+            if get_attribute(db, "InstanceOfName", ""):
+                continue
+            skip_prefixes: list[str] = []
+            for member in getattr(getattr(db, "Interface", None), "Members", []):
+                member_name = member.Name
+                if "[" in member_name:
+                    continue  # Array-Element (auch verschachtelt darunter) — Array selbst reicht
+                if any(
+                    member_name == prefix or member_name.startswith(prefix + ".")
+                    for prefix in skip_prefixes
+                ):
+                    continue  # Item innerhalb eines UDT-Members — wird von Prüfpunkt 1b geprüft
+
+                # UDT-Erkennung MUSS vor den Ausnahme-Continues laufen (unten):
+                # Sechster Bug (User-Meldung) — ein Member, das per
+                # ausnahme_prefixe/ausnahme_variables von der eigenen
+                # Kommentarprüfung ausgenommen wird, aber selbst UDT-typisiert
+                # ist, wurde nie als Skip-Präfix registriert, weil der jeweilige
+                # `continue` schon vorher griff — seine Items blieben dadurch
+                # ungeschützt einzeln geprüft (live an
+                # LSNTP_ServerDb > lastTimeSet, zusätzlich in ausnahme_variables
+                # eingetragen, verifiziert). Die UDT-Erkennung entscheidet daher
+                # jetzt unabhängig von diesen Ausnahmen, ob die Items eines
+                # Members übersprungen werden — nur ob der Member *selbst* einen
+                # Befund bekommt, hängt weiterhin von ausnahme_prefixe/
+                # ausnahme_variables ab. DataTypeName quotet UDT-Referenzen
+                # unabhängig davon, ob der Name selbst eine Quotierung bräuchte
+                # (z. B. '"U_VisBit"' statt 'U_VisBit', live verifiziert) —
+                # normalize_member_path() vor dem Abgleich anwenden.
+                # fb_names deckt Multi-Instanz-FB-Aufrufe ab (Member-Typ ist
+                # der Name eines Funktionsbausteins, nicht eines PLC-Datentyps
+                # — siehe "Siebter Bug").
+                data_type_name = normalize_member_path(str(get_attribute(member, "DataTypeName", "") or ""))
+                if data_type_name in udt_names or data_type_name in exception_udts or data_type_name in fb_names:
+                    skip_prefixes.append(member_name)
+
+                if member_name.startswith(exception_prefixes):
+                    continue
+                if member_name in exception_variables:
+                    continue
+                norm_member = normalize_member_path(member_name)
+                comment = project_texts.get(
+                    normalize_member_path(plc_name),
+                    normalize_member_path(db_name),
+                    norm_member,
+                )
+                if not comment:
+                    results.append(
+                        self._make_result(
+                            path=format_path(
+                                plc_name, "Datenbaustein", *group_path, db_name, "Member", member_name
+                            ),
+                            description=f"DB-Variable '{member_name}' hat keinen Kommentar.",
+                            value=member_name,
+                        )
+                    )
         return results
 
 
@@ -310,7 +347,7 @@ class UdtKommentarCheck(BaseCheck):
             # UDTs unten selbst geprüft werden — muss daher wie in
             # VariablenKommentarCheck unabhängig von ausgeschlossene_ordner ALLE
             # UDTs enthalten (siehe "Neunter Bug" dort).
-            udt_names = {t.Name for t, _ in iter_plc_types(plc_software)}
+            udt_names = _all_udt_names(plc_software)
 
             for udt, group_path in iter_plc_types(plc_software, self.excluded_folders):
                 udt_name = udt.Name
