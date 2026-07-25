@@ -3198,3 +3198,87 @@ ebenfalls korrekt nicht gemeldet (nur Mischungen zählen). PP30/PP34 per
 neuem Parameter `dokumentations_hinweise` konfigurierbar gemacht (analog zu
 `ignorierte_meldungen` bei PP21, Standardwerte unverändert). pytest 51/51
 grün, Handbuch aktualisiert, noch nicht committet."
+
+## Runde 54 — PP27 entfernt (PP28-34 → PP27-33), PP26-GUI-Label, PDF-Report um zwei Kapitel erweitert, GUI-Kosmetik
+
+**PP27-Entscheidung (Fortsetzung des in Runde 52 offen gelassenen Punkts):**
+User entschied final: "Ich denke wir werden PP27 entfernen, da die
+Einzelinstanz-DB in den allermeisten Fällen im Systemordner landet und dann
+sowieso nicht geprüft wird." Vollständig entfernt, analog zum Vorgehen bei
+Prüfpunkt 22 in Runde 49: `MultiInstanzenCheck`-Klasse und
+`_MULTI_INSTANCE_CANDIDATES`-Liste aus `libraries.py` gelöscht,
+Registry-Eintrag (`registry.py`) entfernt, alle nachfolgenden Prüfpunkte
+28–34 in Docstrings/Kommentaren um 1 auf 27–33 verringert (`libraries.py`,
+beide YAML-Dateien inkl. Kopfkommentar "34 Prüfpunkte" → "33", `README.md`,
+`docs/Handbuch.md` inkl. interner Anker-Links und der Kapitel-10-
+Übersichtstabelle, sowie — wie schon bei Runde 49 — die außerhalb des
+Code-Repos liegende Checkliste `doku_etc/Pruefpunkte.md`).
+
+**PP26-Umbenennung (User-Auftrag, reine GUI-Kosmetik):** Anzeigename in der
+Oberfläche von "Output-Tag pro Zyklus nur einmal beschrieben" auf "InOut
+und Output-Tag nur einmal beschrieben" geändert (`registry.py`, Feld
+`name`) — der Config-Schlüssel `output_mehrfach_beschrieben` selbst sowie
+seine Beschreibung/Logik blieben unverändert.
+
+**PDF-Report um zwei neue Kapitel erweitert (User-Auftrag):**
+1. Neues erstes Kapitel "Prüfpunkte-Übersicht" (nach dem Deckblatt, vor der
+   bisherigen "Zusammenfassung"): Tabelle mit **allen** in `CHECK_REGISTRY`
+   bekannten Prüfpunkten (nicht nur den in diesem Lauf aktivierten) —
+   Spalten Durchgeführt/Erfolgreich/Fehler/Warnungen je Prüfpunkt plus
+   Gesamtzeile. "Erfolgreich" unterscheidet dabei bewusst einen technischen
+   Ausführungsfehler (erkannt am `_CHECK_FAILED_PREFIX`-Text aus
+   `runner.py::run_lint`) von einem regulären inhaltlichen Verstoß, den ein
+   Prüfpunkt meldet.
+2. Neues Anhang-A-Kapitel am Ende: vollständiger YAML-Parameterinhalt der
+   für den Lauf verwendeten `AppConfig`, ohne die Erklärkommentare der
+   Originaldatei, bis auf einen einzelnen `# Prüfpunkt xx`-Kommentar über
+   jedem Prüfpunkt-Eintrag. `PdfReporter.__init__` nimmt dafür jetzt die
+   volle `AppConfig` entgegen statt nur `ReportConfig` (einziger Call-Ort:
+   `gui.py::generate_pdf_report`).
+
+Technischer Stolperstein beim Anhang-A-Rendering: `Preformatted` (reportlab)
+bricht Zeilen selbst nicht um — ein per `yaml.safe_dump(...,
+default_flow_style=None)` erzeugter kompakter Flow-Style-Block erzeugte
+für lange Einträge (z. B. `ausnahme_udts`, lange Regex-Muster) einzelne
+Zeilen, die über die Seitenbreite hinausliefen (durch `pdftotext -layout`
+sichtbar gemacht: Text erschien in einer scheinbar zweiten Spalte, tatsächlich
+war er nur über den rechten Rand hinausgelaufen). Fix in zwei Schritten:
+(1) Umstellung auf reines Block-Style (`default_flow_style=False`) mit
+einem an Schriftgröße/Seitenbreite angepassten PyYAML-`width`-Ziel
+(`_YAML_DUMP_WIDTH`, aus `reportlab.pdfbase.pdfmetrics.stringWidth`
+berechnet); (2) zusätzliches hartes Nachbrechen (`_hard_wrap`, via
+`textwrap`) als Sicherheitsnetz für einzelne unteilbare Tokens (Pfade ohne
+Leerzeichen), da PyYAMLs `width` nur an Leerzeichen umbricht. Mit
+`pdftotext -enc UTF-8` und `git grep` gegen einen per `simulate_lint_run`
+erzeugten Test-PDF-Report verifiziert: alle vier neuen/bestehenden
+Kapitelüberschriften (Prüfpunkte-Übersicht/Zusammenfassung/Details/Anhang A)
+in korrekter Reihenfolge vorhanden, keine Zeile im Anhang-A-Textblock mehr
+länger als das berechnete Zeichenbudget, Prüfpunkt-Nummerierung 1–33
+lückenlos und korrekt (keine `multi_instanzen`-Reste).
+
+**GUI-Kosmetik (User-Auftrag, zwei getrennte Wünsche):** Log-Fenster auf der
+Eingabeseite von 8 auf 6 Textzeilen Höhe verkleinert (`gui.py`,
+`MainPage._build_widgets`); Prüfpunkte-Übersicht auf der Eingabeseite von 3
+auf 4 Kategorie-Spalten nebeneinander umgestellt (`MainPage._CATEGORY_COLUMNS`).
+
+**Verifiziert:** `pytest` weiterhin 51/51 grün. Config-Ladetest bestätigt
+Wegfall von `styleguide.multi_instanzen` in Registry, `CHECK_CLASSES` und
+beiden YAML-Dateien. PDF-Report-Erzeugung end-to-end mit `simulate_lint_run`
+gegen `default.yaml` **und** `project_settings.yaml` getestet (kein
+TIA-Portal in dieser Umgebung installiert — daher kein Live-Lauf gegen die
+echte Salzmaschine für diese Runde, nur die genannte synthetische
+Verifikation).
+
+**Dokumentiert:** `README.md`, `docs/Handbuch.md` (Version 0.52 — Kapitel 7
+"Der PDF-Report" auf fünf Teile erweitert, Kapitel-10-Nummerierung/Anker
+korrigiert, Anhang-C-Eintrag), `doku_etc/Pruefpunkte.md`. Committet als
+`51b52dc` auf `main` (noch nicht gepusht — vor einem `git push` erst beim
+User nachfragen, wie im übrigen Verlauf dieser Historie üblich).
+
+Letzter Stand: "PP27 endgültig entfernt (PP28-34 → PP27-33, 33 Prüfpunkte
+insgesamt), PP26 in der GUI umbenannt zu 'InOut und Output-Tag nur einmal
+beschrieben'. PDF-Report hat jetzt fünf Kapitel: Deckblatt,
+Prüfpunkte-Übersicht (neu), Zusammenfassung, Details, Anhang A — verwendete
+Konfiguration (neu). Log-Fenster verkleinert, Prüfpunkte-Übersicht auf 4
+Spalten umgestellt. pytest 51/51 grün, committet (`51b52dc`), noch nicht
+gepusht."
