@@ -6,6 +6,7 @@ from typing import Any
 
 from tia_linter.checks._tia_helpers import (
     block_programming_language,
+    compile_unit_multilingual_text,
     export_block_xml,
     format_path,
     get_attribute,
@@ -18,6 +19,7 @@ from tia_linter.checks._tia_helpers import (
     iter_tag_tables,
     normalize_member_path,
     read_comment,
+    read_title,
     reference_language,
 )
 from tia_linter.checks.base import BaseCheck
@@ -543,8 +545,6 @@ class BausteinBeschreibungCheck(BaseCheck):
     def run(self, project: Any) -> list[CheckResult]:
         from Siemens.Engineering.SW.Blocks import DataBlock
 
-        from tia_linter.checks._tia_helpers import iter_blocks, read_title
-
         results: list[CheckResult] = []
         min_length = int(self.definition.params.get("min_laenge", 20))
         check_db = bool(self.definition.params.get("check_db", False))
@@ -591,8 +591,6 @@ class NetzwerkBeschreibungCheck(BaseCheck):
     """
 
     def run(self, project: Any) -> list[CheckResult]:
-        from tia_linter.checks._tia_helpers import compile_unit_multilingual_text, iter_blocks
-
         results: list[CheckResult] = []
         max_chars = int(self.definition.params.get("max_zeichen", 80))
         # .Culture liefert ein System.Globalization.CultureInfo-.NET-Objekt,
@@ -659,8 +657,6 @@ class AenderungshistorieCheck(BaseCheck):
     """
 
     def run(self, project: Any) -> list[CheckResult]:
-        from tia_linter.checks._tia_helpers import iter_blocks
-
         results: list[CheckResult] = []
         # .NET-Standardwert von System.Version bei nicht gesetzter Version —
         # siehe Klassen-Docstring, "Vierzehnter Bug".
