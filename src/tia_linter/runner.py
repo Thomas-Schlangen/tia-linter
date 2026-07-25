@@ -32,9 +32,11 @@ from collections.abc import Callable, Iterable
 from datetime import datetime
 
 from tia_linter.checks import comments, hardware, libraries, metadata, naming, structure
+from tia_linter.checks._tia_helpers import reset_export_cache
 from tia_linter.checks.base import BaseCheck
 from tia_linter.connector import create_connector
 from tia_linter.models import CheckDefinition, CheckResult, CheckStatus, LintReport
+from tia_linter.project_texts import ProjectTextComments
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +92,21 @@ def _release_dotnet_objects() -> None:
         GC.Collect()
     except Exception:  # noqa: BLE001 — reine Aufräum-Maßnahme, darf den Lauf nicht gefährden
         logger.debug("GC.Collect() fehlgeschlagen (evtl. kein .NET-Kontext) — ignoriert.", exc_info=True)
+
+
+def _reset_run_caches() -> None:
+    """Leert alle lauf-gebundenen Export-Caches (Block-XML + Projekttexte).
+
+    Muss bei jedem (Neu-)Verbindungsaufbau aufgerufen werden — sowohl beim
+    ersten Connect als auch bei jedem geplanten oder erzwungenen Reconnect
+    (siehe ``run_lint``-Docstring): Nach einem Reconnect sind alle zuvor
+    gecachten .NET-Objekte referenzierenden Zustände ungültig, und ein
+    zwischenzeitlich fehlgeschlagener Export soll erneut versucht werden
+    statt dauerhaft als fehlgeschlagen zu gelten. Siehe
+    ``XML-Optimierung-Analysebericht.md``.
+    """
+    reset_export_cache()
+    ProjectTextComments.reset_cache()
 
 
 def _instantiate_check(
@@ -233,6 +250,7 @@ def run_lint(
                 project = connector.connect(project_path)
                 resolved_project_name = getattr(project, "Name", project_name)
                 report(f"Projekt geöffnet: {resolved_project_name}")
+                _reset_run_caches()
 
                 if not disposed_exc_types:
                     try:

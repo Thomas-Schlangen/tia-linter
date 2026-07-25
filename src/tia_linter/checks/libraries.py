@@ -220,7 +220,7 @@ class StaticZugriffExternCheck(BaseCheck):
                 if owner_fb is None:
                     continue
 
-                static_members = interface_section_members(export_block_xml(owner_fb), "Static")
+                static_members = interface_section_members(export_block_xml(owner_fb, plc_software), "Static")
                 if not static_members:
                     continue
 
@@ -299,7 +299,7 @@ class OutputMehrfachBeschriebenCheck(BaseCheck):
                 if not isinstance(block, (FB, FC)):
                     continue
 
-                xml_root = export_block_xml(block)
+                xml_root = export_block_xml(block, plc_software)
                 output_members = interface_section_members(xml_root, "Output")
                 inout_members = interface_section_members(xml_root, "InOut")
                 if not output_members and not inout_members:
@@ -373,7 +373,7 @@ class Ob1KomplexitaetCheck(BaseCheck):
                 if not isinstance(block, OB) or int(get_attribute(block, "Number", -1) or -1) != 1:
                     continue
 
-                xml_root = export_block_xml(block)
+                xml_root = export_block_xml(block, plc_software)
                 # Ein Netzwerk, das nur einen einzigen Bausteinaufruf enthält
                 # (1 Part == der Call selbst), zählt nicht als "eigene Logik".
                 logic_networks = sum(

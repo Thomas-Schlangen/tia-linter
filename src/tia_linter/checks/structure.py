@@ -77,7 +77,7 @@ class LeereNetzwerkeCheck(BaseCheck):
             for block, group_path in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
                 if block_programming_language(block) in ("SCL", "STL"):
                     continue
-                xml_root = export_block_xml(block)
+                xml_root = export_block_xml(block, plc_software)
                 for index, compile_unit in enumerate(iter_compile_units(xml_root), start=1):
                     if compile_unit_attribute(compile_unit, "ProgrammingLanguage") in ("SCL", "STL"):
                         continue
@@ -279,7 +279,7 @@ class UnbenutzteVariablenCheck(BaseCheck):
             for block, group_path in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
                 if not isinstance(block, (FB, FC, OB)):
                     continue
-                xml_root = export_block_xml(block)
+                xml_root = export_block_xml(block, plc_software)
                 declared_paths: dict[str, list[str]] = {}
                 for section_name in self._INTERFACE_SECTIONS:
                     declared_paths.update(interface_section_member_paths(xml_root, section_name))
@@ -512,7 +512,7 @@ class AwlCodeCheck(BaseCheck):
                     continue
                 if block_language == "SCL":
                     continue
-                xml_root = export_block_xml(block)
+                xml_root = export_block_xml(block, plc_software)
                 for index, compile_unit in enumerate(iter_compile_units(xml_root), start=1):
                     if compile_unit_attribute(compile_unit, "ProgrammingLanguage") == "STL":
                         results.append(
@@ -549,7 +549,7 @@ class GemischteSprachenCheck(BaseCheck):
                 block_language = block_programming_language(block)
                 if block_language in ("SCL", "STL"):
                     continue
-                xml_root = export_block_xml(block)
+                xml_root = export_block_xml(block, plc_software)
                 languages = {
                     compile_unit_attribute(cu, "ProgrammingLanguage")
                     for cu in iter_compile_units(xml_root)
@@ -602,7 +602,7 @@ class MaxNetzwerkElementeCheck(BaseCheck):
             for block, group_path in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
                 if block_programming_language(block) == "STL":
                     continue
-                xml_root = export_block_xml(block)
+                xml_root = export_block_xml(block, plc_software)
                 for index, compile_unit in enumerate(iter_compile_units(xml_root), start=1):
                     network_path = format_path(
                         plc_software.Name, "Programmbausteine", *group_path, block.Name, f"Netzwerk {index}"

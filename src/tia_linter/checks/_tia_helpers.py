@@ -375,7 +375,29 @@ def _local_name(tag: str) -> str:
     return tag.rsplit("}", 1)[-1]
 
 
-def export_block_xml(block: Any):
+_export_cache: dict[tuple[str, str], Any] = {}
+
+
+def reset_export_cache() -> None:
+    """Leert den lauf-gebundenen Cache von ``export_block_xml``.
+
+    Siehe ``XML-Optimierung-Analysebericht.md`` (Option B/C): Ohne diesen
+    Cache exportiert jeder Prüfpunkt, der den XML-Inhalt eines Bausteins
+    braucht, denselben Baustein unabhängig erneut — bei einem typischen FB
+    bis zu 8-mal pro Lauf. Der Cache ist bewusst **kein** Modul-globaler
+    Zustand, der über die Prozesslaufzeit hinweg bestehen bleibt, sondern
+    muss von ``runner.py`` explizit zu Beginn jedes Lint-Laufs geleert
+    werden (sonst "leakt" er zwischen zwei unabhängigen Läufen in der GUI)
+    — sowie nach jedem TIA-Portal-Reconnect: Nach einem Reconnect sind alle
+    zuvor gültigen .NET-Objekte disposed, ein zwischenzeitlich
+    fehlgeschlagener Export soll beim nächsten Zugriff erneut versucht
+    werden statt dauerhaft als fehlgeschlagen zu gelten (fehlgeschlagene
+    Exporte werden ohnehin nie gecacht, siehe ``export_block_xml``).
+    """
+    _export_cache.clear()
+
+
+def export_block_xml(block: Any, plc_software: Any):
     """Exportiert einen Baustein nach SIMATIC ML (XML) und liefert die
     Wurzel des geparsten Dokuments (oder ``None`` bei Exportfehler).
 
@@ -390,7 +412,23 @@ def export_block_xml(block: Any):
     anhand eines echten Exports verifiziert — die Interface-Sections
     (``<Interface><Sections><Section Name="Static">...``) hingegen schon,
     siehe ``interface_section_members``.
+
+    Lauf-gebundener Cache (siehe ``reset_export_cache``/
+    ``XML-Optimierung-Analysebericht.md``): Bis zu 10 Prüfpunkte exportieren
+    denselben Baustein unabhängig voneinander; der zurückgegebene
+    ``ElementTree``-Baum ändert sich innerhalb eines Lint-Laufs nicht (kein
+    Check schreibt Bausteine), Caching ist daher inhaltlich sicher. Der
+    Cache-Key ist absichtlich ``(plc_software.Name, block.Name)`` — ein
+    stabiler String statt des ``block``-Objekts selbst, da ``block`` nach
+    einem TIA-Portal-Reconnect ein neues, den alten Handles nicht mehr
+    entsprechendes .NET-Objekt ist. Der PLC-Software-Name ist Teil des Keys,
+    weil Blocknamen nur innerhalb einer PLC eindeutig sind, nicht projektweit
+    über mehrere PLC-Geräte hinweg.
     """
+    cache_key = (str(getattr(plc_software, "Name", "")), str(block.Name))
+    if cache_key in _export_cache:
+        return _export_cache[cache_key]
+
     import xml.etree.ElementTree as ET
 
     from Siemens.Engineering import ExportOptions
@@ -400,10 +438,13 @@ def export_block_xml(block: Any):
         export_path = Path(tmp_dir) / f"{block.Name}.xml"
         try:
             block.Export(FileInfo(str(export_path)), ExportOptions.WithDefaults)
-            return ET.parse(export_path).getroot()
+            xml_root = ET.parse(export_path).getroot()
         except Exception as exc:  # noqa: BLE001 — .NET-/XML-Fehler, Check soll nicht abbrechen
             logger.warning("Baustein '%s' konnte nicht für die Netzwerkanalyse exportiert werden: %s", block.Name, exc)
-            return None
+            return None  # bewusst nicht gecacht — nächster Zugriff versucht erneut zu exportieren
+
+    _export_cache[cache_key] = xml_root
+    return xml_root
 
 
 def iter_compile_units(xml_root: Any) -> Iterator[Any]:

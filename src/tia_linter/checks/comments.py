@@ -447,7 +447,7 @@ class FbMemberKommentarCheck(BaseCheck):
                     continue
                 fb_name = block.Name
 
-                xml_root = export_block_xml(block)
+                xml_root = export_block_xml(block, plc_software)
                 member_names: set[str] = set()
                 for section_name in self._INTERFACE_SECTIONS:
                     member_names |= interface_section_members(xml_root, section_name)
@@ -570,7 +570,7 @@ class NetzwerkBeschreibungCheck(BaseCheck):
                 if block_programming_language(block) in ("SCL", "STL"):
                     continue  # Netzwerk-Titel gibt es nur bei grafischen Sprachen (LAD/FBD/GRAPH)
 
-                xml_root = export_block_xml(block)
+                xml_root = export_block_xml(block, plc_software)
                 for index, compile_unit in enumerate(iter_compile_units(xml_root), start=1):
                     title = compile_unit_multilingual_text(compile_unit, "Title", culture)
                     block_path = format_path(

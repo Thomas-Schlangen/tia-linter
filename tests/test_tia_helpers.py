@@ -8,11 +8,16 @@ testen, ohne TIA Portal oder Windows zu benötigen.
 
 from __future__ import annotations
 
+import sys
+import types
+from pathlib import Path
+
 import pytest
 
 import xml.etree.ElementTree as ET
 
 from tia_linter.checks._tia_helpers import (
+    export_block_xml,
     find_source_child_by_name,
     interface_section_member_paths,
     iter_blocks,
@@ -21,6 +26,7 @@ from tia_linter.checks._tia_helpers import (
     multilingual_text,
     normalize_member_path,
     read_comment,
+    reset_export_cache,
     strip_cross_reference_prefix,
 )
 
@@ -432,6 +438,142 @@ class TestLocalVariableAccessPaths:
 
     def test_none_xml_root_returns_empty_set(self) -> None:
         assert local_variable_access_paths(None) == set()
+
+
+class _FakeExportOptions:
+    WithDefaults = object()
+
+
+class _FakeFileInfo:
+    def __init__(self, path: str) -> None:
+        self.path = path
+
+
+def _install_fake_dotnet_modules(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ersetzt ``Siemens.Engineering``/``System.IO`` durch reine Python-Fakes
+    in ``sys.modules``, damit ``export_block_xml`` (siehe ``_tia_helpers.py``)
+    ohne echtes TIA Portal/pythonnet getestet werden kann — die beiden lokalen
+    Imports in ``export_block_xml`` greifen dadurch auf die Fakes statt auf
+    echte .NET-Assemblies zu."""
+    siemens_engineering = types.ModuleType("Siemens.Engineering")
+    siemens_engineering.ExportOptions = _FakeExportOptions
+    siemens_pkg = types.ModuleType("Siemens")
+    siemens_pkg.Engineering = siemens_engineering
+
+    system_io = types.ModuleType("System.IO")
+    system_io.FileInfo = _FakeFileInfo
+    system_pkg = types.ModuleType("System")
+    system_pkg.IO = system_io
+
+    monkeypatch.setitem(sys.modules, "Siemens", siemens_pkg)
+    monkeypatch.setitem(sys.modules, "Siemens.Engineering", siemens_engineering)
+    monkeypatch.setitem(sys.modules, "System", system_pkg)
+    monkeypatch.setitem(sys.modules, "System.IO", system_io)
+
+
+class FakeExportableBlock:
+    """Simuliert einen Baustein mit ``.Export()`` — zählt Aufrufe und
+    schreibt bei Erfolg eine minimale, gültige XML-Datei an den übergebenen
+    Pfad, analog zum echten ``block.Export(FileInfo, ExportOptions)``."""
+
+    def __init__(self, name: str) -> None:
+        self.Name = name
+        self.export_call_count = 0
+
+    def Export(self, file_info: _FakeFileInfo, options: object) -> None:
+        self.export_call_count += 1
+        Path(file_info.path).write_text("<Document/>")
+
+
+class FakePlcSoftwareForExport:
+    def __init__(self, name: str) -> None:
+        self.Name = name
+
+
+class TestExportBlockXmlCache:
+    """Bis zu 10 Prüfpunkte riefen ``export_block_xml()`` für denselben
+    Baustein bisher unabhängig voneinander auf (siehe
+    ``XML-Optimierung-Analysebericht.md``, Schritt 1/2) — ein typischer FB
+    wurde dadurch pro Lint-Lauf bis zu 8-mal exportiert. Der lauf-gebundene
+    Cache muss zwei Aufrufe mit demselben Baustein auf genau einen echten
+    ``block.Export()``-Aufruf reduzieren, dabei aber verschiedene Bausteine
+    (auch bei gleichem Namen auf unterschiedlichen PLCs) weiterhin
+    unabhängig behandeln und nach einem expliziten Reset erneut exportieren."""
+
+    def setup_method(self) -> None:
+        reset_export_cache()
+
+    def teardown_method(self) -> None:
+        reset_export_cache()
+
+    def test_second_call_with_same_block_uses_cache(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _install_fake_dotnet_modules(monkeypatch)
+        block = FakeExportableBlock("FB_A")
+        plc = FakePlcSoftwareForExport("PLC_1")
+
+        first = export_block_xml(block, plc)
+        second = export_block_xml(block, plc)
+
+        assert block.export_call_count == 1
+        assert first is second
+
+    def test_different_blocks_are_exported_independently(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _install_fake_dotnet_modules(monkeypatch)
+        block_a = FakeExportableBlock("FB_A")
+        block_b = FakeExportableBlock("FB_B")
+        plc = FakePlcSoftwareForExport("PLC_1")
+
+        export_block_xml(block_a, plc)
+        export_block_xml(block_b, plc)
+
+        assert block_a.export_call_count == 1
+        assert block_b.export_call_count == 1
+
+    def test_same_block_name_on_different_plc_is_exported_separately(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Blocknamen sind nur innerhalb einer PLC eindeutig, siehe Docstring
+        # von export_block_xml -- der Cache-Key muss die PLC mit einbeziehen.
+        _install_fake_dotnet_modules(monkeypatch)
+        block_1 = FakeExportableBlock("FB_A")
+        block_2 = FakeExportableBlock("FB_A")
+        plc_1 = FakePlcSoftwareForExport("PLC_1")
+        plc_2 = FakePlcSoftwareForExport("PLC_2")
+
+        export_block_xml(block_1, plc_1)
+        export_block_xml(block_2, plc_2)
+
+        assert block_1.export_call_count == 1
+        assert block_2.export_call_count == 1
+
+    def test_reset_export_cache_forces_reexport(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Simuliert einen TIA-Portal-Reconnect: runner.py ruft
+        # reset_export_cache() auf, danach muss derselbe Baustein erneut
+        # exportiert werden, weil er ein neues .NET-Objekt ist.
+        _install_fake_dotnet_modules(monkeypatch)
+        block = FakeExportableBlock("FB_A")
+        plc = FakePlcSoftwareForExport("PLC_1")
+
+        export_block_xml(block, plc)
+        reset_export_cache()
+        export_block_xml(block, plc)
+
+        assert block.export_call_count == 2
+
+    def test_failed_export_is_not_cached_and_is_retried(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _install_fake_dotnet_modules(monkeypatch)
+
+        class FailingThenSucceedingBlock(FakeExportableBlock):
+            def Export(self, file_info: _FakeFileInfo, options: object) -> None:
+                self.export_call_count += 1
+                if self.export_call_count == 1:
+                    raise RuntimeError("simulierter Exportfehler")
+                Path(file_info.path).write_text("<Document/>")
+
+        block = FailingThenSucceedingBlock("FB_A")
+        plc = FakePlcSoftwareForExport("PLC_1")
+
+        assert export_block_xml(block, plc) is None
+        assert export_block_xml(block, plc) is not None
+        assert block.export_call_count == 2
 
 
 if __name__ == "__main__":
