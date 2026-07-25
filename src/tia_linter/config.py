@@ -30,6 +30,10 @@ class TiaVersionEntry(BaseModel):
 
 
 class TiaVersionenConfig(BaseModel):
+    """Liste der in der GUI wählbaren TIA-Portal-Versionen samt der als
+    Standard vorausgewählten (``standard`` referenziert einen ``name`` aus
+    ``verfuegbar``)."""
+
     verfuegbar: list[TiaVersionEntry]
     standard: str
 
@@ -58,6 +62,10 @@ class CheckEntryConfig(BaseModel):
 
 
 class AppConfig(BaseModel):
+    """Wurzelschema der YAML-Konfiguration (siehe ``config/*.yaml``) — validiert
+    über ``load_app_config`` und in ``CheckDefinition``-Objekte übersetzt über
+    ``build_check_definitions``."""
+
     tia_versionen: TiaVersionenConfig
     report: ReportConfig = ReportConfig()
     checks: dict[str, dict[str, CheckEntryConfig]]

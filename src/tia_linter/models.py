@@ -9,12 +9,21 @@ from typing import Any
 
 
 class CheckStatus(Enum):
+    """Tatsächliches Ergebnis eines einzelnen Befunds (``CheckResult.status``)
+    — im Unterschied zu ``CheckSeverity`` schließt das auch ``OK`` (kein
+    Verstoß) mit ein, nicht nur die beiden konfigurierbaren Schweregrade."""
+
     OK = "ok"
     WARNING = "warning"
     ERROR = "error"
 
 
 class CheckSeverity(Enum):
+    """Konfigurierter Standard-Schweregrad eines Prüfpunkts (aus der YAML-
+    Config, ``CheckDefinition.severity``) — bestimmt per ``as_status()``, als
+    welcher ``CheckStatus`` ein tatsächlicher Verstoß gegen diesen Prüfpunkt
+    gemeldet wird."""
+
     WARNING = "warning"
     ERROR = "error"
 

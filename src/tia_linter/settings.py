@@ -16,6 +16,12 @@ DEFAULT_WINDOW_GEOMETRY = "1200x800+100+100"
 
 @dataclass
 class Settings:
+    """Persistente GUI-Einstellungen — als JSON unter ``DEFAULT_SETTINGS_PATH``
+    (``settings.json`` im Arbeitsverzeichnis) gespeichert, über ``load()``/
+    ``save()`` gelesen bzw. geschrieben. Lebenszyklus: von ``TiaLinterApp``
+    beim Start geladen und bei ``_on_close`` mit den aktuellen Formularwerten
+    aktualisiert gespeichert."""
+
     last_project_path: str = ""
     last_output_folder: str = ""
     last_config_path: str = ""

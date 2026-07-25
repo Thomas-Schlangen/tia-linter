@@ -121,6 +121,8 @@ class TiaLinterApp(tk.Tk):
     # -- Prüfung starten/abbrechen ----------------------------------------
 
     def start_lint_run(self) -> None:
+        """Validiert die Eingaben und startet den Lint-Lauf (echt oder
+        simuliert, siehe Testmodus-Checkbox) in einem Hintergrund-Thread."""
         if self._lint_thread is not None and self._lint_thread.is_alive():
             return
         if not self._validate_inputs():
@@ -221,6 +223,8 @@ class TiaLinterApp(tk.Tk):
     # -- PDF-Report ---------------------------------------------------------
 
     def generate_pdf_report(self) -> None:
+        """Erzeugt den PDF-Report für den zuletzt geladenen Lint-Lauf im
+        gewählten Output-Ordner (kein-op, solange noch kein Report vorliegt)."""
         if self._report is None:
             return
         output_folder = self.main_page.output_folder.get().strip() or "."
@@ -489,6 +493,7 @@ class MainPage(ttk.Frame):
         self._checks_canvas.yview_scroll(delta, "units")
 
     def collect_enabled_definitions(self) -> list[CheckDefinition]:
+        """Liefert alle Prüfpunkte, deren Checkbox im Baum aktuell angehakt ist."""
         result = []
         for definition in self.app.definitions:
             var = self._check_vars.get(definition.check_id)
@@ -530,6 +535,8 @@ class MainPage(ttk.Frame):
             self.app.reload_config(Path(path))
 
     def set_running(self, running: bool) -> None:
+        """Schaltet Start-/Abbrechen-Button und Fortschrittsbalken auf den
+        Lauf-Zustand um (aktiver Lint-Lauf ja/nein)."""
         self._start_button.configure(state="disabled" if running else "normal")
         self._cancel_button.configure(state="normal" if running else "disabled")
         if running:
@@ -629,6 +636,9 @@ class ResultPage(ttk.Frame):
         self._show_path_filter_placeholder()
 
     def load_report(self, report: LintReport) -> None:
+        """Übernimmt einen neuen Lint-Report in die Ergebnisseite (Übersicht,
+        Filter, Tabelle) — aufgerufen beim Wechsel von der Eingabe- zur
+        Ergebnisseite."""
         self._report = report
         self._summary_var.set(
             f"{report.errors} Fehler   |   {report.warnings} Warnungen   |   {report.ok_count} OK"

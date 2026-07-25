@@ -22,6 +22,13 @@ STYLEGUIDE = "Siemens Styleguide & Best Practices"
 
 @dataclass(frozen=True)
 class CheckMeta:
+    """Feste Metadaten eines Prüfpunkts (Name, Kategorie, Beschreibung,
+    Empfehlung, Nummer) — über alle Config-Profile hinweg identisch. Die
+    konfigurierbaren Werte (enabled/severity/Parameter) kommen dagegen aus der
+    YAML-Config (siehe ``config.py::CheckEntryConfig``) und werden in
+    ``build_check_definitions`` mit diesen Metadaten zu einer vollständigen
+    ``CheckDefinition`` zusammengeführt."""
+
     name: str
     category: str
     description: str
