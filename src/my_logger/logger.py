@@ -14,24 +14,28 @@ def setup_logger(config: LoggingConfig) -> logging.Logger:
 
     Configures the root logger so all module-level loggers (logging.getLogger(__name__))
     automatically inherit the handlers and format.
+
+    Builds every new handler *before* touching the existing ones (Review-
+    Security-Robustheit.md, Befund 4.5): opening the log file is the one
+    step that can fail (``LoggerSetupError``, e.g. a read-only output
+    folder) — if the old handlers had already been removed at that point,
+    a failed call left the root logger completely without output targets
+    (only the ``NullHandler`` fallback below, which never triggers here
+    since it only applies to a *successful* call with no configured
+    targets). Now a failed call raises without touching the logger at all,
+    so the previous configuration keeps working.
     """
     root = logging.getLogger()
-
-    # Clear existing handlers to avoid duplicates on repeated calls.
-    for handler in root.handlers[:]:
-        handler.close()
-        root.removeHandler(handler)
-
     level = getattr(logging, config.level)
-    root.setLevel(level)
-
     formatter = logging.Formatter(_LOG_FORMAT, datefmt=_DATE_FORMAT)
+
+    new_handlers: list[logging.Handler] = []
 
     if config.console:
         console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setLevel(level)
         console_handler.setFormatter(formatter)
-        root.addHandler(console_handler)
+        new_handlers.append(console_handler)
 
     if config.file:
         log_path = Path(config.file)
@@ -49,14 +53,25 @@ def setup_logger(config: LoggingConfig) -> logging.Logger:
             ) from exc
         file_handler.setLevel(level)
         file_handler.setFormatter(formatter)
-        root.addHandler(file_handler)
+        new_handlers.append(file_handler)
 
-    if not root.handlers:
-        root.addHandler(logging.NullHandler())
+    if not new_handlers:
+        new_handlers.append(logging.NullHandler())
         import warnings
         warnings.warn(
             "Logger configured with no output targets (console=False, file=None).",
             stacklevel=2,
         )
+
+    # Erst jetzt, nachdem alle neuen Handler erfolgreich erstellt wurden
+    # (insbesondere die Logdatei erfolgreich geöffnet ist), die alten
+    # entfernen — siehe Docstring oben.
+    for handler in root.handlers[:]:
+        handler.close()
+        root.removeHandler(handler)
+
+    root.setLevel(level)
+    for handler in new_handlers:
+        root.addHandler(handler)
 
     return root

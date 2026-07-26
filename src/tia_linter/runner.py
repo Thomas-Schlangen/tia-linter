@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import logging
 import random
+import re
 import threading
 import time
 from collections.abc import Callable, Iterable
@@ -34,6 +35,7 @@ from typing import Any
 
 from tia_linter.checks import comments, hardware, libraries, metadata, naming, structure
 from tia_linter.checks._tia_helpers import (
+    iter_plc_software,
     release_dotnet_objects,
     reset_export_cache,
     reset_xref_cache,
@@ -164,6 +166,32 @@ def _disposed_exception_types() -> tuple[type, ...]:
         return (Exception,)
 
 
+# Exception-Typen, die typischerweise auf einen fehlerhaften
+# Konfigurationsparameter zurückgehen (ungültige Regex, falscher Typ eines
+# params-Werts) statt auf ein API-/Openness-Zugriffsproblem — siehe
+# ``_check_failure_recommendation``/Review-Security-Robustheit.md, Befund
+# 4.4. ``config.py``s eigener Validator (Maßnahme 3) fängt die meisten
+# solcher Fälle bereits beim Config-Laden ab; diese Liste deckt Checks ab,
+# deren Parameter nicht über die dort bekannten Schlüsselnamen laufen (z. B.
+# numerische Parameter wie ``max_zeichen``, die bei einem YAML-String statt
+# einer Zahl erst bei ``int(...)`` zur Check-Laufzeit auffallen).
+_CONFIG_PARAM_ERROR_TYPES: tuple[type[Exception], ...] = (re.error, TypeError, ValueError)
+
+
+def _check_failure_recommendation(exc: Exception) -> str:
+    """Liefert den Empfehlungstext für einen fehlgeschlagenen Prüfpunkt,
+    differenziert nach Exception-Typ (Review-Security-Robustheit.md, Befund
+    4.4) — der bisherige, einheitliche Text ("Log-Datei prüfen — vermutlich
+    ein API-Zugriffsproblem") war bei einem Konfigurationsfehler (z. B.
+    einer ungültigen Regex oder einem Parameter im falschen Typ) schlicht
+    falsch: Weder ist es ein API-Problem, noch hilft die Logdatei — der
+    Anwender müsste stattdessen die YAML-Konfiguration dieses Prüfpunkts
+    prüfen."""
+    if isinstance(exc, _CONFIG_PARAM_ERROR_TYPES):
+        return "Parameter dieses Prüfpunkts in der Konfigurationsdatei prüfen."
+    return "Log-Datei prüfen — vermutlich ein API-Zugriffsproblem."
+
+
 def _check_weight(check_id: str, check_weights: dict[str, int]) -> int:
     """Liefert das konfigurierte Reconnect-Gewicht eines Prüfpunkts (Maßnahme
     5, ``Review-Performance.md``, Befund 5.3): CrossReference-intensive
@@ -252,7 +280,7 @@ def _run_session(
                         status=CheckStatus.ERROR,
                         path=resolved_project_name,
                         description=f"Prüfpunkt konnte nicht ausgeführt werden: {exc}",
-                        recommendation="Log-Datei prüfen — vermutlich ein API-Zugriffsproblem.",
+                        recommendation=_check_failure_recommendation(exc),
                     )
                 )
                 done_check_ids.add(definition.check_id)
@@ -303,6 +331,17 @@ def run_lint(
     Verbindung selbst aufgenommen und die Prüfung mit den bis dahin
     gesammelten Ergebnissen beendet.
 
+    Ein zusätzlicher, allgemeiner ``except Exception`` um dieselbe Session-
+    Schleife fängt zwei Fälle ab, die vor diesem Sicherheitsnetz komplett an
+    ``run_lint`` vorbei propagiert wären (Review-Security-Robustheit.md,
+    Befund 4.2/4.3): den allerersten Verbindungsversuch (``disposed_exc_types``
+    ist dort noch das leere Tupel, ein ``except ()`` fängt nichts) sowie jede
+    Exception in einer späteren Session, die kein
+    ``EngineeringObjectDisposedException`` ist. In beiden Fällen wird — wie
+    beim Erschöpfen der Reconnect-Versuche — ein Fehlbefund für die
+    Verbindung angelegt und der Lauf mit den bis dahin gesammelten
+    Ergebnissen sauber beendet, statt sie komplett zu verlieren.
+
     Zusätzlich wird die Verbindung **proaktiv** alle ``reconnect_every_n_checks``
     Prüfpunkte neu aufgebaut (unabhängig davon, ob die Session tatsächlich
     stirbt). Grund: der erste Testlauf gegen ein echtes Projekt (288
@@ -328,6 +367,21 @@ def run_lint(
     passenden Ordner (samt aller Unterordner) bzw. Bausteine mit passendem
     Namen (unabhängig vom Ordner) werden dadurch von allen Checks
     übersprungen, die Bausteinstrukturen durchlaufen.
+
+    Direkt nach dem ersten erfolgreichen Verbindungsaufbau wird geprüft, ob
+    das Projekt überhaupt eine PLC-Software enthält (``iter_plc_software``).
+    Ohne diese Prüfung liefert **jeder** Check (der ausschließlich über
+    ``iter_plc_software`` an seine Objekte gelangt) eine leere Ergebnisliste
+    zurück — und die etablierte Konvention "leere Liste = keine Verstöße"
+    (siehe ``_ok_result``) würde daraus 39 synthetische OK-Befunde machen.
+    Ein HMI-only-Projekt, ein versehentlich falsch gewähltes Projekt, oder
+    eine ``ausgeschlossene_ordner``-Konfiguration, die zufällig die gesamte
+    PLC-Struktur trifft, sähe dadurch nicht wie "nichts geprüft", sondern
+    wie ein vollständig sauberes Projekt aus — der für ein Prüfwerkzeug
+    teuerste Fehlermodus (siehe ``Review-Security-Robustheit.md``, Befund
+    3.3). Fehlt jede PLC-Software, wird stattdessen ein einzelner
+    Fehlbefund (``verbindung.keine_plc``) erzeugt und der Lauf sofort
+    beendet, ohne einen einzigen Check zu instanziieren.
     """
 
     def report(message: str) -> None:
@@ -354,8 +408,8 @@ def run_lint(
             break
 
         session_number += 1
-        connector = create_connector(tia_version, dll_path)
         try:
+            connector = create_connector(tia_version, dll_path)
             if session_number == 1:
                 report(f"Verbinde mit TIA Portal ({tia_version_name}) ...")
             elif consecutive_failures > 0:
@@ -375,6 +429,20 @@ def run_lint(
                 report(f"Projekt geöffnet: {resolved_project_name}")
                 if session_number == 1:
                     _reset_run_caches(xml_cache_max_size, xref_cache_max_size)
+                    if not any(True for _ in iter_plc_software(project)):
+                        report("Kein PLC-Programm im Projekt gefunden — Prüfung wird beendet.")
+                        results.append(
+                            CheckResult(
+                                check_id="verbindung.keine_plc",
+                                check_name="TIA-Portal-Verbindung",
+                                category="Verbindung",
+                                status=CheckStatus.ERROR,
+                                path="Projekt",
+                                description="Kein PLC-Programm im Projekt gefunden.",
+                                recommendation="Prüfen, ob das richtige TIA-Projekt ausgewählt wurde.",
+                            )
+                        )
+                        break
 
                 if not disposed_exc_types:
                     disposed_exc_types = _disposed_exception_types()
@@ -421,6 +489,32 @@ def run_lint(
                 )
                 break
             logger.warning("TIA-Portal-Session unerwartet beendet (Versuch %d): %s", consecutive_failures, exc)
+        except Exception as exc:  # noqa: BLE001 — Review-Security-Robustheit.md, Befund 4.2/4.3
+            # Fängt zwei Fälle ab, die bisher komplett an dieser Schleife
+            # vorbei propagierten: (a) der allererste Verbindungsversuch
+            # (disposed_exc_types ist dort noch das leere Tupel () — ein
+            # except () fängt nichts, siehe 4.3), und (b) jede Exception in
+            # einer späteren Session, die kein disposed_exc_types-Typ ist
+            # (z. B. eine andere TIA-/.NET-Exception). Ohne diesen Handler
+            # verlässt die Exception run_lint komplett, wodurch sämtliche
+            # bereits gesammelten results verloren gehen — der Anwender sieht
+            # nur noch "FEHLER: ..." im GUI-Log, aber nie die Ergebnisseite,
+            # egal wie weit die Prüfung schon gekommen war. Stattdessen: wie
+            # beim Erschöpfen der Reconnect-Versuche einen Fehlbefund anlegen
+            # und den Lauf mit den bisherigen Ergebnissen sauber beenden.
+            logger.exception("Unerwarteter Fehler bei der TIA-Portal-Verbindung.")
+            results.append(
+                CheckResult(
+                    check_id="verbindung.reconnect",
+                    check_name="TIA-Portal-Verbindung",
+                    category="Verbindung",
+                    status=CheckStatus.ERROR,
+                    path=resolved_project_name,
+                    description=f"TIA-Portal-Verbindung unerwartet fehlgeschlagen: {exc}",
+                    recommendation="Log-Datei prüfen, TIA Portal manuell neu starten und Prüfung wiederholen.",
+                )
+            )
+            break
 
     return LintReport(
         project_name=resolved_project_name,

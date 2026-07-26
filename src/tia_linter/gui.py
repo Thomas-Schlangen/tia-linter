@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import queue
 import threading
 import tkinter as tk
@@ -11,11 +12,11 @@ from pathlib import Path
 from tkinter import filedialog, font as tkfont, messagebox, ttk
 from typing import Any, Callable
 
-from my_logger import setup_logger
+from my_logger import LoggerSetupError, setup_logger
 
 from tia_linter.config import AppConfig, build_check_definitions, load_app_config
 from tia_linter.models import CheckDefinition, CheckStatus, LintReport
-from tia_linter.reporter import PdfReporter
+from tia_linter.reporter import PdfReporter, sanitize_filename_part
 from tia_linter.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -137,7 +138,17 @@ class TiaLinterApp(tk.Tk):
         dll_path = version_entry.dll_pfad if version_entry else ""
         version_number = version_entry.version if version_entry else 0
 
-        self._setup_run_logger(output_folder, project_path_str)
+        try:
+            self._setup_run_logger(output_folder, project_path_str)
+        except LoggerSetupError as exc:
+            # Review-Security-Robustheit.md, Befund 1.2: ungeklammert stand
+            # dieser Aufruf bislang direkt im Tk-Button-Callback — bei einem
+            # nicht beschreibbaren Output-Ordner (schreibgeschützt, gesperrte
+            # Logdatei) passierte nach dem Klick auf "Prüfung starten"
+            # sichtbar gar nichts (die Exception landet nur auf stderr, das
+            # bei einer Frozen-GUI-Anwendung i. d. R. niemand sieht).
+            messagebox.showerror("TIA Linter", f"Log-Datei konnte nicht eingerichtet werden:\n{exc}")
+            return
 
         self.main_page.clear_log()
         self._cancel_event = threading.Event()
@@ -174,13 +185,53 @@ class TiaLinterApp(tk.Tk):
         """Prüft die Eingaben der Eingabeseite vor Start eines Lint-Laufs
         (Projektdatei, Output-Ordner, mindestens ein aktivierter Prüfpunkt)
         und zeigt bei einem Mangel eine Fehlermeldung an. Liefert ``True``,
-        wenn der Lauf gestartet werden darf."""
-        if not self.main_page.project_path.get().strip():
+        wenn der Lauf gestartet werden darf.
+
+        Review-Security-Robustheit.md, Befund 1.1: Projektdatei und
+        Output-Ordner stammen aus einem frei editierbaren ``ttk.Entry``
+        (nicht nur aus dem Dateidialog) und sind beim Start aus
+        ``settings.json`` vorbelegt — der zuletzt genutzte Pfad kann längst
+        gelöscht/umbenannt sein. Ohne diese Prüfungen fiel ein falscher Pfad
+        bislang erst in ``connector.connect()`` auf, also **nach** dem
+        (potenziell minutenlangen) Start von TIA Portal Headless."""
+        project_path_str = self.main_page.project_path.get().strip()
+        if not project_path_str:
             messagebox.showerror("TIA Linter", "Bitte zuerst eine TIA-Projektdatei auswählen.")
             return False
-        if not self.main_page.output_folder.get().strip():
+        project_path = Path(project_path_str)
+        if not project_path.is_file():
+            messagebox.showerror("TIA Linter", f"Projektdatei nicht gefunden:\n{project_path}")
+            return False
+        if not project_path.suffix.lower().startswith(".ap"):
+            messagebox.showerror(
+                "TIA Linter",
+                f"'{project_path.name}' sieht nicht wie eine TIA-Portal-Projektdatei aus "
+                "(erwartete Endung: .ap...).",
+            )
+            return False
+
+        output_folder_str = self.main_page.output_folder.get().strip()
+        if not output_folder_str:
             messagebox.showerror("TIA Linter", "Bitte zuerst einen Output-Ordner auswählen.")
             return False
+        output_folder = Path(output_folder_str)
+        if not output_folder.exists():
+            if not messagebox.askyesno(
+                "TIA Linter", f"Output-Ordner existiert nicht:\n{output_folder}\n\nJetzt anlegen?"
+            ):
+                return False
+            try:
+                output_folder.mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                messagebox.showerror("TIA Linter", f"Output-Ordner konnte nicht angelegt werden:\n{exc}")
+                return False
+        elif not output_folder.is_dir():
+            messagebox.showerror("TIA Linter", f"Output-Pfad ist kein Ordner:\n{output_folder}")
+            return False
+        if not os.access(output_folder, os.W_OK):
+            messagebox.showerror("TIA Linter", f"Kein Schreibrecht für den Output-Ordner:\n{output_folder}")
+            return False
+
         if not self.main_page.collect_enabled_definitions():
             messagebox.showerror("TIA Linter", "Bitte mindestens einen Prüfpunkt auswählen.")
             return False
@@ -188,10 +239,15 @@ class TiaLinterApp(tk.Tk):
 
     def _setup_run_logger(self, output_folder: str, project_path_str: str) -> None:
         """Richtet die Log-Datei für diesen Lauf ein, sofern in der Config
-        eine Dateiausgabe konfiguriert ist (``config.logging.file``)."""
+        eine Dateiausgabe konfiguriert ist (``config.logging.file``).
+
+        Review-Security-Robustheit.md, Befund 1.5: ``project_name`` wird wie
+        beim PDF-Dateinamen (``reporter.report_filename``) über
+        ``sanitize_filename_part`` saniert, statt ``Path(...).stem``
+        ungefiltert zu übernehmen."""
         if not self.config.logging.file:
             return
-        project_name = Path(project_path_str).stem
+        project_name = sanitize_filename_part(Path(project_path_str).stem)
         log_name = f"Lintlog_{project_name}_{_timestamp()}.log"
         log_config = self.config.logging.model_copy(update={"file": str(Path(output_folder) / log_name)})
         setup_logger(log_config)
@@ -228,13 +284,24 @@ class TiaLinterApp(tk.Tk):
 
     def generate_pdf_report(self) -> None:
         """Erzeugt den PDF-Report für den zuletzt geladenen Lint-Lauf im
-        gewählten Output-Ordner (kein-op, solange noch kein Report vorliegt)."""
+        gewählten Output-Ordner (kein-op, solange noch kein Report vorliegt).
+
+        Review-Security-Robustheit.md, Befund 1.4: Fängt ``Exception`` statt
+        nur ``OSError`` — ReportLab wirft bei Layout-Problemen (z. B. eine zu
+        breite Tabellenzelle durch einen sehr langen Befundpfad aus einem
+        tief verschachtelten Projekt) eigene Exceptions, keine ``OSError``.
+        Ohne diese Erweiterung landete ein solcher Fehler als roher
+        Traceback im Tk-Callback statt als Meldung — der komplette,
+        ggf. stundenlange Prüflauf wäre dann zwar noch im GUI-Grid sichtbar,
+        aber nicht als PDF exportierbar, ohne dass der Anwender erführe,
+        warum."""
         if self._report is None:
             return
         output_folder = self.main_page.output_folder.get().strip() or "."
         try:
             output_path = PdfReporter(self.config).generate(self._report, output_folder)
-        except OSError as exc:
+        except Exception as exc:  # noqa: BLE001 — letzte Instanz gegen rohe Tracebacks in der GUI
+            logger.exception("PDF-Report konnte nicht erstellt werden")
             messagebox.showerror("TIA Linter", f"PDF-Report konnte nicht erstellt werden:\n{exc}")
             return
         messagebox.showinfo("TIA Linter", f"PDF-Report erstellt:\n{output_path}")

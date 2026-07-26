@@ -246,6 +246,7 @@ def get_attribute(obj: Any, name: str, default: Any = None) -> Any:
     try:
         value = obj.GetAttribute(name)
     except Exception:  # noqa: BLE001 — .NET-Exception, Typ variiert je nach Attribut/TIA-Version
+        logger.debug("GetAttribute('%s') nicht verfügbar, verwende Standardwert.", name, exc_info=True)
         return default
     return default if value is None else value
 
@@ -322,6 +323,7 @@ def multilingual_text(value: Any, language: Any) -> str:
     try:
         item = items.Find(language)
     except Exception:  # noqa: BLE001 — .NET-Exception, z. B. Sprache nicht im Projekt
+        logger.debug("MultilingualTextItem für Sprache '%s' nicht auffindbar.", language, exc_info=True)
         return ""
     if item is None:
         return ""
@@ -340,6 +342,7 @@ def read_comment(obj: Any, language: Any) -> str:
     try:
         comment = obj.Comment
     except Exception:  # noqa: BLE001 — Objekttyp hat evtl. kein Comment-Attribut
+        logger.debug("Kein 'Comment'-Attribut auf Objekt vom Typ %s.", type(obj).__name__, exc_info=True)
         return ""
     return multilingual_text(comment, language)
 
@@ -359,6 +362,7 @@ def read_title(obj: Any, language: Any) -> str:
     try:
         title = obj.Title
     except Exception:  # noqa: BLE001 — Objekttyp hat evtl. kein Title-Attribut
+        logger.debug("Kein 'Title'-Attribut auf Objekt vom Typ %s.", type(obj).__name__, exc_info=True)
         return ""
     return multilingual_text(title, language)
 
@@ -618,6 +622,16 @@ def cross_reference_root_source(engineering_object: Any, cross_reference_filter:
     try:
         service = engineering_object.GetService[CrossReferenceService]()
     except Exception:  # noqa: BLE001 — Service evtl. für diesen Objekttyp nicht verfügbar
+        # Review-Security-Robustheit.md, Befund 3.1: ein hier verschluckter
+        # Fehler sieht für den Aufrufer identisch aus wie "keine Referenzen
+        # gefunden" -- ohne diesen Log-Eintrag wäre ein daraus entstehender
+        # Fehlalarm (z. B. Prüfpunkt 11a/11b/12a/12b/13) im Nachhinein nicht
+        # von einem echten Befund zu unterscheiden.
+        logger.warning(
+            "CrossReferenceService nicht verfügbar für '%s' — Ergebnis 'keine Referenzen' kann ein Fehlalarm sein.",
+            getattr(engineering_object, "Name", engineering_object),
+            exc_info=True,
+        )
         return None
     if service is None:
         return None
@@ -820,6 +834,17 @@ def cross_reference_referenced_top_level_names(engineering_object: Any, plc_name
     try:
         service = engineering_object.GetService[CrossReferenceService]()
     except Exception:  # noqa: BLE001 — Service evtl. für diesen Objekttyp nicht verfügbar
+        # Review-Security-Robustheit.md, Befund 3.1/3.2: ein leeres Set ist
+        # hier ununterscheidbar vom legitimen Ergebnis "kein Member
+        # referenziert" -- Prüfpunkt 11b liest genau das als "Baustein
+        # unbenutzt" (structure.py, UnbenutzteBausteineCheck). Ohne diesen
+        # Log-Eintrag wäre ein daraus entstehender Fehlalarm im Nachhinein
+        # nicht von einem echten Befund zu unterscheiden.
+        logger.warning(
+            "CrossReferenceService nicht verfügbar für '%s' — Ergebnis 'keine referenzierten Member' kann ein Fehlalarm sein.",
+            getattr(engineering_object, "Name", engineering_object),
+            exc_info=True,
+        )
         service = None
     if service is not None:
         result = service.GetCrossReferences(CrossReferenceFilter.ObjectsWithReferences)

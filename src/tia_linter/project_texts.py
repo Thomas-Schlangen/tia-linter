@@ -45,12 +45,18 @@ class ProjectTextComments:
         Block-XML-Export: ``load()`` wird von drei Prüfpunkten (1a, 1b, 1c)
         pro PLC-Software unabhängig aufgerufen, exportiert dabei aber stets
         die komplette, projektweite Projekttexte-Tabelle neu. Muss von
-        ``runner.py`` zu Beginn jedes Lint-Laufs sowie nach jedem
-        TIA-Portal-Reconnect aufgerufen werden — aus denselben Gründen wie
-        bei ``reset_export_cache`` (kein Leak zwischen zwei Läufen, erneuter
-        Versuch nach einem zwischenzeitlich fehlgeschlagenen Export, da nach
-        einem Reconnect ein neues ``project``-.NET-Objekt vorliegt).
-        """
+        ``runner.py`` zu Beginn jedes Lint-Laufs aufgerufen werden (kein Leak
+        zwischen zwei Läufen in derselben GUI-Session).
+
+        **Nicht** bei jedem TIA-Portal-Reconnect aufrufen (Korrektur,
+        Review-Performance.md, Maßnahme 2 — seit Commit ``8791eff`` ruft
+        ``runner.py::_reset_run_caches`` nur noch bei Lauf-Start auf, nicht
+        mehr pro Reconnect): Der Cache enthält ausschließlich reine
+        Python-Strings, keine .NET-Objektreferenzen, bleibt also nach einem
+        Reconnect gültig — dieselbe Begründung wie beim XML-/XRef-Cache.
+        Eine ältere Version dieses Docstrings verlangte fälschlich das
+        Gegenteil; siehe ``_tia_helpers.reset_export_cache`` für die
+        ausführliche Begründung."""
         cls._cache = None
 
     @classmethod

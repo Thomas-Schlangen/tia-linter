@@ -8,6 +8,7 @@ testen, ohne TIA Portal oder Windows zu benötigen.
 
 from __future__ import annotations
 
+import logging
 import sys
 import types
 from pathlib import Path
@@ -27,6 +28,7 @@ from tia_linter.checks._tia_helpers import (
     normalize_member_path,
     cached_cross_reference_locations,
     cross_reference_referenced_top_level_names,
+    cross_reference_root_source,
     read_comment,
     reset_export_cache,
     reset_xref_cache,
@@ -882,6 +884,52 @@ class TestCrossReferenceReferencedTopLevelNamesCache:
 
         cross_reference_referenced_top_level_names(obj_a, "PLC_1")
         assert service_a.call_count == 2  # wurde verdrängt, musste erneut abgefragt werden
+
+
+class _FakeRaisingGenericMethod:
+    """Wie ``_FakeGenericMethod``, aber ``__getitem__`` liefert einen
+    Aufrufer, der beim Aufruf eine .NET-Exception simuliert (``GetService``
+    für einen nicht unterstützten Objekttyp)."""
+
+    def __getitem__(self, _type: object) -> object:
+        def _raise() -> None:
+            raise RuntimeError("GetService nicht unterstützt für diesen Objekttyp")
+
+        return _raise
+
+
+class TestCrossReferenceServiceUnavailableLogsWarning:
+    """Review-Security-Robustheit.md, Befund 3.1/3.2: Schlägt
+    ``GetService[CrossReferenceService]()`` fehl, lieferten
+    ``cross_reference_root_source``/``cross_reference_referenced_top_level_names``
+    bisher stillschweigend ein leeres Ergebnis -- ununterscheidbar vom
+    legitimen "keine Referenzen". Jetzt muss mindestens ein ``WARNING``
+    geloggt werden, damit ein daraus resultierender Fehlalarm in der Logdatei
+    nachvollziehbar ist."""
+
+    def test_root_source_logs_warning_on_service_error(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        _install_fake_cross_reference_module(monkeypatch)
+        obj = types.SimpleNamespace(Name="Sensor1", GetService=_FakeRaisingGenericMethod())
+
+        with caplog.at_level(logging.WARNING):
+            result = cross_reference_root_source(obj)
+
+        assert result is None
+        assert any(record.levelno == logging.WARNING and "Sensor1" in record.message for record in caplog.records)
+
+    def test_top_level_names_logs_warning_on_service_error(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        _install_fake_cross_reference_module(monkeypatch)
+        obj = types.SimpleNamespace(Name="DB_X", GetService=_FakeRaisingGenericMethod())
+
+        with caplog.at_level(logging.WARNING):
+            result = cross_reference_referenced_top_level_names(obj, "PLC_1")
+
+        assert result == set()
+        assert any(record.levelno == logging.WARNING and "DB_X" in record.message for record in caplog.records)
 
 
 if __name__ == "__main__":

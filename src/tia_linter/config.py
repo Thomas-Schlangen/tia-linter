@@ -2,15 +2,33 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from config_loader import load_config
 from my_logger import LoggingConfig
 
 from tia_linter.checks.registry import CHECK_REGISTRY
 from tia_linter.models import CheckDefinition, CheckSeverity
+
+# Prüfpunkt-Parameter, deren erwarteter Typ projektweit einheitlich ist,
+# unabhängig vom jeweiligen Prüfpunkt (siehe Review-Security-Robustheit.md,
+# Befund 2.1) — alle Aufrufstellen siehe checks/comments.py, naming.py,
+# structure.py, metadata.py, libraries.py.
+_LIST_PARAM_KEYS = frozenset(
+    {
+        "ausnahme_prefixe",
+        "ausnahme_variables",
+        "ausnahme_udts",
+        "dokumentations_hinweise",
+        "ignorierte_meldungen",
+        "prefixe",
+        "felder",
+    }
+)
+_REGEX_PARAM_KEYS = frozenset({"regex", "ausnahme_titel_regex"})
 
 
 class ReportConfig(BaseModel):
@@ -87,6 +105,58 @@ class AppConfig(BaseModel):
     )
     ausgeschlossene_ordner: list[str] = Field(default_factory=list)
     ausgeschlossene_bausteine: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _validate_check_params(self) -> "AppConfig":
+        """Validiert die frei-formen Prüfpunkt-Parameter (``CheckEntryConfig``
+        erlaubt via ``extra="allow"`` beliebige zusätzliche YAML-Schlüssel,
+        siehe dortiger Docstring) gegen den projektweit einheitlichen Typ der
+        bekannten Parameternamen (siehe ``_LIST_PARAM_KEYS``/
+        ``_REGEX_PARAM_KEYS``).
+
+        Ohne diese Prüfung kippt ein Tippfehler wie ``prefixe: TEST`` (statt
+        ``prefixe: [TEST]``) ein Prüfergebnis lautlos: ``tuple("TEST")``
+        ergibt ``('T', 'E', 'S', 'T')``, und Prüfpunkt 9 meldet danach jede
+        Variable, die mit T, E oder S beginnt, als Testvariable — ohne
+        Exception, ohne Logeintrag (Review-Security-Robustheit.md, Befund
+        2.1, empirisch verifiziert). Ein ungültiger regulärer Ausdruck
+        (Befund 2.2) fiele sonst erst zur Check-Laufzeit auf, nachdem TIA
+        Portal bereits gestartet und ggf. lange geprüft wurde — hier wird er
+        beim Config-Laden erkannt, also in Millisekunden und vor jedem
+        TIA-Verbindungsaufbau.
+
+        Sammelt alle Verstöße über alle Prüfpunkte hinweg in einer einzigen
+        Fehlermeldung, statt beim ersten Treffer abzubrechen — bei mehreren
+        Tippfehlern in derselben Config muss der Anwender sie sonst einzeln
+        nacheinander entdecken."""
+        errors: list[str] = []
+        for category_key, entries in self.checks.items():
+            for check_key, entry in entries.items():
+                check_ref = f"{category_key}.{check_key}"
+                params = entry.model_dump(exclude={"enabled", "severity"})
+                for key in sorted(_LIST_PARAM_KEYS & params.keys()):
+                    if not isinstance(params[key], list):
+                        errors.append(
+                            f"{check_ref}.{key}: erwartet eine Liste, "
+                            f"erhalten {type(params[key]).__name__} ({params[key]!r})"
+                        )
+                for key in sorted(_REGEX_PARAM_KEYS & params.keys()):
+                    value = params[key]
+                    if not isinstance(value, str):
+                        errors.append(
+                            f"{check_ref}.{key}: erwartet einen String (regulärer Ausdruck), "
+                            f"erhalten {type(value).__name__} ({value!r})"
+                        )
+                        continue
+                    if not value:
+                        continue  # leerer String bedeutet je Prüfpunkt "deaktiviert", kein Fehler
+                    try:
+                        re.compile(value)
+                    except re.error as exc:
+                        errors.append(f"{check_ref}.{key}: ungültiger regulärer Ausdruck '{value}': {exc}")
+        if errors:
+            raise ValueError("Ungültige Prüfpunkt-Parameter in der Konfiguration:\n- " + "\n- ".join(errors))
+        return self
 
 
 def load_app_config(path: str | Path) -> AppConfig:

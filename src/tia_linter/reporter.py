@@ -96,10 +96,24 @@ _STATUS_COLOR = {
 }
 
 
+def sanitize_filename_part(name: str) -> str:
+    """Ersetzt alle Zeichen, die in Dateinamen plattformabhängig problematisch
+    sein können (u. a. ``:``/``/``/``\\`` in einem UNC-/Laufwerkspfad-Stamm),
+    durch ``_`` — lässt nur alphanumerische Zeichen sowie ``-``/``_`` stehen.
+
+    Geteilt zwischen ``report_filename()`` und dem Logdateinamen in
+    ``gui.py::_setup_run_logger`` (Review-Security-Robustheit.md, Befund
+    1.5) — vorher sanierte nur der PDF-Dateiname den Projektnamen, der
+    Logdateiname übernahm ``Path(project_path_str).stem`` ungefiltert, was
+    das Anlegen der Logdatei mit einem ``OSError`` hätte scheitern lassen
+    können."""
+    return "".join(c if c.isalnum() or c in "-_" else "_" for c in name)
+
+
 def report_filename(report: LintReport) -> str:
     """Erzeugt den Dateinamen ``Lintreport_{projekt}_{datum}_{uhrzeit}.pdf``."""
     timestamp = report.check_date.strftime("%Y-%m-%d_%H-%M")
-    safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in report.project_name)
+    safe_name = sanitize_filename_part(report.project_name)
     return f"Lintreport_{safe_name}_{timestamp}.pdf"
 
 
@@ -157,11 +171,30 @@ class PdfReporter:
     def generate(self, report: LintReport, output_path: str | Path) -> Path:
         """Schreibt den vollständigen PDF-Report. ``output_path`` kann eine
         Datei oder ein Ordner sein — bei einem Ordner wird der Dateiname
-        automatisch generiert (siehe ``report_filename``)."""
+        automatisch generiert (siehe ``report_filename``).
+
+        Review-Security-Robustheit.md, Befund 1.3: Die Entscheidung
+        Datei-vs-Ordner hing bisher an ``output_path.is_dir()`` — bei einem
+        noch **nicht existierenden** Ordner (z. B. Tippfehler, oder ein
+        Ordner, der zwischen Auswahl und Klick auf "PDF-Report erstellen"
+        gelöscht wurde) ist das immer ``False``, wodurch der komplette
+        Ordnerpfad als Dateiname missverstanden wurde (verifiziert: aus
+        ``nicht_existent/unterordner`` wurde eine endungslose Datei namens
+        ``unterordner``). Jetzt wird stattdessen anhand der Endung
+        entschieden — ``.pdf`` heißt "vollständiger Zieldateiname", alles
+        andere heißt "Ordner, wird bei Bedarf inklusive aller
+        Zwischenordner angelegt". Deutlich abweichend von der ursprünglich
+        vorgeschlagenen Lösung (unbedingtes ``mkdir()`` vor der
+        ``is_dir()``-Abfrage): Das hätte bei einem noch nicht existierenden
+        **Datei**-Ziel stattdessen einen gleichnamigen Ordner angelegt und
+        den eigentlich gewünschten Dateinamen damit ebenso zerstört, nur in
+        die andere Richtung."""
         output_path = Path(output_path)
-        if output_path.is_dir():
+        if output_path.suffix.lower() == ".pdf":
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+        else:
+            output_path.mkdir(parents=True, exist_ok=True)
             output_path = output_path / report_filename(report)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
 
         doc = SimpleDocTemplate(
             str(output_path),
