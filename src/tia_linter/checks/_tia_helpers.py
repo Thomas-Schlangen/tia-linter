@@ -643,15 +643,18 @@ def set_xref_cache_max_size(max_size: int) -> None:
 
 
 def reset_xref_cache() -> None:
-    """Leert den lauf-gebundenen Cache von ``cached_cross_reference_locations``.
+    """Leert die lauf-gebundenen Caches von ``cached_cross_reference_locations``
+    und ``cross_reference_referenced_top_level_names``.
 
     Wie beim XML-Cache (``reset_export_cache``, Maßnahme 2) **nicht** bei
-    jedem Reconnect aufrufen, nur einmalig zu Lauf-Beginn: Der Cache enthält
-    ausschließlich extrahierte Python-Strings (``Access``/``ReferenceType``
-    als Text), keine .NET-Objektreferenzen — er bleibt nach einem Reconnect
-    gültig, da sich die tatsächliche Verwendung eines Tags/Bausteins während
-    eines rein lesenden Lint-Laufs nicht ändert."""
+    jedem Reconnect aufrufen, nur einmalig zu Lauf-Beginn: Beide Caches
+    enthalten ausschließlich extrahierte Python-Strings (``Access``/
+    ``ReferenceType``/Membernamen als Text), keine .NET-Objektreferenzen —
+    sie bleiben nach einem Reconnect gültig, da sich die tatsächliche
+    Verwendung eines Tags/Bausteins während eines rein lesenden Lint-Laufs
+    nicht ändert."""
     _xref_cache.clear()
+    _xref_top_level_cache.clear()
 
 
 def cached_cross_reference_locations(
@@ -757,7 +760,10 @@ def strip_cross_reference_prefix(name: str, root_name: str) -> str:
     return name
 
 
-def cross_reference_referenced_top_level_names(engineering_object: Any) -> set[str]:
+_xref_top_level_cache: "OrderedDict[tuple[str, str], set[str]]" = OrderedDict()
+
+
+def cross_reference_referenced_top_level_names(engineering_object: Any, plc_name: str) -> set[str]:
     """Liefert die (unqualifizierten) Namen aller direkten Kind-Member eines
     DB/Bausteins, die laut ``CrossReferenceService`` irgendeine Referenz
     tragen (``CrossReferenceFilter.ObjectsWithReferences`` -- laut
@@ -766,6 +772,24 @@ def cross_reference_referenced_top_level_names(engineering_object: Any) -> set[s
     ``unused_cross_reference_leaf_names``). Noch nicht live verifiziert
     (weder die grundsätzliche Baumform noch, dass ``ObjectsWithReferences``
     dieselbe Struktur wie ``UnusedObjects`` liefert).
+
+    LRU-gecacht nach demselben Muster wie ``cached_cross_reference_locations``
+    (Review-Performance.md, Befund 3.2, Cache-Key ``(plc_name, obj_name)`` --
+    der Filter ist hier immer ``ObjectsWithReferences``, daher kein dritter
+    Key-Bestandteil nötig, anders als beim allgemeineren XRef-Cache). Ohne
+    diesen Cache fragen Prüfpunkt 11a (für jeden Global-/Array-DB mit
+    ``UnusedObjects``-Befunden) und Prüfpunkt 11b (für **jeden**
+    Global-/Array-DB, unbedingt) denselben DB mit demselben Filter zweimal
+    ab, sobald beide Checks aktiv sind -- eine echte, vermeidbare
+    Verdopplung. Die *andere* in Befund 3.2 beschriebene Verdopplung (11a
+    fragt pro DB sowohl ``UnusedObjects`` als auch, bei Treffern,
+    ``ObjectsWithReferences`` ab) bleibt bestehen und ist nicht vermeidbar:
+    beide Filter liefern inhaltlich unterschiedliche Information (unbenutzte
+    Blattmember vs. referenzierte Top-Level-Member) und lassen sich nicht
+    aus derselben Abfrage ableiten. Teilt sich den Größenparameter
+    (``xref_cache_max_size``) mit dem allgemeinen XRef-Cache -- eigener
+    Config-Schlüssel wäre für diesen deutlich kleineren Zusatzcache
+    unverhältnismäßig.
 
     Zwanzigster Bug/Feature (User-Auftrag, PP11 in der betrieblichen Praxis):
     Wird eine UDT-/Struct-typisierte DB-Variable als Ganzes an einen anderen
@@ -784,25 +808,34 @@ def cross_reference_referenced_top_level_names(engineering_object: Any) -> set[s
     UDT/Struct vs. Skalar ist deshalb beim Aufrufer nicht nötig, das
     Verhalten reduziert sich für Skalare automatisch auf den bisherigen,
     unveränderten Fall."""
+    obj_name = str(getattr(engineering_object, "Name", ""))
+    cache_key = (plc_name, obj_name)
+    if cache_key in _xref_top_level_cache:
+        _xref_top_level_cache.move_to_end(cache_key)
+        return _xref_top_level_cache[cache_key]
+
     from Siemens.Engineering.CrossReference import CrossReferenceFilter, CrossReferenceService
 
+    names: set[str] = set()
     try:
         service = engineering_object.GetService[CrossReferenceService]()
     except Exception:  # noqa: BLE001 — Service evtl. für diesen Objekttyp nicht verfügbar
-        return set()
-    if service is None:
-        return set()
-    result = service.GetCrossReferences(CrossReferenceFilter.ObjectsWithReferences)
-    names: set[str] = set()
-    for source in getattr(result, "Sources", None) or []:
-        root_name = getattr(source, "Name", None) or ""
-        for child in getattr(source, "Children", None) or []:
-            child_name = getattr(child, "Name", None)
-            if not child_name:
-                continue
-            name = normalize_member_path(strip_cross_reference_prefix(child_name, root_name))
-            if name and name != root_name:
-                names.add(name)
+        service = None
+    if service is not None:
+        result = service.GetCrossReferences(CrossReferenceFilter.ObjectsWithReferences)
+        for source in getattr(result, "Sources", None) or []:
+            root_name = getattr(source, "Name", None) or ""
+            for child in getattr(source, "Children", None) or []:
+                child_name = getattr(child, "Name", None)
+                if not child_name:
+                    continue
+                name = normalize_member_path(strip_cross_reference_prefix(child_name, root_name))
+                if name and name != root_name:
+                    names.add(name)
+
+    _xref_top_level_cache[cache_key] = names
+    if len(_xref_top_level_cache) > _xref_cache_max_size:
+        _xref_top_level_cache.popitem(last=False)  # ältesten (am längsten unbenutzten) Eintrag verdrängen
     return names
 
 

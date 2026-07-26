@@ -30,6 +30,7 @@ from tia_linter.checks._tia_helpers import (
     local_variable_write_counts,
     read_comment,
     reference_language,
+    release_dotnet_objects,
     tag_direction,
 )
 from tia_linter.checks.base import BaseCheck
@@ -195,6 +196,14 @@ class StaticZugriffExternCheck(BaseCheck):
     Ein eventueller Netzwerktitel in Klammern wird nicht mit übernommen (der
     ist oft lang und für die Meldung selbst nicht nötig), Mehrfach-
     Leerzeichen werden auf eines reduziert.
+
+    Wie die CrossReference-Schleifen in ``structure.py`` (Prüfpunkte
+    11a/11b/12a/12b/13) erzwingt auch diese Schleife alle ``self.gc_interval``
+    verarbeitete Instanz-DBs eine .NET-GC (``release_dotnet_objects()``) —
+    dieser Check war beim ursprünglichen Review-Performance.md-Befund 1.4
+    (Materialisierung der ``root_source``/``Locations`` über die gesamte
+    Schleifeniteration hinweg am Leben) die einzige verbleibende
+    CrossReference-lastige Schleife ohne periodische GC, siehe dort.
     """
 
     _LOCATION_PREFIX = re.compile(r"^@([^\s▶]+)\s*▶\s*([^(]*)")
@@ -204,6 +213,7 @@ class StaticZugriffExternCheck(BaseCheck):
         from Siemens.Engineering.SW.Blocks import FB, InstanceDB
 
         results: list[CheckResult] = []
+        processed = 0
         for plc_software in iter_plc_software(project):
             fb_by_name = {block.Name: block for block, _ in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks) if isinstance(block, FB)}
 
@@ -249,6 +259,10 @@ class StaticZugriffExternCheck(BaseCheck):
                                         value=accessor_display,
                                     )
                                 )
+
+                processed += 1
+                if processed % self.gc_interval == 0:
+                    release_dotnet_objects()
         return results
 
 

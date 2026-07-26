@@ -26,6 +26,7 @@ from tia_linter.checks._tia_helpers import (
     multilingual_text,
     normalize_member_path,
     cached_cross_reference_locations,
+    cross_reference_referenced_top_level_names,
     read_comment,
     reset_export_cache,
     reset_xref_cache,
@@ -788,6 +789,99 @@ class TestCachedCrossReferenceLocations:
 
         cached_cross_reference_locations(obj_a, "AllObjects", "PLC_1")
         assert service_a.call_count == 2  # musste erneut abgefragt werden (wurde verdrängt)
+
+
+class FakeTopLevelChild:
+    def __init__(self, name: str) -> None:
+        self.Name = name
+
+
+class FakeTopLevelSource:
+    def __init__(self, name: str, children: list[FakeTopLevelChild]) -> None:
+        self.Name = name
+        self.Children = children
+
+
+class TestCrossReferenceReferencedTopLevelNamesCache:
+    """Maßnahme (Review-Performance.md, Befund 3.2): Prüfpunkt 11a (bei
+    Unused-Objects-Befunden) und Prüfpunkt 11b (unbedingt) fragen für
+    denselben Global-/Array-DB denselben ``ObjectsWithReferences``-Filter ab
+    -- eine echte Verdopplung, wenn beide Checks aktiv sind. Der Cache muss
+    das auf einen echten ``GetCrossReferences()``-Aufruf reduzieren, dabei
+    aber verschiedene PLCs weiterhin unabhängig behandeln und sich denselben
+    Reset/dieselbe LRU-Größe wie ``cached_cross_reference_locations`` teilen
+    (siehe Docstring der Funktion)."""
+
+    def setup_method(self) -> None:
+        reset_xref_cache()
+
+    def teardown_method(self) -> None:
+        reset_xref_cache()
+        set_xref_cache_max_size(1000)  # Standardwert aus default.yaml wiederherstellen
+
+    def test_extracts_child_names(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _install_fake_cross_reference_module(monkeypatch)
+        source = FakeTopLevelSource("DB_X", [FakeTopLevelChild('"DB_X".Member1')])
+        service = FakeCrossReferenceService([source])
+        obj = FakeXrefObject("DB_X", service)
+
+        result = cross_reference_referenced_top_level_names(obj, "PLC_1")
+
+        assert result == {"Member1"}
+
+    def test_second_call_with_same_key_uses_cache(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _install_fake_cross_reference_module(monkeypatch)
+        source = FakeTopLevelSource("DB_X", [FakeTopLevelChild('"DB_X".Member1')])
+        service = FakeCrossReferenceService([source])
+        obj = FakeXrefObject("DB_X", service)
+
+        first = cross_reference_referenced_top_level_names(obj, "PLC_1")
+        second = cross_reference_referenced_top_level_names(obj, "PLC_1")
+
+        assert service.call_count == 1
+        assert first == second == {"Member1"}
+
+    def test_different_plc_name_is_queried_separately(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _install_fake_cross_reference_module(monkeypatch)
+        source = FakeTopLevelSource("DB_X", [FakeTopLevelChild('"DB_X".Member1')])
+        service = FakeCrossReferenceService([source])
+        obj = FakeXrefObject("DB_X", service)
+
+        cross_reference_referenced_top_level_names(obj, "PLC_1")
+        cross_reference_referenced_top_level_names(obj, "PLC_2")
+
+        assert service.call_count == 2
+
+    def test_reset_xref_cache_forces_requery(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _install_fake_cross_reference_module(monkeypatch)
+        source = FakeTopLevelSource("DB_X", [FakeTopLevelChild('"DB_X".Member1')])
+        service = FakeCrossReferenceService([source])
+        obj = FakeXrefObject("DB_X", service)
+
+        cross_reference_referenced_top_level_names(obj, "PLC_1")
+        reset_xref_cache()
+        cross_reference_referenced_top_level_names(obj, "PLC_1")
+
+        assert service.call_count == 2
+
+    def test_shares_lru_max_size_with_cached_cross_reference_locations(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # set_xref_cache_max_size() setzt einen gemeinsamen Größenparameter
+        # (siehe Docstring von cross_reference_referenced_top_level_names) --
+        # belegt hier, dass er auch für diesen (separaten) Cache greift.
+        _install_fake_cross_reference_module(monkeypatch)
+        set_xref_cache_max_size(1)
+        service_a = FakeCrossReferenceService([FakeTopLevelSource("DB_A", [])])
+        service_b = FakeCrossReferenceService([FakeTopLevelSource("DB_B", [])])
+        obj_a = FakeXrefObject("DB_A", service_a)
+        obj_b = FakeXrefObject("DB_B", service_b)
+
+        cross_reference_referenced_top_level_names(obj_a, "PLC_1")
+        cross_reference_referenced_top_level_names(obj_b, "PLC_1")  # verdrängt DB_A (Cache-Größe 1)
+
+        cross_reference_referenced_top_level_names(obj_a, "PLC_1")
+        assert service_a.call_count == 2  # wurde verdrängt, musste erneut abgefragt werden
 
 
 if __name__ == "__main__":

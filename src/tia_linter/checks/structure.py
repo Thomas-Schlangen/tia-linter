@@ -309,7 +309,7 @@ class UnbenutzteVariablenCheck(BaseCheck):
                 # weiterhin einzeln unbenutzten Unterfelder werden dann
                 # nicht gemeldet (siehe Klassendocstring,
                 # "Vierundzwanzigster Bug/Feature").
-                used_top_level = cross_reference_referenced_top_level_names(db)
+                used_top_level = cross_reference_referenced_top_level_names(db, plc_software.Name)
                 unused_names = [
                     name for name in unused_names if name.split(".", 1)[0] not in used_top_level
                 ]
@@ -432,7 +432,7 @@ class UnbenutzteBausteineCheck(BaseCheck):
                 if isinstance(block, OB):
                     continue
                 if isinstance(block, DataBlock) and not isinstance(block, InstanceDB):
-                    is_used = bool(cross_reference_referenced_top_level_names(block))
+                    is_used = bool(cross_reference_referenced_top_level_names(block, plc_software.Name))
                 elif isinstance(block, InstanceDB):
                     locations = cached_cross_reference_locations(
                         block, CrossReferenceFilter.AllObjects, plc_software.Name
