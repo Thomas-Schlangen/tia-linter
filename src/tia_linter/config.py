@@ -100,6 +100,7 @@ class AppConfig(BaseModel):
             "programmstruktur.eingaenge_gelesen": 3,
             "programmstruktur.eingaenge_nicht_beschrieben": 3,
             "programmstruktur.ausgaenge_mehrfach_schreiben": 3,
+            "metadata.kompilierfehler": 10,
             "default": 1,
         }
     )

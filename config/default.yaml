@@ -70,12 +70,21 @@ xref_cache_max_size: 1000
 # Reconnect-Zeitpunkt rein zufällig davon abhängen, wo im Lauf diese Checks
 # gerade liegen. "default" greift für alle nicht einzeln aufgeführten
 # Prüfpunkte.
+#
+# metadata.kompilierfehler (Prüfpunkt 21) läuft seit Review-General.md,
+# Befund 3, fest als letzter Check in einer eigenen, isolierten
+# Reconnect-Session (runner.py::run_lint) — das hohe Gewicht hat dadurch
+# aktuell keine praktische Wirkung mehr (er teilt sich nie eine Session mit
+# einem anderen Check), bleibt aber als Dokumentation stehen ("teuerster
+# Einzelcheck") und greift automatisch wieder, falls diese Isolierung
+# jemals aufgehoben werden sollte.
 check_weights:
   programmstruktur.unbenutzte_variablen: 5
   programmstruktur.unbenutzte_bausteine: 5
   programmstruktur.eingaenge_gelesen: 3
   programmstruktur.eingaenge_nicht_beschrieben: 3
   programmstruktur.ausgaenge_mehrfach_schreiben: 3
+  metadata.kompilierfehler: 10
   default: 1
 
 # Ordnernamen (Programmbausteine-, Datenbaustein- und Variablentabellen-

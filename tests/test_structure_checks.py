@@ -23,7 +23,12 @@ import types
 import pytest
 
 from tia_linter.checks import structure
-from tia_linter.checks.structure import EingaengeGelesenCheck, EingaengeNichtBeschriebenCheck
+from tia_linter.checks.structure import (
+    EingaengeGelesenCheck,
+    EingaengeNichtBeschriebenCheck,
+    LeereNetzwerkeCheck,
+    UnbenutzteVariablenCheck,
+)
 from tia_linter.models import CheckDefinition, CheckSeverity
 
 
@@ -223,6 +228,115 @@ class TestBothChecksEnabled:
         assert call_log == ["Sensor1"]
         assert len(results_b) == 1
         assert results_b[0].value == "1"
+
+
+class FakeBlock:
+    def __init__(self, name: str) -> None:
+        self.Name = name
+
+
+class TestLeereNetzwerkeCheckSmoke:
+    """Smoke-Test für Prüfpunkt 10 (Review-General.md, Befund 8/Maßnahme 4):
+    ein Netzwerk ohne Programmelemente liefert genau einen Befund, ein
+    Netzwerk mit Inhalt keinen. ``ausnahme_titel_regex`` bleibt hier
+    deaktiviert (Standard ``""``), daher wird ``reference_language`` nicht
+    ausgewertet."""
+
+    _DEFINITION = CheckDefinition(
+        check_id="programmstruktur.leere_netzwerke",
+        name="Leere Netzwerke",
+        category="Programmstruktur",
+        enabled=True,
+        severity=CheckSeverity.WARNING,
+        description="",
+        recommendation="",
+        nummer="10",
+        params={},
+    )
+
+    def _stub_common(self, monkeypatch: pytest.MonkeyPatch, block: FakeBlock, element_count: int) -> None:
+        monkeypatch.setattr(structure, "iter_plc_software", lambda project: [FakePlcSoftware("PLC_1")])
+        monkeypatch.setattr(structure, "iter_blocks", lambda plc, ef, eb: [(block, [])])
+        monkeypatch.setattr(structure, "block_programming_language", lambda block: "FBD")
+        monkeypatch.setattr(structure, "export_block_xml", lambda block, plc: object())
+        monkeypatch.setattr(structure, "iter_compile_units", lambda xml_root: [object()])
+        monkeypatch.setattr(structure, "compile_unit_attribute", lambda cu, name: None)
+        monkeypatch.setattr(structure, "compile_unit_element_count", lambda cu: element_count)
+
+    def test_empty_network_is_reported(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        block = FakeBlock("FB_Motor")
+        self._stub_common(monkeypatch, block, element_count=0)
+
+        check = LeereNetzwerkeCheck(self._DEFINITION)
+        results = check.run(project=object())
+
+        assert len(results) == 1
+        assert results[0].path == "PLC_1 > Programmbausteine > FB_Motor > Netzwerk 1"
+
+    def test_non_empty_network_is_not_reported(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        block = FakeBlock("FB_Motor")
+        self._stub_common(monkeypatch, block, element_count=3)
+
+        check = LeereNetzwerkeCheck(self._DEFINITION)
+        results = check.run(project=object())
+
+        assert results == []
+
+
+class TestUnbenutzteVariablenCheckDbMembersViaRootSource:
+    """Regressionstest für Review-General.md, Befund 10g: ``_check_db_members``
+    fragt den CrossReferenceService seit diesem Fix über
+    ``cross_reference_root_source()`` ab statt ``GetService[...]`` selbst
+    nachzubilden — stellt sicher, dass der Umbau das gefundene Ergebnis nicht
+    verändert hat (weiterhin verifiziert am "Siebzehnter/Achtzehnter
+    Bug"-Fall: Root-Source trägt den DB-Namen, das eigentliche unbenutzte
+    Member steckt als Kind darunter)."""
+
+    def test_unused_db_member_is_reported(
+        self, monkeypatch: pytest.MonkeyPatch, fake_sw_blocks_classes: object
+    ) -> None:
+        from tests.test_tia_helpers import (
+            FakeCrossReferenceService,
+            FakeXrefSourceObject,
+            _FakeGenericMethod,
+            _install_fake_cross_reference_module,
+        )
+
+        _install_fake_cross_reference_module(monkeypatch)
+
+        leaf = FakeXrefSourceObject([])
+        leaf.Name = "DiagCpu.DNNmode"
+        root = FakeXrefSourceObject([])
+        root.Name = "DB_X"
+        root.Children = [leaf]
+        service = FakeCrossReferenceService([root])
+
+        class FakeDb(fake_sw_blocks_classes.DataBlock):
+            Name = "DB_X"
+            Interface = None
+            GetService = _FakeGenericMethod(service)
+
+        db = FakeDb()
+        monkeypatch.setattr(structure, "iter_data_blocks", lambda plc, ef, eb: [(db, [])])
+
+        definition = CheckDefinition(
+            check_id="programmstruktur.unbenutzte_variablen",
+            name="Unbenutzte Variablen",
+            category="Programmstruktur",
+            enabled=True,
+            severity=CheckSeverity.WARNING,
+            description="",
+            recommendation="",
+            nummer="11a",
+            params={},
+        )
+        check = UnbenutzteVariablenCheck(definition)
+
+        results = check._check_db_members(FakePlcSoftware("PLC_1"), check_sub_items=True)
+
+        assert len(results) == 1
+        assert results[0].path == "PLC_1 > Datenbaustein > DB_X > Member > DiagCpu.DNNmode"
+        assert service.call_count == 1
 
 
 if __name__ == "__main__":

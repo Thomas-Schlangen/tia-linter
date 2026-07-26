@@ -11,7 +11,6 @@ abgefragt, nicht projektweit in einem Aufruf.
 
 from __future__ import annotations
 
-import logging
 import re
 from typing import Any
 
@@ -23,6 +22,7 @@ from tia_linter.checks._tia_helpers import (
     compile_unit_multilingual_text,
     compile_unit_scl_line_count,
     cross_reference_referenced_top_level_names,
+    cross_reference_root_source,
     export_block_xml,
     format_path,
     interface_section_member_paths,
@@ -41,8 +41,6 @@ from tia_linter.checks._tia_helpers import (
 )
 from tia_linter.checks.base import BaseCheck
 from tia_linter.models import CheckResult
-
-logger = logging.getLogger(__name__)
 
 
 class LeereNetzwerkeCheck(BaseCheck):
@@ -269,27 +267,30 @@ class UnbenutzteVariablenCheck(BaseCheck):
         ``CrossReferenceService``-Baum (``UnusedObjects``). Instanz-DBs werden
         übersprungen — ihre Member werden stattdessen über
         ``_check_block_interface_members`` an der FB-Definition geprüft
-        (siehe Klassen-Docstring, "Neunzehnter Bug/Design-Entscheidung")."""
-        from Siemens.Engineering.CrossReference import CrossReferenceFilter, CrossReferenceService
+        (siehe Klassen-Docstring, "Neunzehnter Bug/Design-Entscheidung").
+
+        Fragt den Dienst über ``cross_reference_root_source()`` ab (Review-
+        General.md, Befund 10g) statt ``GetService[CrossReferenceService]()``
+        hier ein zweites Mal von Hand nachzubilden: Vorher loggte ein nicht
+        verfügbarer Dienst hier nur auf ``debug``-Ebene, während dieselbe
+        Situation an der zentralen Stelle (``_tia_helpers.py``, Befund 3.1/3.2
+        der Security-Runde) bewusst auf ``warning`` hochgestuft wurde — ein
+        daraus resultierender Fehlalarm ("DB scheinbar unbenutzt") wäre
+        dadurch im Log nicht von einem echten Befund zu unterscheiden
+        gewesen. ``cross_reference_root_source()`` liefert nur den ersten
+        Eintrag von ``Sources`` statt der vollständigen Liste — für
+        ``UnusedObjects`` an einem Global-/Array-DB laut "Siebzehnter"/
+        "Achtzehnter Bug" oben ohnehin live verifiziert genau ein
+        Wurzelknoten, daher hier unverändert genau ein Element."""
+        from Siemens.Engineering.CrossReference import CrossReferenceFilter
         from Siemens.Engineering.SW.Blocks import InstanceDB
 
         results: list[CheckResult] = []
         for db, group_path in iter_data_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
             if isinstance(db, InstanceDB):
                 continue  # geprüft über die FB-Definition, siehe _check_block_interface_members
-            try:
-                service = db.GetService[CrossReferenceService]()
-            except Exception:  # noqa: BLE001 — Service evtl. nicht verfügbar
-                logger.debug(
-                    "CrossReferenceService nicht verfügbar für DB '%s'.",
-                    db.Name,
-                    exc_info=True,
-                )
-                service = None
-            if service is None:
-                continue
-            unused_result = service.GetCrossReferences(CrossReferenceFilter.UnusedObjects)
-            sources = getattr(unused_result, "Sources", []) or []
+            root_source = cross_reference_root_source(db, CrossReferenceFilter.UnusedObjects)
+            sources = [root_source] if root_source is not None else []
             unused_names: list[str] = []
             for raw_name in unused_cross_reference_leaf_names(sources):
                 # Blattnamen sind mit dem DB-Namen als Pfadpräfix

@@ -34,7 +34,7 @@ from tia_linter.checks._tia_helpers import (
     tag_direction,
 )
 from tia_linter.checks.base import BaseCheck
-from tia_linter.models import CheckResult
+from tia_linter.models import CheckResult, CheckStatus
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +55,12 @@ class VeralteteBibliothekenCheck(BaseCheck):
     ``Siemens.Engineering.Library`` — der erste Testlauf gegen ein echtes
     Projekt ist an dieser falschen Fundstelle mit einem ``ImportError``
     gescheitert.
+
+    Review-General.md, Befund 2: Fehlt ``project.ProjectLibrary`` oder
+    schlägt ``UpdateCheck`` fehl, meldet dieser Check jetzt einen expliziten
+    ``CheckStatus.SKIPPED``-Befund statt einer leeren Liste — sonst hätte
+    ``runner._ok_result`` daraus ein grünes "keine Verstöße gefunden"
+    gemacht, obwohl gar keine Bibliothek geprüft werden konnte.
     """
 
     def run(self, project: Any) -> list[CheckResult]:
@@ -62,13 +68,25 @@ class VeralteteBibliothekenCheck(BaseCheck):
 
         library = getattr(project, "ProjectLibrary", None)
         if library is None:
-            return []
+            return [
+                self._make_result(
+                    path=format_path("Projektbibliothek"),
+                    description="Keine Projektbibliothek vorhanden — Prüfpunkt übersprungen.",
+                    status=CheckStatus.SKIPPED,
+                )
+            ]
 
         try:
             update_result = library.UpdateCheck(project, UpdateCheckMode.ReportOutOfDateOnly)
         except Exception:  # noqa: BLE001 — Bibliothek evtl. leer/nicht lizenziert
             logger.debug("UpdateCheck der Projektbibliothek fehlgeschlagen.", exc_info=True)
-            return []
+            return [
+                self._make_result(
+                    path=format_path("Projektbibliothek"),
+                    description="Update-Prüfung der Projektbibliothek fehlgeschlagen — Prüfpunkt übersprungen.",
+                    status=CheckStatus.SKIPPED,
+                )
+            ]
 
         results: list[CheckResult] = []
         for message in leaf_messages(getattr(update_result, "Messages", [])):
@@ -116,6 +134,12 @@ class SprachenKonsistentCheck(BaseCheck):
     Vereinfachung: prüft die projektweite Referenzsprache statt jeden
     einzelnen Kommentar/Netzwerktitel auf die tatsächlich verwendete Sprache
     zu analysieren (dafür wäre Spracherkennung pro Text nötig).
+
+    Review-General.md, Befund 2: Ist die Referenzsprache nicht lesbar, meldet
+    dieser Check jetzt einen expliziten ``CheckStatus.SKIPPED``-Befund statt
+    einer leeren Liste — sonst hätte ``runner._ok_result`` daraus ein grünes
+    "keine Verstöße gefunden" gemacht, obwohl die Sprache gar nicht geprüft
+    werden konnte.
     """
 
     def run(self, project: Any) -> list[CheckResult]:
@@ -125,7 +149,13 @@ class SprachenKonsistentCheck(BaseCheck):
             actual = str(getattr(culture, "Name", culture)).lower()
         except Exception:  # noqa: BLE001 — Referenzsprache evtl. nicht auslesbar
             logger.debug("Referenzsprache des Projekts konnte nicht gelesen werden.", exc_info=True)
-            return []
+            return [
+                self._make_result(
+                    path=format_path("Projekt", "Eigenschaften", "Sprache"),
+                    description="Referenzsprache des Projekts konnte nicht gelesen werden — Prüfpunkt übersprungen.",
+                    status=CheckStatus.SKIPPED,
+                )
+            ]
 
         if not actual.startswith(expected):
             return [
@@ -323,7 +353,12 @@ class OutputMehrfachBeschriebenCheck(BaseCheck):
                             results.append(
                                 self._make_result(
                                     path=format_path(
-                                        plc_software.Name, "Programmbausteine", *group_path, block.Name, member_name
+                                        plc_software.Name,
+                                        "Programmbausteine",
+                                        *group_path,
+                                        block.Name,
+                                        "Member",
+                                        member_name,
                                     ),
                                     description=f"{label}-Parameter '{member_name}' wird an {write_count} Stellen beschrieben.",
                                     value=str(write_count),

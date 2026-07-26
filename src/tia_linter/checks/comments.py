@@ -48,29 +48,33 @@ def _all_fb_names(plc_software: Any) -> set[str]:
 class VariablenKommentarCheck(BaseCheck):
     """Prüfpunkt 1a: PLC-Tags und DB-Variablen ohne Kommentar.
 
-    ``PlcTag.Comment`` ist wie im Schwesterprojekt ``tia-tag-exporter``
-    (dort bereits gelöst, siehe dessen ``extractor.py::_read_comment``) ein
-    mehrsprachiges ``MultilingualText``-Objekt statt eines einfachen Strings
-    — TIA Portal ist grundsätzlich mehrsprachig (V21-Openness-Referenz,
-    Abschnitt "Umgang mit mehrsprachigen Texten", nennt ``PlcTag.Comment``
-    explizit als Beispiel). Ein ``GetAttribute("Comment")``-Zugriff darauf
-    lieferte nie den tatsächlichen Text, wodurch **jede** Variable als
-    unkommentiert gemeldet wurde. Fix: ``read_comment`` liest den Text
-    gezielt für die Referenzsprache des Projekts über
-    ``Comment.Items.Find(<Language>).Text`` (siehe ``_tia_helpers.py``).
+    Prüft zwei getrennte Objektarten (``_check_tags``/``_check_db_members``):
+    PLC-Tags aller Variablentabellen sowie Member aller Global-/Array-DBs.
+    Instanz-DBs werden hier komplett übersprungen — ihre Member "gehören"
+    konzeptionell zur FB-Definition und werden stattdessen ausschließlich von
+    Prüfpunkt 1c (``FbMemberKommentarCheck``) geprüft. Ist ein DB-Member
+    UDT- oder FB-typisiert (Multi-Instanz), wird nur das Member selbst
+    geprüft, nicht seine Items/Sub-Member — die deckt stattdessen Prüfpunkt
+    1b (UDTs, ``UdtKommentarCheck``) bzw. wiederum Prüfpunkt 1c (FB-Multi-
+    Instanzen) ab. Array-Elemente (``Name[0]`` etc.) werden nie einzeln
+    geprüft, ein Kommentar auf dem Array selbst reicht.
 
-    Beim ersten Testlauf gegen ein echtes Projekt hat sich außerdem gezeigt,
-    dass ``db.Interface.Members`` nicht nur die deklarierten Top-Level-Variablen
-    liefert, sondern rekursiv jedes einzelne verschachtelte Array-/
-    Struct-Element als eigenes Member mit Punkt-/Klammer-Notation im Namen
-    (z. B. ``GlobalMan``, ``GlobalMan.GlobalMan[0]``,
-    ``GlobalMan.GlobalMan[0].Plus.Ena``, ...) — ein einziger großer Array-DB
-    erzeugte dadurch fast 40.000 Einzelbefunde. Ein Kommentar auf dem Array
-    selbst reicht aus (nicht jedes Array-Element einzeln); Struct-Felder
-    dagegen sind normale, für sich kommentierbare Variablen und werden
-    weiterhin einzeln geprüft. Daher wird hier nur übersprungen, was
-    irgendwo im Namen einen Array-Index (``[...]``) enthält — reine
-    Punkt-Notation ohne Klammer (Struct-Verschachtelung) bleibt geprüft.
+    Parameter: ``ausnahme_prefixe`` (Namenspräfix-Ausnahme),
+    ``ausnahme_variables`` (Ausnahme per exaktem Namen, inkl. Punktpfad bei
+    DB-Membern), ``ausnahme_udts`` (manuell ergänzte UDT-/Systemdatentyp-
+    Namen, für die Prüfpunkt 1b keine Items finden kann, siehe Historie
+    unten). ``udt_names``/``fb_names`` (Klassifizierung "ist dieses Member
+    UDT-/FB-typisiert?") werden bewusst unabhängig von
+    ``ausgeschlossene_ordner``/``ausgeschlossene_bausteine`` aus **allen**
+    UDTs/FBs der PLC-Software gebildet — diese beiden Einstellungen steuern
+    nur, was selbst geprüft wird, nicht die Klassifizierung selbst.
+
+    Historie: ``PlcTag.Comment``/DB-Member-Kommentare sind mehrsprachig
+    (``MultilingualText`` statt ``System.String``, TIA Portal ist
+    grundsätzlich mehrsprachig) — ein naiver ``GetAttribute("Comment")``-
+    Zugriff lieferte nie den echten Text, jede Variable galt dadurch als
+    unkommentiert. ``read_comment``/``_tia_helpers.py`` lösen das gezielt
+    über ``Comment.Items.Find(<Language>).Text``.
 
     Zweiter, davon unabhängiger Bug (User-Meldung, live an
     ``_Org > DDb > Fieldbus > Alm.4805_15A1`` verifiziert): TIA quotet
@@ -120,12 +124,6 @@ class VariablenKommentarCheck(BaseCheck):
     ``"<dieser Membername>."`` beginnt, übersprungen (das UDT-Member selbst
     bleibt geprüft). Verschachtelte, aber nicht UDT-typisierte Structs
     (anonyme ``Struct``) bleiben wie bisher einzeln geprüft.
-
-    Zusätzlich zu ``ausnahme_prefixe`` (Präfix-Abgleich) erlaubt
-    ``ausnahme_variables`` das gezielte Ausnehmen einzelner Variablen anhand
-    ihres vollständigen Namens (exakte Übereinstimmung, keine Teilstring-
-    oder Präfix-Logik) — sowohl für PLC-Tags als auch für DB-Member (dort
-    inkl. eines eventuellen Punktpfads, z. B. ``"Alm.Station_1"``).
 
     Fünfter Bug (User-Meldung): Manche System-Datentypen (u. a. bestimmte
     Siemens-Bibliothekstypen) sind in TIA Portal selbst nirgends sichtbar
@@ -247,7 +245,7 @@ class VariablenKommentarCheck(BaseCheck):
             db_name = db.Name
             if get_attribute(db, "InstanceOfName", ""):
                 continue
-            # Maßnahme 6 (Review-Performance.md, Befund 3.1): statt bei jedem
+            # Maßnahme 6 (Performance-Review, siehe doku_etc/, Befund 3.1): statt bei jedem
             # Member per Python-Generator über alle bisherigen skip_prefixes
             # zu iterieren (O(Member × UDT-Member) je DB), wird die exakte
             # Übereinstimmung als O(1)-Set-Lookup und der "...-Unterfeld"-Fall
@@ -371,7 +369,7 @@ class UdtKommentarCheck(BaseCheck):
                             )
                         )
 
-                # Maßnahme 6 (Review-Performance.md, Befund 3.1) — siehe
+                # Maßnahme 6 (Performance-Review, siehe doku_etc/, Befund 3.1) — siehe
                 # VariablenKommentarCheck._check_db_members für die Begründung.
                 skip_prefix_names: set[str] = set()
                 skip_prefix_dotted: tuple[str, ...] = ()
@@ -421,31 +419,27 @@ class UdtKommentarCheck(BaseCheck):
 class FbMemberKommentarCheck(BaseCheck):
     """Prüfpunkt 1c: Interface-Member von Funktionsbausteinen (FBs) ohne Kommentar.
 
-    War in der ursprünglichen Liste der Prüfpunkte kein eigener Punkt — ergänzt
-    Prüfpunkt 1a um die Lücke, die durch dessen "Siebter Bug"-Fix entstanden ist
-    (siehe ``VariablenKommentarCheck``): Multi-Instanz-FB-Aufrufe (z. B.
-    ``Man4805_27M11`` vom Typ ``ManStFcPump``) werden dort seitdem wie
-    UDT-typisierte Member behandelt — ihre Items werden nicht mehr einzeln
-    geprüft. Anders als bei UDTs gab es dafür aber keinen eigenen Prüfpunkt,
-    der diese Items stattdessen erfasst; dieser Prüfpunkt schließt die Lücke.
+    Prüft die Kommentare der Interface-Member (``Input``/``Output``/
+    ``InOut``/``Static`` — ``Temp`` bewusst ausgenommen, da Temp-Variablen
+    zwischen Aufrufen nicht persistieren) **an der FB-Definition selbst**,
+    nicht pro Verwendungsstelle/Instanz — der Kopfkommentar des FB als Ganzes
+    ist bereits Sache von Prüfpunkt 2. Ist die alleinige Quelle für
+    Kommentar-Befunde zu FB-Interface-Membern, unabhängig davon, ob der FB als
+    eigenständige Instanz-DB oder als verschachtelte Multi-Instanz innerhalb
+    einer anderen DB verwendet wird — Prüfpunkt 1a (``VariablenKommentarCheck``)
+    überspringt beide Fälle bewusst, um doppelte Befunde für dasselbe
+    Grundproblem zu vermeiden. **Tradeoff:** ein an einer einzelnen Instanz-DB
+    überschriebener, abweichender Kommentar wird dadurch nicht erkannt — nur
+    der Kommentar an der FB-Definition zählt.
 
-    Deckt seit dem "Achter Bug/Design-Entscheidung" in ``VariablenKommentarCheck``
-    zusätzlich **alle Instanz-DB-Member** ab, nicht nur verschachtelte
-    Multi-Instanzen innerhalb einer DB: Prüfpunkt 1a prüfte dort ursprünglich
-    jedes Instanz-DB-Member einzeln (mit Fallback auf den FB-Kommentar), was
-    zu doppelten Befunden für dasselbe Grundproblem führte (einer an der
-    Instanz, einer an der FB-Definition). Instanz-DBs werden bei Prüfpunkt 1a
-    daher komplett übersprungen — dieser Prüfpunkt ist jetzt die alleinige
-    Quelle für Kommentar-Befunde zu FB-Interface-Membern, unabhängig davon,
-    ob der FB als eigenständige Instanz-DB oder als verschachtelte
-    Multi-Instanz verwendet wird. **Tradeoff:** ein an einer einzelnen
-    Instanz-DB überschriebener, abweichender Kommentar wird dadurch nicht
-    mehr erkannt — nur der Kommentar an der FB-Definition zählt.
-
-    Geprüft werden **nur** die Kommentare der Interface-Member eines FB (an
-    der FB-Definition selbst, nicht pro Verwendungsstelle/Instanz) — der
-    Kopfkommentar des FB als Ganzes ist bereits Sache von Prüfpunkt 2
-    (``kommentare.baustein_beschreibung``) und wird hier nicht erneut geprüft.
+    Historie: War in der ursprünglichen Liste der Prüfpunkte kein eigener
+    Punkt — ergänzt Prüfpunkt 1a um die Lücke, die durch dessen "Siebter
+    Bug"-Fix entstanden ist (siehe ``VariablenKommentarCheck``): Multi-
+    Instanz-FB-Aufrufe (z. B. ``Man4805_27M11`` vom Typ ``ManStFcPump``)
+    werden dort seitdem wie UDT-typisierte Member behandelt — ihre Items
+    werden nicht mehr einzeln geprüft. Anders als bei UDTs gab es dafür aber
+    keinen eigenen Prüfpunkt, der diese Items stattdessen erfasst; dieser
+    Prüfpunkt schließt die Lücke.
 
     **Live-Befund während der Implementierung:** Anders als bei
     ``DataBlock.Interface.Members`` (Prüfpunkt 1a) und ``PlcType.Interface.Members``
@@ -457,10 +451,7 @@ class FbMemberKommentarCheck(BaseCheck):
     Member-Namen stattdessen aus dem XML-Export zu lesen (siehe
     ``interface_section_members`` in ``_tia_helpers.py``, Abschnitte "Static"
     bzw. "Output" der Interface-Sections). Dieser Prüfpunkt verwendet denselben
-    Mechanismus für alle vier "echten" Interface-Sections eines FB (``Input``,
-    ``Output``, ``InOut``, ``Static`` — ``Temp`` bewusst ausgenommen, da
-    Temp-Variablen zwischen Aufrufen nicht persistieren und in der Praxis nicht
-    einzeln kommentiert werden).
+    Mechanismus für alle vier "echten" Interface-Sections eines FB.
 
     Zehnter Bug (User-Meldung, live an ``01OrgPrg > lu_RcpReq``/``iou_ReqRcp``
     verifiziert): Die ursprüngliche Annahme, der XML-Export liefere pro Section
@@ -471,10 +462,9 @@ class FbMemberKommentarCheck(BaseCheck):
     äußeren Sections — der Fix dafür sitzt direkt in
     ``interface_section_members`` (``_tia_helpers.py``), das jetzt beim
     Abstieg nicht mehr in ``<Member>``-Elemente hinein rekursiert. Dieser
-    Prüfpunkt selbst brauchte dadurch keine Änderung, nur die zuvor falsche
-    Annahme in diesem Docstring ist hiermit korrigiert: Mit dem Fix stimmt sie
-    jetzt tatsächlich — jedes Ergebnis ist ein einzelnes, direkt deklariertes
-    Interface-Member, keine Array-/UDT-Skip-Logik nötig.
+    Prüfpunkt selbst brauchte dadurch keine Änderung: jedes Ergebnis ist ein
+    einzelnes, direkt deklariertes Interface-Member, keine Array-/UDT-Skip-
+    Logik nötig.
     """
 
     _INTERFACE_SECTIONS = ("Input", "Output", "InOut", "Static")
@@ -523,7 +513,13 @@ class FbMemberKommentarCheck(BaseCheck):
 class BausteinBeschreibungCheck(BaseCheck):
     """Prüfpunkt 2: Bausteine ohne (aussagekräftige) Kopfbeschreibung.
 
-    ``PlcBlock.Comment`` ist wie ``PlcTag.Comment`` (siehe
+    Geprüft wird das längere der beiden Felder ``Comment``/``Title`` eines
+    Bausteins gegen die konfigurierbare Mindestlänge ``min_laenge``
+    (Standard 20 Zeichen). Datenbausteine sind über den Parameter
+    ``check_db`` (Standard ``false``) standardmäßig ausgenommen — siehe
+    Historie unten.
+
+    Historie: ``PlcBlock.Comment`` ist wie ``PlcTag.Comment`` (siehe
     ``VariablenKommentarCheck``) ein mehrsprachiges ``MultilingualText``-
     Objekt (V21-Openness-Referenz nennt ``PlcBlock`` explizit unter "Mehrsprachige
     Titel und Kommentare") — Lesen über ``read_comment`` statt ``GetAttribute``.
@@ -582,7 +578,13 @@ class BausteinBeschreibungCheck(BaseCheck):
 class NetzwerkBeschreibungCheck(BaseCheck):
     """Prüfpunkt 3: Netzwerke ohne Titel bzw. mit zu langer Beschreibung.
 
-    Dreizehnter Bug (User-Meldung: "fast alle Warnungen sind falsch"): Anders
+    Geprüft wird der Netzwerktitel jedes Netzwerks gegen die konfigurierbare
+    Höchstlänge ``max_zeichen`` (Standard 80 Zeichen) — kein Titel oder ein
+    zu langer Titel liefert je einen Befund. SCL-/STL-Bausteine werden
+    komplett übersprungen (Netzwerktitel gibt es nur bei grafischen
+    Sprachen).
+
+    Historie — Dreizehnter Bug (User-Meldung: "fast alle Warnungen sind falsch"): Anders
     als einfache Attribute wie ``ProgrammingLanguage`` liegt der Netzwerktitel
     im XML-Export nicht in der ``AttributeList`` eines ``CompileUnit``,
     sondern als eigene, mehrsprachige ``MultilingualText``-Komposition im
@@ -637,7 +639,12 @@ class NetzwerkBeschreibungCheck(BaseCheck):
 class AenderungshistorieCheck(BaseCheck):
     """Prüfpunkt 4: Bausteinkopf ohne Versionsinfo/Änderungshistorie.
 
-    Vierzehnter Bug (User-Meldung, live an FB ``01OrgPrg`` verifiziert, dort
+    Ein Baustein besteht diesen Prüfpunkt, sobald mindestens Autor **oder**
+    Version im Bausteinkopf gesetzt ist (``"0.0.0.0"`` gilt dabei als nicht
+    gesetzt, siehe Historie). Instanz-DBs sind über den Parameter
+    ``check_idb`` (Standard ``false``) standardmäßig ausgenommen.
+
+    Historie — Vierzehnter Bug (User-Meldung, live an FB ``01OrgPrg`` verifiziert, dort
     absichtlich weder Autor noch Version gesetzt): ``GetAttribute("HeaderVersion")``
     liefert kein ``System.String``, sondern ein ``System.Version``-.NET-Objekt,
     dessen ``ToString()`` bei einer nicht gesetzten Version ``"0.0.0.0"``

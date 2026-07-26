@@ -256,7 +256,7 @@ def block_programming_language(block: Any) -> str | None:
     als reinen Python-String (``"FBD"``, ``"SCL"``, ``"STL"``, ...), oder
     ``None`` wenn nicht ermittelbar.
 
-    Achtundzwanzigster Bug (live an Baustein ``OrgPrg`` verifiziert):
+    Historie — Achtundzwanzigster Bug (live an Baustein ``OrgPrg`` verifiziert):
     ``GetAttribute("ProgrammingLanguage")`` liefert kein
     ``System.String``, sondern ein
     ``Siemens.Engineering.SW.Blocks.ProgrammingLanguage``-.NET-Enum-Objekt
@@ -397,7 +397,12 @@ def _local_name(tag: str) -> str:
 def release_dotnet_objects() -> None:
     """Erzwingt eine .NET-Garbage-Collection.
 
-    Beim ersten Testlauf gegen ein echtes Projekt (288 Bausteine) ist
+    Wird von ``runner.py`` nach jedem einzelnen Check aufgerufen. Checks mit
+    projektweiten CrossReference-Schleifen (Prüfpunkte 11a/11b/12a/12b/13,
+    siehe ``structure.py``) rufen dies zusätzlich **innerhalb** der Schleife
+    alle ``gc_interval`` verarbeitete Objekte auf.
+
+    Historie: Beim ersten Testlauf gegen ein echtes Projekt (288 Bausteine) ist
     ``run_lint`` bei Check 31/40 mit
     ``Siemens.Engineering.EngineeringOutOfMemoryException: The maximum
     number (500000) of instances for this TIA-Portal has been exceeded``
@@ -409,16 +414,12 @@ def release_dotnet_objects() -> None:
     Referenzcounting reicht nicht, die zugrunde liegenden .NET-Objekte werden
     erst bei einem tatsächlichen .NET-GC-Lauf freigegeben, den ein langer
     Headless-Prozess von sich aus zu selten auslöst, um mit der Anzahl der
-    erzeugten Objekte Schritt zu halten.
-
-    ``runner.py`` ruft dies nach jedem einzelnen Check auf. Zusätzlich rufen
-    Checks mit projektweiten CrossReference-Schleifen (Prüfpunkte 11a/11b/
-    12a/12b/13, siehe ``structure.py``) dies **innerhalb** der Schleife alle
-    ``gc_interval`` verarbeitete Objekte auf — bei großen Projekten (mehrere
-    Tausend Tags/Bausteine) kann sonst bereits ein einzelner Check das
+    erzeugten Objekte Schritt zu halten. Bei großen Projekten (mehrere
+    Tausend Tags/Bausteine) kann bereits ein einzelner Check das
     500.000-Handle-Limit reißen, bevor der Check zu Ende ist und der äußere
-    Aufruf überhaupt greift (live beobachtet, siehe Analysebericht
-    ``Review-Performance.md``).
+    Aufruf überhaupt greift (live beobachtet) — daher der zusätzliche,
+    intervallgesteuerte Aufruf innerhalb der CrossReference-Schleifen (siehe
+    oben). Details siehe Performance-Review (``doku_etc/``).
     """
     try:
         from System import GC
@@ -442,7 +443,7 @@ def set_export_cache_max_size(max_size: int) -> None:
     Ohne Begrenzung wächst der Cache unbeschränkt mit der Anzahl exportierter
     Bausteine — bei sehr großen Projekten (mehrere Tausend Bausteine) kann
     der geparste ``ElementTree`` jedes Bausteins mehrere MB belegen, in Summe
-    also mehrere GB RAM (siehe ``Review-Performance.md``, Befund 2.1)."""
+    also mehrere GB RAM (siehe Performance-Review, doku_etc/, Befund 2.1)."""
     global _export_cache_max_size
     _export_cache_max_size = max(1, max_size)
 
@@ -459,7 +460,7 @@ def reset_export_cache() -> None:
     werden (sonst "leakt" er zwischen zwei unabhängigen Läufen in der GUI).
 
     **Nicht** mehr bei jedem TIA-Portal-Reconnect aufrufen (siehe
-    ``Review-Performance.md``, Maßnahme 2): Der Cache enthält ausschließlich
+    Performance-Review, doku_etc/, Maßnahme 2): Der Cache enthält ausschließlich
     einen geparsten, rein Python-seitigen ``ElementTree`` ohne .NET-
     Objektreferenz — er bleibt nach einem Reconnect gültig. Ein
     zwischenzeitlich fehlgeschlagener Export wird ohnehin nie gecacht (siehe
@@ -498,7 +499,7 @@ def export_block_xml(block: Any, plc_software: Any) -> Element | None:
     über mehrere PLC-Geräte hinweg.
 
     LRU-begrenzt auf ``_export_cache_max_size`` Einträge (siehe
-    ``set_export_cache_max_size``/``Review-Performance.md``, Maßnahme 2) —
+    ``set_export_cache_max_size``/Performance-Review, doku_etc/, Maßnahme 2) —
     ohne Begrenzung würde der Cache bei sehr großen Projekten (mehrere
     Tausend Bausteine) unbeschränkt wachsen, da jeder Check dieselben
     Prüfpunkte in derselben Baustein-Reihenfolge durchläuft und der Cache
@@ -622,7 +623,7 @@ def cross_reference_root_source(engineering_object: Any, cross_reference_filter:
     try:
         service = engineering_object.GetService[CrossReferenceService]()
     except Exception:  # noqa: BLE001 — Service evtl. für diesen Objekttyp nicht verfügbar
-        # Review-Security-Robustheit.md, Befund 3.1: ein hier verschluckter
+        # Security-Review (siehe doku_etc/), Befund 3.1: ein hier verschluckter
         # Fehler sieht für den Aufrufer identisch aus wie "keine Referenzen
         # gefunden" -- ohne diesen Log-Eintrag wäre ein daraus entstehender
         # Fehlalarm (z. B. Prüfpunkt 11a/11b/12a/12b/13) im Nachhinein nicht
@@ -650,7 +651,7 @@ def set_xref_cache_max_size(max_size: int) -> None:
     """Setzt die maximale Anzahl gleichzeitig gecachter CrossReference-
     Abfragen (LRU-Verdrängung, siehe ``cached_cross_reference_locations``) —
     von ``runner.py`` einmalig zu Lauf-Beginn aus der Config
-    (``xref_cache_max_size``) gesetzt (siehe ``Review-Performance.md``,
+    (``xref_cache_max_size``) gesetzt (siehe Performance-Review, doku_etc/,
     Maßnahme 4, analog zu ``set_export_cache_max_size``/Maßnahme 2)."""
     global _xref_cache_max_size
     _xref_cache_max_size = max(1, max_size)
@@ -677,7 +678,7 @@ def cached_cross_reference_locations(
     """LRU-gecachte CrossReference-Abfrage für ein einzelnes STEP-7-Objekt
     (Tag oder Baustein) mit einem bestimmten Filter — liefert je Location ein
     ``(access, reference_type)``-Tupel aus reinen Python-Strings statt roher
-    .NET-``Location``-Objekte (siehe ``Review-Performance.md``, Befund 4.2/
+    .NET-``Location``-Objekte (siehe Performance-Review, doku_etc/, Befund 4.2/
     Maßnahme 4: **keine** .NET-Objekte cachen, das würde das Handle-Problem
     nur in den Cache verlagern statt es zu lösen).
 
@@ -780,30 +781,39 @@ _xref_top_level_cache: "OrderedDict[tuple[str, str], set[str]]" = OrderedDict()
 def cross_reference_referenced_top_level_names(engineering_object: Any, plc_name: str) -> set[str]:
     """Liefert die (unqualifizierten) Namen aller direkten Kind-Member eines
     DB/Bausteins, die laut ``CrossReferenceService`` irgendeine Referenz
-    tragen (``CrossReferenceFilter.ObjectsWithReferences`` -- laut
-    V21-Openness-Referenz das dokumentierte Gegenstück zu
-    ``CrossReferenceFilter.UnusedObjects``, siehe
-    ``unused_cross_reference_leaf_names``). Noch nicht live verifiziert
-    (weder die grundsätzliche Baumform noch, dass ``ObjectsWithReferences``
-    dieselbe Struktur wie ``UnusedObjects`` liefert).
+    tragen (``CrossReferenceFilter.ObjectsWithReferences`` -- das dokumentierte
+    Gegenstück zu ``CrossReferenceFilter.UnusedObjects``, siehe
+    ``unused_cross_reference_leaf_names``).
+
+    Liefert bewusst nur die **oberste** Ebene, keine rekursive
+    Blattauflösung: Ist ein UDT-/Struct-typisiertes Top-Level-Member hier
+    vorhanden, gilt die Variable als Ganzes als verwendet, unabhängig davon,
+    auf welcher Tiefe die tatsächliche Referenz saß (siehe Historie,
+    "Zwanzigster Bug/Feature"). Für skalare Variablen ist "oberste Ebene"
+    gleichbedeutend mit dem einzigen Blatt selbst -- eine explizite
+    Typunterscheidung UDT/Struct vs. Skalar ist beim Aufrufer daher nicht
+    nötig.
 
     LRU-gecacht nach demselben Muster wie ``cached_cross_reference_locations``
-    (Review-Performance.md, Befund 3.2, Cache-Key ``(plc_name, obj_name)`` --
-    der Filter ist hier immer ``ObjectsWithReferences``, daher kein dritter
-    Key-Bestandteil nötig, anders als beim allgemeineren XRef-Cache). Ohne
-    diesen Cache fragen Prüfpunkt 11a (für jeden Global-/Array-DB mit
-    ``UnusedObjects``-Befunden) und Prüfpunkt 11b (für **jeden**
-    Global-/Array-DB, unbedingt) denselben DB mit demselben Filter zweimal
-    ab, sobald beide Checks aktiv sind -- eine echte, vermeidbare
-    Verdopplung. Die *andere* in Befund 3.2 beschriebene Verdopplung (11a
-    fragt pro DB sowohl ``UnusedObjects`` als auch, bei Treffern,
-    ``ObjectsWithReferences`` ab) bleibt bestehen und ist nicht vermeidbar:
-    beide Filter liefern inhaltlich unterschiedliche Information (unbenutzte
-    Blattmember vs. referenzierte Top-Level-Member) und lassen sich nicht
-    aus derselben Abfrage ableiten. Teilt sich den Größenparameter
-    (``xref_cache_max_size``) mit dem allgemeinen XRef-Cache -- eigener
-    Config-Schlüssel wäre für diesen deutlich kleineren Zusatzcache
-    unverhältnismäßig.
+    (Cache-Key ``(plc_name, obj_name)`` -- der Filter ist hier immer
+    ``ObjectsWithReferences``, daher kein dritter Key-Bestandteil nötig,
+    anders als beim allgemeineren XRef-Cache). Teilt sich den
+    Größenparameter (``xref_cache_max_size``) mit dem allgemeinen XRef-Cache.
+
+    Historie: Noch nicht live verifiziert (weder die grundsätzliche Baumform
+    noch, dass ``ObjectsWithReferences`` dieselbe Struktur wie
+    ``UnusedObjects`` liefert).
+
+    Der Cache (Performance-Review, siehe ``doku_etc/``) vermeidet, dass
+    Prüfpunkt 11a (für jeden Global-/Array-DB mit ``UnusedObjects``-Befunden)
+    und Prüfpunkt 11b (für **jeden** Global-/Array-DB, unbedingt) denselben
+    DB mit demselben Filter zweimal abfragen, sobald beide Checks aktiv sind.
+    Eine *andere*, dort ebenfalls beschriebene Verdopplung (11a fragt pro DB
+    sowohl ``UnusedObjects`` als auch, bei Treffern, ``ObjectsWithReferences``
+    ab) bleibt bestehen und ist nicht vermeidbar: beide Filter liefern
+    inhaltlich unterschiedliche Information (unbenutzte Blattmember vs.
+    referenzierte Top-Level-Member) und lassen sich nicht aus derselben
+    Abfrage ableiten.
 
     Zwanzigster Bug/Feature (User-Auftrag, PP11 in der betrieblichen Praxis):
     Wird eine UDT-/Struct-typisierte DB-Variable als Ganzes an einen anderen
@@ -813,15 +823,7 @@ def cross_reference_referenced_top_level_names(engineering_object: Any, plc_name
     Unterfelder bleiben in ``UnusedObjects`` weiterhin als "unbenutzt"
     gelistet, obwohl die Variable in der Praxis sehr wohl verwendet wird
     und ein Melden jedes einzelnen Unterfelds als Fehlalarm empfunden wird.
-    Diese Funktion liefert bewusst nur die **oberste** Ebene (keine
-    rekursive Blattauflösung) -- ist der Top-Level-Name hier vorhanden,
-    gilt die Variable als Ganzes als verwendet, unabhängig davon, auf
-    welcher Tiefe die tatsächliche Referenz saß. Für skalare (nicht
-    UDT-/Struct-typisierte) Variablen ist "oberste Ebene" gleichbedeutend
-    mit dem einzigen Blatt selbst -- eine explizite Typunterscheidung
-    UDT/Struct vs. Skalar ist deshalb beim Aufrufer nicht nötig, das
-    Verhalten reduziert sich für Skalare automatisch auf den bisherigen,
-    unveränderten Fall."""
+    Fix/Feature: siehe Spezifikation oben ("nur die oberste Ebene")."""
     obj_name = str(getattr(engineering_object, "Name", ""))
     cache_key = (plc_name, obj_name)
     if cache_key in _xref_top_level_cache:
@@ -834,7 +836,7 @@ def cross_reference_referenced_top_level_names(engineering_object: Any, plc_name
     try:
         service = engineering_object.GetService[CrossReferenceService]()
     except Exception:  # noqa: BLE001 — Service evtl. für diesen Objekttyp nicht verfügbar
-        # Review-Security-Robustheit.md, Befund 3.1/3.2: ein leeres Set ist
+        # Security-Review (siehe doku_etc/), Befund 3.1/3.2: ein leeres Set ist
         # hier ununterscheidbar vom legitimen Ergebnis "kein Member
         # referenziert" -- Prüfpunkt 11b liest genau das als "Baustein
         # unbenutzt" (structure.py, UnbenutzteBausteineCheck). Ohne diesen

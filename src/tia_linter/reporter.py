@@ -82,17 +82,20 @@ def _hard_wrap(text: str, max_chars: int) -> str:
 COLOR_ERROR = colors.HexColor("#FF4444")
 COLOR_WARNING = colors.HexColor("#FFA500")
 COLOR_OK = colors.HexColor("#44AA44")
+COLOR_SKIPPED = colors.HexColor("#999999")
 COLOR_HEADER_BG = colors.HexColor("#2F3B52")
 
 _STATUS_LABEL = {
     CheckStatus.ERROR: "Fehler",
     CheckStatus.WARNING: "Warnung",
     CheckStatus.OK: "OK",
+    CheckStatus.SKIPPED: "Übersprungen",
 }
 _STATUS_COLOR = {
     CheckStatus.ERROR: COLOR_ERROR,
     CheckStatus.WARNING: COLOR_WARNING,
     CheckStatus.OK: COLOR_OK,
+    CheckStatus.SKIPPED: COLOR_SKIPPED,
 }
 
 

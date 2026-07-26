@@ -344,7 +344,12 @@ CHECK_REGISTRY: dict[str, CheckMeta] = {
     "styleguide.tag_tabellen_nur_io": CheckMeta(
         name="Tag-Tabellen nur I/O-Tags",
         category=STYLEGUIDE,
-        description="Prüfpunkt 30: Tag-Tabelle enthält Tags außerhalb des I-/Q-Adressbereichs.",
+        description=(
+            "Prüfpunkt 30: Tag-Tabelle mischt I/O-Tags (I-/Q-Adressbereich) mit "
+            "Nicht-I/O-Tags (z. B. Merkern). Eine Tag-Tabelle, die ausschließlich "
+            "Nicht-I/O-Tags enthält (gar keine I/O-Tags gemischt), wird bewusst "
+            "nicht gemeldet (Review-General.md, Befund 10b)."
+        ),
         recommendation="Nicht-I/O-Tags (Merker etc.) in eine eigene Tag-Tabelle verschieben.",
         nummer="30",
     ),

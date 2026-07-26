@@ -73,6 +73,12 @@ _DUMMY_PATH_TEMPLATES = [
 
 _STATUS_WEIGHTS = {CheckStatus.ERROR: 0.25, CheckStatus.WARNING: 0.45, CheckStatus.OK: 0.30}
 
+# Prüfpunkt 21 kompiliert das Projekt (einziger Check im gesamten Programm,
+# der den Übersetzungsstand im TIA-Portal-Speicher verändert) — läuft daher
+# fest als allerletzter Check eines Laufs, siehe ``run_lint``-Docstring und
+# Review-General.md, Befund 3. Nicht konfigurierbar.
+_KOMPILIERFEHLER_CHECK_ID = "metadata.kompilierfehler"
+
 
 def _reset_run_caches(xml_cache_max_size: int, xref_cache_max_size: int) -> None:
     """Leert alle lauf-gebundenen Export-Caches (Block-XML + Projekttexte +
@@ -133,12 +139,14 @@ def _ok_result(definition: CheckDefinition, project_name: str) -> CheckResult:
     geprüft". Ohne diesen expliziten OK-Eintrag stünde ein vollständig
     sauberer Prüfpunkt im Report/GUI-Summary nirgends, weder als Fehler/
     Warnung noch als OK — der `ok_count` in ``models.LintReport`` wäre dann
-    unabhängig vom tatsächlichen Prüfergebnis praktisch immer 0. Betrifft nur
-    Checks, die selbst nie eigene OK-Befunde liefern (also alle außer
-    ``hardware.zertifikat``, Prüfpunkt 18c — das liefert bereits pro
-    geprüftem Zertifikat einen granularen OK-Befund und gibt daher, sofern
-    es überhaupt ein zu prüfendes Objekt gab, nie eine leere Liste zurück;
-    dieser Fallback greift dort also gar nicht erst)."""
+    unabhängig vom tatsächlichen Prüfergebnis praktisch immer 0.
+
+    Betrifft nur Checks, die selbst nie eigene OK-Befunde liefern. Ein Check,
+    der inhaltlich gar nichts prüfen konnte (fehlender Openness-Dienst,
+    fehlende Konfiguration), liefert seit Review-General.md, Befund 2, dafür
+    selbst einen expliziten ``CheckStatus.SKIPPED``-Befund statt einer leeren
+    Liste — dieser Fallback hier greift dort also ebenfalls nicht (die
+    zurückgelieferte Liste ist nicht leer)."""
     return CheckResult(
         check_id=definition.check_id,
         check_name=definition.name,
@@ -211,6 +219,7 @@ def _check_weight(check_id: str, check_weights: dict[str, int]) -> int:
 def _run_session(
     project: Any,
     remaining: list[CheckDefinition],
+    total_check_count: int,
     excluded_folders: frozenset[str],
     excluded_blocks: frozenset[str],
     resolved_project_name: str,
@@ -227,6 +236,15 @@ def _run_session(
     """Führt so viele der noch offenen Prüfpunkte (``remaining``) wie möglich
     innerhalb der aktuellen TIA-Portal-Session aus. Liefert ``True``, wenn der
     Nutzer die Prüfung während dieser Session abgebrochen hat.
+
+    ``total_check_count`` ist die Gesamtzahl aller aktivierten Prüfpunkte des
+    gesamten Laufs (nicht nur dieser Session) — der Fortschritt in der
+    Statuszeile (Review-General.md, Befund 10c) zählt damit gegen das
+    tatsächliche Gesamtziel (``len(done_check_ids) + 1``/``total_check_count``)
+    statt gegen ``remaining`` (die Größe von ``remaining`` schrumpft nach
+    jedem geplanten Reconnect, wodurch die Anzeige sonst z. B. von "10/42"
+    unvermittelt auf "1/32" zurückspringt, obwohl der Lauf tatsächlich
+    fortschreitet statt neu zu beginnen).
 
     ``results``/``done_check_ids`` werden direkt mutiert statt als eigener
     Rückgabewert kopiert — dadurch bleiben bereits abgeschlossene Checks
@@ -254,7 +272,7 @@ def _run_session(
             report("Prüfung abgebrochen.")
             return True
 
-        report(f"Prüfe {definition.name} ... {index}/{len(remaining)}")
+        report(f"Prüfe {definition.name} ... {len(done_check_ids) + 1}/{total_check_count}")
         check = _instantiate_check(definition, excluded_folders, excluded_blocks, gc_interval, enabled_check_ids)
         if check is None:
             done_check_ids.add(definition.check_id)
@@ -293,6 +311,183 @@ def _run_session(
 
     report("Prüfung abgeschlossen.")
     return False
+
+
+def _run_connection_loop(
+    dll_path: str,
+    tia_version: int,
+    project_path: str,
+    tia_version_name: str,
+    connect_message: str,
+    definitions_to_run: list[CheckDefinition],
+    total_check_count: int,
+    excluded_folders_set: frozenset[str],
+    excluded_blocks_set: frozenset[str],
+    reconnect_every_n_checks: int,
+    gc_interval: int,
+    xml_cache_max_size: int,
+    xref_cache_max_size: int,
+    check_weights: dict[str, int],
+    enabled_check_ids: frozenset[str],
+    cancel_event: threading.Event | None,
+    max_reconnect_attempts: int,
+    check_plc_software: bool,
+    report: ProgressFn,
+    results: list[CheckResult],
+    done_check_ids: set[str],
+    resolved_project_name: str,
+    disposed_exc_types: tuple[type, ...],
+    session_number: int,
+) -> tuple[str, tuple[type, ...], int, bool]:
+    """Verbindet sich mit TIA Portal und arbeitet ``definitions_to_run`` ab —
+    mit derselben Reconnect-/Wiederaufnahme-Logik wie zuvor direkt in
+    ``run_lint`` (siehe dessen Docstring). Extrahiert, damit ``run_lint``
+    (Review-General.md, Befund 3) diese Schleife zweimal aufrufen kann: einmal
+    für alle Prüfpunkte außer Prüfpunkt 21, einmal — erst nachdem die erste
+    vollständig und ohne Abbruch durchgelaufen ist — für Prüfpunkt 21 allein.
+
+    ``session_number`` wird über beide Aufrufe hinweg fortgezählt (nicht pro
+    Aufruf neu bei 0 gestartet) — dadurch bleibt ``check_plc_software``
+    (übersetzt das bisherige ``if session_number == 1:``) exakt auf den
+    allerersten Verbindungsaufbau des gesamten Laufs beschränkt, auch wenn er
+    über zwei Aufrufe dieser Funktion verteilt ist: Der zweite Aufruf (für
+    Prüfpunkt 21) übergibt dafür bewusst ``check_plc_software=False`` — ein
+    Projekt ohne PLC-Software hätte den ersten Aufruf bereits beendet, ein
+    erneuter Check wäre daher nur redundant.
+
+    ``connect_message`` ersetzt die Meldung des allerersten
+    Verbindungsaufbaus *dieses Aufrufs* (nicht jedes späteren, geplanten oder
+    ausfallbedingten Reconnects innerhalb desselben Aufrufs — dafür gelten
+    unverändert die bisherigen Meldungen), damit der Prüfpunkt-21-Aufruf sich
+    im Log klar von der ursprünglichen Verbindung unterscheidet.
+
+    Liefert ``(resolved_project_name, disposed_exc_types, session_number,
+    cancelled)`` — alle vier müssen unverändert an einen eventuellen zweiten
+    Aufruf weitergereicht werden.
+    """
+    consecutive_failures = 0
+    cancelled = False
+    first_session_of_call = True
+    still_need_plc_check = check_plc_software
+
+    while True:
+        remaining = [d for d in definitions_to_run if d.check_id not in done_check_ids]
+        if not remaining or cancelled:
+            break
+
+        session_number += 1
+        try:
+            connector = create_connector(tia_version, dll_path)
+            if first_session_of_call:
+                report(connect_message)
+            elif consecutive_failures > 0:
+                report(
+                    f"TIA-Portal-Session unerwartet beendet — verbinde neu "
+                    f"(Versuch {consecutive_failures + 1}/{max_reconnect_attempts}) ..."
+                )
+            else:
+                report(
+                    f"Verbinde nach {reconnect_every_n_checks} Prüfpunkten vorsorglich neu, "
+                    "um die TIA-Portal-Session zu entlasten ..."
+                )
+            first_session_of_call = False
+
+            with connector:
+                project = connector.connect(project_path)
+                resolved_project_name = getattr(project, "Name", resolved_project_name)
+                report(f"Projekt geöffnet: {resolved_project_name}")
+                if still_need_plc_check:
+                    _reset_run_caches(xml_cache_max_size, xref_cache_max_size)
+                    still_need_plc_check = False
+                    if not any(True for _ in iter_plc_software(project)):
+                        report("Kein PLC-Programm im Projekt gefunden — Prüfung wird beendet.")
+                        results.append(
+                            CheckResult(
+                                check_id="verbindung.keine_plc",
+                                check_name="TIA-Portal-Verbindung",
+                                category="Verbindung",
+                                status=CheckStatus.ERROR,
+                                path="Projekt",
+                                description="Kein PLC-Programm im Projekt gefunden.",
+                                recommendation="Prüfen, ob das richtige TIA-Projekt ausgewählt wurde.",
+                            )
+                        )
+                        break
+
+                if not disposed_exc_types:
+                    disposed_exc_types = _disposed_exception_types()
+
+                cancelled = _run_session(
+                    project=project,
+                    remaining=remaining,
+                    total_check_count=total_check_count,
+                    excluded_folders=excluded_folders_set,
+                    excluded_blocks=excluded_blocks_set,
+                    resolved_project_name=resolved_project_name,
+                    reconnect_every_n_checks=reconnect_every_n_checks,
+                    gc_interval=gc_interval,
+                    check_weights=check_weights,
+                    enabled_check_ids=enabled_check_ids,
+                    cancel_event=cancel_event,
+                    disposed_exc_types=disposed_exc_types,
+                    report=report,
+                    results=results,
+                    done_check_ids=done_check_ids,
+                )
+
+            consecutive_failures = 0  # Session ohne Absturz beendet (fertig, geplanter Reconnect oder Abbruch)
+        except disposed_exc_types as exc:
+            consecutive_failures += 1
+            if consecutive_failures >= max_reconnect_attempts:
+                logger.error(
+                    "TIA-Portal-Verbindung nach %d Versuchen weiterhin instabil: %s",
+                    max_reconnect_attempts,
+                    exc,
+                )
+                results.append(
+                    CheckResult(
+                        check_id="verbindung.reconnect",
+                        check_name="TIA-Portal-Verbindung",
+                        category="Verbindung",
+                        status=CheckStatus.ERROR,
+                        path=resolved_project_name,
+                        description=(
+                            f"TIA-Portal-Verbindung nach {max_reconnect_attempts} Versuchen "
+                            f"weiterhin instabil: {exc}"
+                        ),
+                        recommendation="Log-Datei prüfen, TIA Portal manuell neu starten und Prüfung wiederholen.",
+                    )
+                )
+                break
+            logger.warning("TIA-Portal-Session unerwartet beendet (Versuch %d): %s", consecutive_failures, exc)
+        except Exception as exc:  # noqa: BLE001 — Review-Security-Robustheit.md, Befund 4.2/4.3
+            # Fängt zwei Fälle ab, die bisher komplett an dieser Schleife
+            # vorbei propagierten: (a) der allererste Verbindungsversuch
+            # (disposed_exc_types ist dort noch das leere Tupel () — ein
+            # except () fängt nichts, siehe 4.3), und (b) jede Exception in
+            # einer späteren Session, die kein disposed_exc_types-Typ ist
+            # (z. B. eine andere TIA-/.NET-Exception). Ohne diesen Handler
+            # verlässt die Exception run_lint komplett, wodurch sämtliche
+            # bereits gesammelten results verloren gehen — der Anwender sieht
+            # nur noch "FEHLER: ..." im GUI-Log, aber nie die Ergebnisseite,
+            # egal wie weit die Prüfung schon gekommen war. Stattdessen: wie
+            # beim Erschöpfen der Reconnect-Versuche einen Fehlbefund anlegen
+            # und den Lauf mit den bisherigen Ergebnissen sauber beenden.
+            logger.exception("Unerwarteter Fehler bei der TIA-Portal-Verbindung.")
+            results.append(
+                CheckResult(
+                    check_id="verbindung.reconnect",
+                    check_name="TIA-Portal-Verbindung",
+                    category="Verbindung",
+                    status=CheckStatus.ERROR,
+                    path=resolved_project_name,
+                    description=f"TIA-Portal-Verbindung unerwartet fehlgeschlagen: {exc}",
+                    recommendation="Log-Datei prüfen, TIA Portal manuell neu starten und Prüfung wiederholen.",
+                )
+            )
+            break
+
+    return resolved_project_name, disposed_exc_types, session_number, cancelled
 
 
 def run_lint(
@@ -373,7 +568,11 @@ def run_lint(
     Ohne diese Prüfung liefert **jeder** Check (der ausschließlich über
     ``iter_plc_software`` an seine Objekte gelangt) eine leere Ergebnisliste
     zurück — und die etablierte Konvention "leere Liste = keine Verstöße"
-    (siehe ``_ok_result``) würde daraus 39 synthetische OK-Befunde machen.
+    (siehe ``_ok_result``) würde daraus 42 synthetische OK-Befunde machen (die
+    Anzahl der Check-Definitionen in ``CHECK_REGISTRY``, nicht die Anzahl der
+    Prüfpunkt-*Nummern* aus ``Pruefpunkte.md`` — einige Nummern wie 5/6/7
+    decken zwei separat konfigurierbare Check-Einträge ab, siehe
+    ``registry.py``).
     Ein HMI-only-Projekt, ein versehentlich falsch gewähltes Projekt, oder
     eine ``ausgeschlossene_ordner``-Konfiguration, die zufällig die gesamte
     PLC-Struktur trifft, sähe dadurch nicht wie "nichts geprüft", sondern
@@ -382,6 +581,36 @@ def run_lint(
     3.3). Fehlt jede PLC-Software, wird stattdessen ein einzelner
     Fehlbefund (``verbindung.keine_plc``) erzeugt und der Lauf sofort
     beendet, ohne einen einzigen Check zu instanziieren.
+
+    Prüfpunkt 21 (``metadata.kompilierfehler``, siehe
+    ``_KOMPILIERFEHLER_CHECK_ID``) läuft — fest vorgegeben, nicht über die
+    Config einstellbar — immer als **letzter** Check des gesamten Laufs
+    (Review-General.md, Befund 3): Er ist der einzige Check im ganzen
+    Programm, der den Übersetzungsstand des Projekts im TIA-Portal-Speicher
+    tatsächlich verändert (``ICompilable.Compile()``, siehe
+    ``metadata.py::KompilierfehlerCheck``) — alle anderen Checks lesen nur.
+    Liefe er zwischen anderen Checks, könnte der lauf-gebundene XML-Cache
+    (``_tia_helpers.export_block_xml``) danach einen anderen Übersetzungsstand
+    zeigen als vor dem Compile, und nachfolgende Checks würden auf einem
+    inkonsistenten Zwischenstand aufsetzen. Umsetzung: ``definitions`` wird
+    in ``main_definitions`` (alles außer Prüfpunkt 21) und ``pp21_definition``
+    aufgeteilt; ``_run_connection_loop`` läuft zunächst für
+    ``main_definitions``, und — nur wenn diese vollständig und ohne Abbruch
+    durchgelaufen sind (siehe unten) — ein zweites Mal für ``pp21_definition``
+    allein. ``session_number`` wird dabei über beide Aufrufe hinweg
+    fortgezählt, damit die PLC-Software-Prüfung/der Cache-Reset weiterhin nur
+    beim allerersten Verbindungsaufbau des gesamten Laufs passiert (siehe
+    ``_run_connection_loop``-Docstring). Das Projekt wird dabei nicht
+    gespeichert — der Compile-Vorgang betrifft nur die offene, headless
+    geöffnete Session.
+
+    Der zweite Aufruf für Prüfpunkt 21 unterbleibt, wenn der erste Aufruf
+    nicht vollständig erfolgreich war: bei einem Abbruch durch den Nutzer
+    (``cancelled``), bei fehlender PLC-Software oder bei endgültig
+    gescheiterter Verbindung (``verbindung.keine_plc``/``verbindung.reconnect``)
+    bleiben in ``main_definitions`` offene Prüfpunkte übrig — in allen diesen
+    Fällen ergäbe ein weiterer Verbindungsversuch nur für Prüfpunkt 21 keinen
+    Sinn.
     """
 
     def report(message: str) -> None:
@@ -391,6 +620,9 @@ def run_lint(
 
     enabled = [d for d in definitions if d.enabled]
     enabled_check_ids = frozenset(d.check_id for d in enabled)
+    main_definitions = [d for d in enabled if d.check_id != _KOMPILIERFEHLER_CHECK_ID]
+    pp21_definition = next((d for d in enabled if d.check_id == _KOMPILIERFEHLER_CHECK_ID), None)
+
     check_weights = check_weights or {}
     excluded_folders_set = frozenset(excluded_folders)
     excluded_blocks_set = frozenset(excluded_blocks)
@@ -398,123 +630,76 @@ def run_lint(
     done_check_ids: set[str] = set()
     resolved_project_name = project_name
     disposed_exc_types: tuple[type, ...] = ()
-    consecutive_failures = 0
     session_number = 0
-    cancelled = False
 
-    while True:
-        remaining = [d for d in enabled if d.check_id not in done_check_ids]
-        if not remaining or cancelled:
-            break
+    # Ist außer Prüfpunkt 21 kein einziger Check aktiviert, bleibt
+    # main_definitions leer — der erste Aufruf von _run_connection_loop
+    # bricht dann sofort ohne jeden Verbindungsversuch ab (leere
+    # "remaining"-Liste), die PLC-Software-Prüfung/der Cache-Reset (siehe
+    # dortiger Docstring, "check_plc_software") müssen in diesem Sonderfall
+    # also beim Prüfpunkt-21-Aufruf nachgeholt werden statt hier.
+    main_check_plc_software = bool(main_definitions)
 
-        session_number += 1
-        try:
-            connector = create_connector(tia_version, dll_path)
-            if session_number == 1:
-                report(f"Verbinde mit TIA Portal ({tia_version_name}) ...")
-            elif consecutive_failures > 0:
-                report(
-                    f"TIA-Portal-Session unerwartet beendet — verbinde neu "
-                    f"(Versuch {consecutive_failures + 1}/{max_reconnect_attempts}) ..."
-                )
-            else:
-                report(
-                    f"Verbinde nach {reconnect_every_n_checks} Prüfpunkten vorsorglich neu, "
-                    "um die TIA-Portal-Session zu entlasten ..."
-                )
+    resolved_project_name, disposed_exc_types, session_number, cancelled = _run_connection_loop(
+        dll_path=dll_path,
+        tia_version=tia_version,
+        project_path=project_path,
+        tia_version_name=tia_version_name,
+        connect_message=f"Verbinde mit TIA Portal ({tia_version_name}) ...",
+        definitions_to_run=main_definitions,
+        total_check_count=len(enabled),
+        excluded_folders_set=excluded_folders_set,
+        excluded_blocks_set=excluded_blocks_set,
+        reconnect_every_n_checks=reconnect_every_n_checks,
+        gc_interval=gc_interval,
+        xml_cache_max_size=xml_cache_max_size,
+        xref_cache_max_size=xref_cache_max_size,
+        check_weights=check_weights,
+        enabled_check_ids=enabled_check_ids,
+        cancel_event=cancel_event,
+        max_reconnect_attempts=max_reconnect_attempts,
+        check_plc_software=main_check_plc_software,
+        report=report,
+        results=results,
+        done_check_ids=done_check_ids,
+        resolved_project_name=resolved_project_name,
+        disposed_exc_types=disposed_exc_types,
+        session_number=session_number,
+    )
 
-            with connector:
-                project = connector.connect(project_path)
-                resolved_project_name = getattr(project, "Name", project_name)
-                report(f"Projekt geöffnet: {resolved_project_name}")
-                if session_number == 1:
-                    _reset_run_caches(xml_cache_max_size, xref_cache_max_size)
-                    if not any(True for _ in iter_plc_software(project)):
-                        report("Kein PLC-Programm im Projekt gefunden — Prüfung wird beendet.")
-                        results.append(
-                            CheckResult(
-                                check_id="verbindung.keine_plc",
-                                check_name="TIA-Portal-Verbindung",
-                                category="Verbindung",
-                                status=CheckStatus.ERROR,
-                                path="Projekt",
-                                description="Kein PLC-Programm im Projekt gefunden.",
-                                recommendation="Prüfen, ob das richtige TIA-Projekt ausgewählt wurde.",
-                            )
-                        )
-                        break
-
-                if not disposed_exc_types:
-                    disposed_exc_types = _disposed_exception_types()
-
-                cancelled = _run_session(
-                    project=project,
-                    remaining=remaining,
-                    excluded_folders=excluded_folders_set,
-                    excluded_blocks=excluded_blocks_set,
-                    resolved_project_name=resolved_project_name,
-                    reconnect_every_n_checks=reconnect_every_n_checks,
-                    gc_interval=gc_interval,
-                    check_weights=check_weights,
-                    enabled_check_ids=enabled_check_ids,
-                    cancel_event=cancel_event,
-                    disposed_exc_types=disposed_exc_types,
-                    report=report,
-                    results=results,
-                    done_check_ids=done_check_ids,
-                )
-
-            consecutive_failures = 0  # Session ohne Absturz beendet (fertig, geplanter Reconnect oder Abbruch)
-        except disposed_exc_types as exc:
-            consecutive_failures += 1
-            if consecutive_failures >= max_reconnect_attempts:
-                logger.error(
-                    "TIA-Portal-Verbindung nach %d Versuchen weiterhin instabil: %s",
-                    max_reconnect_attempts,
-                    exc,
-                )
-                results.append(
-                    CheckResult(
-                        check_id="verbindung.reconnect",
-                        check_name="TIA-Portal-Verbindung",
-                        category="Verbindung",
-                        status=CheckStatus.ERROR,
-                        path=resolved_project_name,
-                        description=(
-                            f"TIA-Portal-Verbindung nach {max_reconnect_attempts} Versuchen "
-                            f"weiterhin instabil: {exc}"
-                        ),
-                        recommendation="Log-Datei prüfen, TIA Portal manuell neu starten und Prüfung wiederholen.",
-                    )
-                )
-                break
-            logger.warning("TIA-Portal-Session unerwartet beendet (Versuch %d): %s", consecutive_failures, exc)
-        except Exception as exc:  # noqa: BLE001 — Review-Security-Robustheit.md, Befund 4.2/4.3
-            # Fängt zwei Fälle ab, die bisher komplett an dieser Schleife
-            # vorbei propagierten: (a) der allererste Verbindungsversuch
-            # (disposed_exc_types ist dort noch das leere Tupel () — ein
-            # except () fängt nichts, siehe 4.3), und (b) jede Exception in
-            # einer späteren Session, die kein disposed_exc_types-Typ ist
-            # (z. B. eine andere TIA-/.NET-Exception). Ohne diesen Handler
-            # verlässt die Exception run_lint komplett, wodurch sämtliche
-            # bereits gesammelten results verloren gehen — der Anwender sieht
-            # nur noch "FEHLER: ..." im GUI-Log, aber nie die Ergebnisseite,
-            # egal wie weit die Prüfung schon gekommen war. Stattdessen: wie
-            # beim Erschöpfen der Reconnect-Versuche einen Fehlbefund anlegen
-            # und den Lauf mit den bisherigen Ergebnissen sauber beenden.
-            logger.exception("Unerwarteter Fehler bei der TIA-Portal-Verbindung.")
-            results.append(
-                CheckResult(
-                    check_id="verbindung.reconnect",
-                    check_name="TIA-Portal-Verbindung",
-                    category="Verbindung",
-                    status=CheckStatus.ERROR,
-                    path=resolved_project_name,
-                    description=f"TIA-Portal-Verbindung unerwartet fehlgeschlagen: {exc}",
-                    recommendation="Log-Datei prüfen, TIA Portal manuell neu starten und Prüfung wiederholen.",
-                )
-            )
-            break
+    main_completed = not cancelled and all(d.check_id in done_check_ids for d in main_definitions)
+    if pp21_definition is not None and main_completed:
+        resolved_project_name, disposed_exc_types, session_number, cancelled = _run_connection_loop(
+            dll_path=dll_path,
+            tia_version=tia_version,
+            project_path=project_path,
+            tia_version_name=tia_version_name,
+            connect_message="Verbinde für den abschließenden Prüfpunkt 21 (Kompilierfehler) ...",
+            definitions_to_run=[pp21_definition],
+            total_check_count=len(enabled),
+            excluded_folders_set=excluded_folders_set,
+            excluded_blocks_set=excluded_blocks_set,
+            reconnect_every_n_checks=reconnect_every_n_checks,
+            gc_interval=gc_interval,
+            xml_cache_max_size=xml_cache_max_size,
+            xref_cache_max_size=xref_cache_max_size,
+            check_weights=check_weights,
+            enabled_check_ids=enabled_check_ids,
+            cancel_event=cancel_event,
+            max_reconnect_attempts=max_reconnect_attempts,
+            # Läuft main_check_plc_software bereits mit mindestens einem
+            # anderen Check die PLC-Software-Prüfung durch, ist sie hier
+            # überflüssig. Ist Prüfpunkt 21 dagegen der einzige aktivierte
+            # Check überhaupt (main_definitions leer, main_check_plc_software
+            # False), holt dieser Aufruf sie nach — siehe Kommentar oben.
+            check_plc_software=not main_check_plc_software,
+            report=report,
+            results=results,
+            done_check_ids=done_check_ids,
+            resolved_project_name=resolved_project_name,
+            disposed_exc_types=disposed_exc_types,
+            session_number=session_number,
+        )
 
     return LintReport(
         project_name=resolved_project_name,

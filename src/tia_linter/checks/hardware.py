@@ -76,7 +76,14 @@ class CpuFirmwareDokumentiertCheck(BaseCheck):
 
 
 class SafetyPasswortCheck(BaseCheck):
-    """Prüfpunkt 18b: F-CPU ohne gesetztes Safety-Offline-Passwort."""
+    """Prüfpunkt 18b: F-CPU ohne gesetztes Safety-Offline-Passwort.
+
+    Review-General.md, Befund 2: Ist ``SafetyAdministration`` für eine PLC
+    nicht verfügbar (keine F-CPU oder Safety-Feature nicht lizenziert), lief
+    diese Schleife bislang stillschweigend weiter — eine PLC, die aus diesem
+    Grund gar nicht geprüft werden konnte, war von einer PLC ohne Verstoß
+    nicht zu unterscheiden. Meldet jetzt stattdessen einen expliziten
+    ``CheckStatus.SKIPPED``-Befund je betroffener PLC."""
 
     def run(self, project: Any) -> list[CheckResult]:
         results: list[CheckResult] = []
@@ -94,7 +101,17 @@ class SafetyPasswortCheck(BaseCheck):
                 safety_admin = None
 
             if safety_admin is None:
-                continue  # keine F-CPU (oder Safety-Feature nicht lizenziert)
+                results.append(
+                    self._make_result(
+                        path=format_path(plc_software.Name, "Sicherheitsprogramm"),
+                        description=(
+                            f"Sicherheitsfunktion (SafetyAdministration) für '{plc_software.Name}' "
+                            "nicht verfügbar (keine F-CPU oder keine Lizenz) — Prüfpunkt übersprungen."
+                        ),
+                        status=CheckStatus.SKIPPED,
+                    )
+                )
+                continue
 
             if not bool(getattr(safety_admin, "IsSafetyOfflineProgramPasswordSet", False)):
                 results.append(
@@ -122,7 +139,14 @@ class ZertifikatCheck(BaseCheck):
     fälschlich ``CheckStatus.ERROR`` meldete, obwohl der Dienst schlicht
     nicht geprüft werden konnte. Analog zu ``SafetyPasswortCheck`` (drei
     Klassen weiter oben in dieser Datei) wird ein fehlender Dienst jetzt
-    übersprungen statt als Befund gewertet.
+    nicht mehr als Befund gewertet.
+
+    Review-General.md, Befund 2: Der Fix zu 3.2 hat den fehlenden Dienst
+    zunächst komplett stillschweigend übersprungen (leere Ergebnisliste) —
+    ``runner._ok_result`` machte daraus dann ein grünes "keine Verstöße
+    gefunden", obwohl der Zertifikatsdienst gar nicht geprüft werden konnte.
+    Meldet jetzt stattdessen einen expliziten ``CheckStatus.SKIPPED``-Befund
+    je betroffener PLC.
     """
 
     def run(self, project: Any) -> list[CheckResult]:
@@ -143,7 +167,17 @@ class ZertifikatCheck(BaseCheck):
                 cert_manager = None
 
             if cert_manager is None:
-                continue  # Zertifikatsdienst nicht verfügbar/lizenziert, kein Befund
+                results.append(
+                    self._make_result(
+                        path=format_path(plc_software.Name, "Zertifikate"),
+                        description=(
+                            f"Zertifikatsdienst (LocalCertificateManager) für '{plc_software.Name}' "
+                            "nicht verfügbar/lizenziert — Prüfpunkt übersprungen."
+                        ),
+                        status=CheckStatus.SKIPPED,
+                    )
+                )
+                continue
 
             certificates = list(getattr(getattr(cert_manager, "LocalCertificateStore", None), "Certificates", []) or [])
             if not certificates:

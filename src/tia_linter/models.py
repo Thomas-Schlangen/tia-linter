@@ -11,11 +11,21 @@ from typing import Any
 class CheckStatus(Enum):
     """Tatsächliches Ergebnis eines einzelnen Befunds (``CheckResult.status``)
     — im Unterschied zu ``CheckSeverity`` schließt das auch ``OK`` (kein
-    Verstoß) mit ein, nicht nur die beiden konfigurierbaren Schweregrade."""
+    Verstoß) mit ein, nicht nur die beiden konfigurierbaren Schweregrade.
+
+    ``SKIPPED`` (Review-General.md, Befund 2) ist von ``OK`` bewusst
+    unterschieden: ``OK`` heißt "geprüft, kein Verstoß gefunden", ``SKIPPED``
+    heißt "konnte nicht geprüft werden" (fehlender Openness-Dienst, fehlende
+    Konfiguration o. Ä.). Vor dieser Unterscheidung meldeten mehrere Checks
+    bei einer leeren Ergebnisliste über ``runner._ok_result`` ein grünes OK,
+    obwohl sie inhaltlich gar nichts geprüft hatten — der teuerste Fehlermodus
+    für ein Prüfwerkzeug. ``SKIPPED`` zählt weder in
+    ``LintReport.ok_count`` noch in ``.errors``/``.warnings`` mit."""
 
     OK = "ok"
     WARNING = "warning"
     ERROR = "error"
+    SKIPPED = "skipped"
 
 
 class CheckSeverity(Enum):

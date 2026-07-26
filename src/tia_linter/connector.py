@@ -68,7 +68,13 @@ class BaseTiaConnector(ABC):
         import clr  # pythonnet
 
         assembly_dir = self.dll_path.parent
-        sys.path.append(str(assembly_dir))
+        # Review-General.md, Befund 10f: ``_clr_loaded`` ist instanzgebunden,
+        # ``run_lint`` erzeugt aber pro TIA-Portal-Session einen neuen
+        # Connector (siehe ``create_connector``) — ohne diese Prüfung würde
+        # derselbe Pfad bei jedem (geplanten oder ausfallbedingten) Reconnect
+        # erneut angehängt.
+        if str(assembly_dir) not in sys.path:
+            sys.path.append(str(assembly_dir))
 
         for assembly_name in self._assembly_names:
             assembly_path = assembly_dir / f"{assembly_name}.dll"

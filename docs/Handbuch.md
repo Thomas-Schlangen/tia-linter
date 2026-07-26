@@ -99,7 +99,11 @@ nicht in das Projekt ein.
 ### Was das Programm ausdrücklich *nicht* tut
 
 - Es **verändert keine SPS-Konfiguration**, keinen Programmcode und keine
-  Steuerung. Der Zugriff erfolgt ausschließlich lesend.
+  Steuerung, und speichert das Projekt zu keinem Zeitpunkt. Eine Ausnahme:
+  [Prüfpunkt 21](#prüfpunkt-21-kompilierfehler-und-warnungen) kompiliert das
+  Projekt am Ende des Prüflaufs im Speicher. Das Projekt wird dabei nicht
+  gespeichert — alle anderen Prüfpunkte laufen davor und sind davon nicht
+  betroffen.
 - Es ersetzt **keine funktionale Sicherheitsprüfung**. Bei
   sicherheitsrelevanten Systemen (funktionale Sicherheit, SIL, Performance
   Level) ist weiterhin eine unabhängige Prüfung durch eine qualifizierte
@@ -2166,6 +2170,16 @@ PLC_1 > Compiler-Meldung > FB_Motor\Netzwerk 3
 
 **Besonderheiten**
 
+- Läuft — fest vorgegeben, nicht konfigurierbar — immer als **letzter**
+  Prüfpunkt eines Laufs, nachdem alle anderen Prüfpunkte bereits
+  abgeschlossen sind. Grund: Das Kompilieren ist der einzige Vorgang im
+  gesamten Programm, der den Übersetzungsstand des Projekts im
+  TIA-Portal-Speicher verändert (siehe "Was das Programm ausdrücklich nicht
+  tut" in [Kapitel 1](#1-einführung)) — würde er zwischen anderen
+  Prüfpunkten laufen, könnten nachfolgende Prüfpunkte auf einem anderen
+  Projektstand aufsetzen als die vorherigen. Das Projekt wird dabei nicht
+  gespeichert; die Änderung betrifft nur die laufende, headless geöffnete
+  Session.
 - Für das Übersetzen müssen laut TIA-Portal-Vorgabe alle Geräte offline
   sein. Läuft die Prüfung z. B. gegen ein Projekt mit online geschalteten
   Geräten, kann bereits der Übersetzungsvorgang selbst fehlschlagen — auch
@@ -2430,7 +2444,7 @@ Dieser Prüfpunkt hat keine konfigurierbaren Parameter.
 **Beispiel**
 
 ```
-PLC_1 > Programmbausteine > FB_Regler > Fehlercode
+PLC_1 > Programmbausteine > FB_Regler > Member > Fehlercode
 → Output-Parameter 'Fehlercode' wird an 2 Stellen beschrieben.
 ```
 
@@ -2623,6 +2637,10 @@ PLC_1 > Variablentabellen > Tags_Allgemein
 
 - Leere Variablentabellen werden von diesem Prüfpunkt automatisch
   übersprungen.
+- Eine Tag-Tabelle, die ausschließlich Nicht-I/O-Tags enthält (also gar
+  keine I/O-Tags gemischt sind), wird bewusst **nicht** gemeldet — geprüft
+  wird ausschließlich die Mischung, nicht das bloße Vorhandensein von
+  Nicht-I/O-Tags an sich (Review-General.md, Befund 10b).
 
 **Empfehlung zur Behebung**
 Nicht-I/O-Tags (z. B. Merker) in eine eigene Tag-Tabelle verschieben.

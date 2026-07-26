@@ -31,7 +31,7 @@ _BASE_CONFIG = {
     },
     "checks": {
         "namenskonventionen": {
-            "testvariablen": {"enabled": True, "severity": "warning", "prefixe": ["TEST_"]},
+            "testvariablen": {"enabled": False, "severity": "warning", "prefixe": ["TEST_"]},
         },
     },
 }
@@ -244,6 +244,32 @@ class TestGeneratePdfReportCatchesAllExceptions:
 
         showerror.assert_called_once()
         assert "PDF-Report" in showerror.call_args[0][1]
+
+
+class TestCollectEnabledDefinitionsReflectsCheckboxState:
+    """Review-General.md, Befund 1: ein in der Config auf ``enabled: false``
+    stehender Prüfpunkt musste trotz angehaktem Kästchen als ``enabled=False``
+    zurückkommen — ``run_lint``/``simulate_lint_run`` filtern selbst noch
+    einmal danach und führten ihn dadurch nie aus."""
+
+    def test_checked_definition_disabled_in_config_is_returned_as_enabled(
+        self, app: TiaLinterApp
+    ) -> None:
+        check_id = next(iter(app.definitions)).check_id
+        assert app.definitions[0].enabled is False
+
+        app.main_page._check_vars[check_id].set(True)
+        result = app.main_page.collect_enabled_definitions()
+
+        assert len(result) == 1
+        assert result[0].check_id == check_id
+        assert result[0].enabled is True
+
+    def test_unchecked_definition_is_not_returned(self, app: TiaLinterApp) -> None:
+        check_id = next(iter(app.definitions)).check_id
+        app.main_page._check_vars[check_id].set(False)
+
+        assert app.main_page.collect_enabled_definitions() == []
 
 
 if __name__ == "__main__":

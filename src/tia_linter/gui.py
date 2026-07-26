@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import os
 import queue
@@ -27,11 +28,17 @@ _ALL_CATEGORIES = "(Alle Kategorien)"
 _ALL_STATUSES = "(Alle Status)"
 _PATH_FILTER_PLACEHOLDER = "Pfad / Baustein filtern..."
 
-_STATUS_LABEL = {CheckStatus.ERROR: "Fehler", CheckStatus.WARNING: "Warnung", CheckStatus.OK: "OK"}
+_STATUS_LABEL = {
+    CheckStatus.ERROR: "Fehler",
+    CheckStatus.WARNING: "Warnung",
+    CheckStatus.OK: "OK",
+    CheckStatus.SKIPPED: "Übersprungen",
+}
 _STATUS_TAG_COLOR = {
     CheckStatus.ERROR: "#CC0000",
     CheckStatus.WARNING: "#B36B00",
     CheckStatus.OK: "#2E8B32",
+    CheckStatus.SKIPPED: "#888888",
 }
 
 
@@ -62,7 +69,7 @@ class TiaLinterApp(tk.Tk):
         super().__init__()
         self.title("TIA Linter")
 
-        self.config: AppConfig = config
+        self.app_config: AppConfig = config
         self.config_path = config_path
         self.settings = settings
         self.definitions: list[CheckDefinition] = build_check_definitions(config)
@@ -114,7 +121,7 @@ class TiaLinterApp(tk.Tk):
         except Exception as exc:  # noqa: BLE001 — letzte Instanz gegen rohe Tracebacks in der GUI
             messagebox.showerror("TIA Linter", f"Konfigurationsdatei konnte nicht geladen werden:\n{exc}")
             return
-        self.config = config
+        self.app_config = config
         self.config_path = config_path
         self.definitions = build_check_definitions(config)
         self.main_page.rebuild_check_tree()
@@ -134,7 +141,7 @@ class TiaLinterApp(tk.Tk):
         enabled_definitions = self.main_page.collect_enabled_definitions()
 
         version_name = self.main_page.tia_version.get()
-        version_entry = self.config.tia_versionen.find(version_name)
+        version_entry = self.app_config.tia_versionen.find(version_name)
         dll_path = version_entry.dll_pfad if version_entry else ""
         version_number = version_entry.version if version_entry else 0
 
@@ -165,17 +172,17 @@ class TiaLinterApp(tk.Tk):
                 "project_path": project_path_str,
                 "project_name": Path(project_path_str).stem,
                 "tia_version_name": version_name,
-                "checker_name": self.config.report.pruefer,
+                "checker_name": self.app_config.report.pruefer,
                 "definitions": enabled_definitions,
                 "cancel_event": self._cancel_event,
-                "max_reconnect_attempts": self.config.max_reconnect_attempts,
-                "reconnect_every_n_checks": self.config.reconnect_every_n_checks,
-                "gc_interval": self.config.gc_interval,
-                "xml_cache_max_size": self.config.xml_cache_max_size,
-                "xref_cache_max_size": self.config.xref_cache_max_size,
-                "check_weights": self.config.check_weights,
-                "excluded_folders": self.config.ausgeschlossene_ordner,
-                "excluded_blocks": self.config.ausgeschlossene_bausteine,
+                "max_reconnect_attempts": self.app_config.max_reconnect_attempts,
+                "reconnect_every_n_checks": self.app_config.reconnect_every_n_checks,
+                "gc_interval": self.app_config.gc_interval,
+                "xml_cache_max_size": self.app_config.xml_cache_max_size,
+                "xref_cache_max_size": self.app_config.xref_cache_max_size,
+                "check_weights": self.app_config.check_weights,
+                "excluded_folders": self.app_config.ausgeschlossene_ordner,
+                "excluded_blocks": self.app_config.ausgeschlossene_bausteine,
             },
             daemon=True,
         )
@@ -245,11 +252,11 @@ class TiaLinterApp(tk.Tk):
         beim PDF-Dateinamen (``reporter.report_filename``) über
         ``sanitize_filename_part`` saniert, statt ``Path(...).stem``
         ungefiltert zu übernehmen."""
-        if not self.config.logging.file:
+        if not self.app_config.logging.file:
             return
         project_name = sanitize_filename_part(Path(project_path_str).stem)
         log_name = f"Lintlog_{project_name}_{_timestamp()}.log"
-        log_config = self.config.logging.model_copy(update={"file": str(Path(output_folder) / log_name)})
+        log_config = self.app_config.logging.model_copy(update={"file": str(Path(output_folder) / log_name)})
         setup_logger(log_config)
 
     def cancel_lint_run(self) -> None:
@@ -299,7 +306,7 @@ class TiaLinterApp(tk.Tk):
             return
         output_folder = self.main_page.output_folder.get().strip() or "."
         try:
-            output_path = PdfReporter(self.config).generate(self._report, output_folder)
+            output_path = PdfReporter(self.app_config).generate(self._report, output_folder)
         except Exception as exc:  # noqa: BLE001 — letzte Instanz gegen rohe Tracebacks in der GUI
             logger.exception("PDF-Report konnte nicht erstellt werden")
             messagebox.showerror("TIA Linter", f"PDF-Report konnte nicht erstellt werden:\n{exc}")
@@ -334,11 +341,11 @@ class MainPage(ttk.Frame):
         self.output_folder = tk.StringVar(value=settings.last_output_folder)
         self.config_path_var = tk.StringVar(value=settings.last_config_path or str(app.config_path))
 
-        version_names = [v.name for v in app.config.tia_versionen.verfuegbar]
+        version_names = [v.name for v in app.app_config.tia_versionen.verfuegbar]
         default_version = (
             settings.last_tia_version
             if settings.last_tia_version in version_names
-            else app.config.tia_versionen.standard
+            else app.app_config.tia_versionen.standard
         )
         self.tia_version = tk.StringVar(value=default_version)
         self.test_mode = tk.BooleanVar(value=settings.test_mode)
@@ -564,12 +571,23 @@ class MainPage(ttk.Frame):
         self._checks_canvas.yview_scroll(delta, "units")
 
     def collect_enabled_definitions(self) -> list[CheckDefinition]:
-        """Liefert alle Prüfpunkte, deren Checkbox im Baum aktuell angehakt ist."""
+        """Liefert alle Prüfpunkte, deren Checkbox im Baum aktuell angehakt ist.
+
+        Review-General.md, Befund 1: ``definition.enabled`` (aus der YAML-Config)
+        und der tatsächliche Checkbox-Zustand liefen bislang auseinander — diese
+        Methode filterte zwar korrekt nach der Checkbox, gab aber die
+        ungeänderte ``CheckDefinition`` zurück, deren ``enabled`` weiterhin den
+        YAML-Wert trug. ``runner.run_lint``/``simulate_lint_run`` filtern
+        zusätzlich selbst nach ``d.enabled`` (``[d for d in definitions if
+        d.enabled]``) — stand ein Prüfpunkt in der Config auf
+        ``enabled: false``, lief er dadurch auch bei angehaktem Kästchen nie,
+        ohne Fehlermeldung. Fix: eine Kopie mit dem aktuellen Checkbox-Zustand
+        zurückgeben, statt sich auf den alten YAML-Wert zu verlassen."""
         result = []
         for definition in self.app.definitions:
             var = self._check_vars.get(definition.check_id)
             if var is not None and var.get():
-                result.append(definition)
+                result.append(dataclasses.replace(definition, enabled=var.get()))
         return result
 
     def _set_all(self, value: bool) -> None:

@@ -14,7 +14,7 @@ from tia_linter.checks._tia_helpers import (
     tag_direction,
 )
 from tia_linter.checks.base import BaseCheck
-from tia_linter.models import CheckResult
+from tia_linter.models import CheckResult, CheckStatus
 
 
 class _DbNamingCheck(BaseCheck):
@@ -179,13 +179,29 @@ class KonstantenFormatCheck(BaseCheck):
 
 
 class TestvariablenCheck(BaseCheck):
-    """Prüfpunkt 9: Variablen mit Test-/Debug-Präfix im Projekt gefunden."""
+    """Prüfpunkt 9: Variablen mit Test-/Debug-Präfix im Projekt gefunden.
+
+    Review-General.md, Befund 2: Ist ``prefixe`` leer/nicht konfiguriert,
+    meldet dieser Check jetzt einen expliziten ``CheckStatus.SKIPPED``-Befund
+    statt einer leeren Liste — sonst hätte ``runner._ok_result`` daraus ein
+    grünes "keine Verstöße gefunden" gemacht, obwohl mangels konfiguriertem
+    Präfix gar keine Variable geprüft werden konnte.
+    """
 
     def run(self, project: Any) -> list[CheckResult]:
         results: list[CheckResult] = []
         prefixes = tuple(self.definition.params.get("prefixe", []))
         if not prefixes:
-            return results
+            return [
+                self._make_result(
+                    path=format_path("Projekt"),
+                    description=(
+                        "Kein Test-/Debug-Präfix konfiguriert (Parameter 'prefixe' ist leer) "
+                        "— Prüfpunkt übersprungen."
+                    ),
+                    status=CheckStatus.SKIPPED,
+                )
+            ]
 
         for plc_software in iter_plc_software(project):
             for tag_table in iter_tag_tables(plc_software, self.excluded_folders):

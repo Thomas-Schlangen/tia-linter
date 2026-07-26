@@ -277,6 +277,141 @@ class TestRunLintUnexpectedConnectionError:
         assert "Session 2 kaputt" in error_result.description
 
 
+_PP21_DEFINITION = CheckDefinition(
+    check_id="metadata.kompilierfehler",
+    name="Kompilierfehler und Warnungen",
+    category="Projektmetadaten",
+    enabled=True,
+    severity=CheckSeverity.ERROR,
+    description="",
+    recommendation="",
+    nummer="21",
+)
+
+
+class TestRunLintKompilierfehlerRunsLast:
+    """Review-General.md, Befund 3: Prüfpunkt 21 kompiliert das Projekt und
+    darf deshalb keinen anderen Prüfpunkt auf einen anderen Übersetzungsstand
+    treffen lassen — er muss unabhängig von seiner Position in ``definitions``
+    fest als letzter Check laufen, und zwar in einer eigenen, neuen Session."""
+
+    def _make_fake_check(self, call_order: list[str]) -> type:
+        class FakeCheck:
+            def __init__(self, check_id: str) -> None:
+                self._check_id = check_id
+
+            def run(self, project: object) -> list:
+                from tia_linter.models import CheckResult
+
+                call_order.append(self._check_id)
+                return [
+                    CheckResult(
+                        check_id=self._check_id,
+                        check_name=self._check_id,
+                        category="X",
+                        status=CheckStatus.OK,
+                        path="Dummy",
+                        description="ok",
+                        recommendation="",
+                    )
+                ]
+
+        return FakeCheck
+
+    def test_kompilierfehler_runs_after_all_other_checks_regardless_of_input_order(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fake_project = object()
+        session_open_count = 0
+
+        def _create_connector(tia_version: int, dll_path: str) -> FakeConnector:
+            nonlocal session_open_count
+            session_open_count += 1
+            return FakeConnector(fake_project)
+
+        monkeypatch.setattr(runner, "create_connector", _create_connector)
+        monkeypatch.setattr(runner, "iter_plc_software", lambda project: iter([object()]))
+
+        call_order: list[str] = []
+        fake_check_cls = self._make_fake_check(call_order)
+        monkeypatch.setattr(runner, "_instantiate_check", lambda definition, *args: fake_check_cls(definition.check_id))
+
+        report = runner.run_lint(
+            dll_path="dummy.dll",
+            tia_version=21,
+            project_path="dummy.ap21",
+            project_name="Dummy",
+            tia_version_name="V21",
+            checker_name="Tester",
+            # Prüfpunkt 21 bewusst zuerst in der Eingabeliste — die
+            # Ausführungsreihenfolge darf davon unbeeinflusst bleiben.
+            definitions=[_PP21_DEFINITION, _DUMMY_DEFINITION],
+        )
+
+        assert call_order == ["namenskonventionen.testvariablen", "metadata.kompilierfehler"]
+        assert {r.check_id for r in report.results} == {
+            "namenskonventionen.testvariablen",
+            "metadata.kompilierfehler",
+        }
+        # Eine Session für alle "normalen" Checks, eine zweite, eigene
+        # Session ausschließlich für Prüfpunkt 21.
+        assert session_open_count == 2
+
+    def test_kompilierfehler_does_not_run_when_earlier_check_is_cancelled(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import threading
+
+        fake_project = object()
+        monkeypatch.setattr(runner, "create_connector", lambda tia_version, dll_path: FakeConnector(fake_project))
+        monkeypatch.setattr(runner, "iter_plc_software", lambda project: iter([object()]))
+
+        call_order: list[str] = []
+        fake_check_cls = self._make_fake_check(call_order)
+        monkeypatch.setattr(runner, "_instantiate_check", lambda definition, *args: fake_check_cls(definition.check_id))
+
+        cancel_event = threading.Event()
+        cancel_event.set()  # von Anfang an gesetzt -> _run_session bricht sofort ab
+
+        report = runner.run_lint(
+            dll_path="dummy.dll",
+            tia_version=21,
+            project_path="dummy.ap21",
+            project_name="Dummy",
+            tia_version_name="V21",
+            checker_name="Tester",
+            definitions=[_PP21_DEFINITION, _DUMMY_DEFINITION],
+            cancel_event=cancel_event,
+        )
+
+        assert "metadata.kompilierfehler" not in call_order
+        assert not any(r.check_id == "metadata.kompilierfehler" for r in report.results)
+
+    def test_kompilierfehler_alone_still_checks_for_plc_software(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Ist Prüfpunkt 21 der einzige aktivierte Check, bleibt
+        main_definitions leer — die PLC-Software-Prüfung darf dadurch nicht
+        ausfallen (siehe run_lint, ``main_check_plc_software``)."""
+        monkeypatch.setattr(
+            runner, "create_connector", lambda tia_version, dll_path: FakeConnector(object())
+        )
+        monkeypatch.setattr(runner, "iter_plc_software", lambda project: iter(()))
+
+        report = runner.run_lint(
+            dll_path="dummy.dll",
+            tia_version=21,
+            project_path="dummy.ap21",
+            project_name="Dummy",
+            tia_version_name="V21",
+            checker_name="Tester",
+            definitions=[_PP21_DEFINITION],
+        )
+
+        assert len(report.results) == 1
+        assert report.results[0].check_id == "verbindung.keine_plc"
+
+
 if __name__ == "__main__":
     import pytest
 
