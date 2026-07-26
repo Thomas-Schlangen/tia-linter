@@ -3847,3 +3847,83 @@ Letzter Stand: "Code-Qualitäts-Review vollständig umgesetzt (24/24 Befunde),
 vier Commits (`c9dd24a`, `ae4dea4`, `9d7f8da`, `ecaf2e7`), alle gepusht nach
 `origin/main`. pytest weiterhin 56/56 grün. `Review-Qualitaet.md` mit
 Erledigungsstatus je Befund aktualisiert."
+
+## Runde 17 — Performance-Review: verbleibende 4 offene Befunde (1.4, 3.2, 3.3, 4.3) bearbeitet
+
+Auf User-Auftrag von einer zweiten Instanz (Sonnet 5) durchgeführte
+Performance-Analyse über `code/src/**` (.NET-Handle-Leaks, Memory-Wachstum,
+Schleifeneffizienz, CrossReference-Kosten, GC/Reconnect-Strategie), Bericht
+liegt außerhalb des Repos unter
+`~/Dokumente/ObsidianVault/Projekte/TIA-Linter/Review-Performance.md`
+(Repo-Root ist `code/`). Die sechs zunächst mit dem User abgestimmten
+Hauptmaßnahmen wurden bereits vor dieser Runde als Commit `8791eff`
+umgesetzt und gepusht (in `review_fortschritt.md` bislang nicht separat
+protokolliert — wird hier nachgetragen: GC innerhalb der
+CrossReference-Schleifen, XML-Cache übersteht Reconnects + LRU, Prüfpunkt
+12a/12b bei gemeinsamer Aktivierung zusammengelegt, allgemeiner
+CrossReference-Cache, Reconnect-Gewichtung je Prüfpunkt,
+`str.startswith(tuple)` statt Python-Generator bei den UDT-Skip-Präfixen).
+Vier Einzelbefunde blieben dabei bewusst offen; auf erneuten User-Auftrag
+jetzt geprüft und abgeschlossen — Commit `968177d`, gepusht nach
+`origin/main`:
+
+- [x] **1.4 — periodische GC auch in Prüfpunkt 25 umgesetzt.**
+      `libraries.py::StaticZugriffExternCheck.run()` (Prüfpunkt 25) war die
+      einzige CrossReference-lastige Schleife im Code, die Maßnahme 1
+      (Runde 8791eff) nicht abdeckte, weil sie direkt auf
+      `cross_reference_root_source`/`find_source_child_by_name` statt auf
+      dem Measure-4-Cache arbeitet. Gleiches Muster wie in `structure.py`
+      ergänzt: lokaler `processed`-Zähler über die Instanz-DB-Schleife,
+      `release_dotnet_objects()` alle `self.gc_interval` tatsächlich
+      abgefragte Instanz-DBs.
+- [x] **3.2 — `cross_reference_referenced_top_level_names()` LRU-gecacht.**
+      Neuer Cache `_xref_top_level_cache` in `_tia_helpers.py` (Key
+      `(plc_name, obj_name)`, teilt sich `xref_cache_max_size` mit dem
+      Measure-4-Cache, wird zusammen mit diesem in `reset_xref_cache()`
+      geleert). Dabei eine bislang nicht explizit benannte echte
+      Doppelabfrage gefunden: Prüfpunkt 11a (`_check_db_members`, bei
+      Unused-Objects-Befunden) und Prüfpunkt 11b
+      (`UnbenutzteBausteineCheck`, unbedingt für jeden Global-/Array-DB)
+      riefen dieselbe Hilfsfunktion für denselben DB mit demselben
+      `ObjectsWithReferences`-Filter auf — sind beide Checks aktiv
+      (Standardkonfiguration), trifft der zweite Check jetzt auf einen
+      bereits gefüllten Cache-Eintrag. Beide Aufrufstellen in
+      `structure.py` um den `plc_name`-Parameter ergänzt. Die *andere* in
+      3.2 ursprünglich beschriebene Verdopplung (11a fragt pro DB sowohl
+      `UnusedObjects` als auch, bei Treffern, `ObjectsWithReferences` ab)
+      bleibt bestehen und ist nicht vermeidbar — beide Filter liefern
+      inhaltlich unterschiedliche Information. 5 neue Tests in
+      `tests/test_tia_helpers.py::TestCrossReferenceReferencedTopLevelNamesCache`.
+- [x] **3.3 — bewusst nicht umgesetzt, Status auf „n/a" heruntergestuft.**
+      Der Vorschlag (Bausteinlisten `iter_blocks`/`iter_data_blocks`/
+      `iter_tag_tables` einmal pro Session materialisieren und an alle
+      Checks reichen) würde — anders als der XML-/XRef-Cache, die nur
+      extrahierte Python-Strings halten — **lebende .NET-Objektreferenzen**
+      über die gesamte Laufzeit cachen und damit der in Maßnahme 1/5
+      begründeten Kernstrategie ("weniger erzeugen, häufiger GC") direkt
+      entgegenlaufen: `release_dotnet_objects()` kann ein Objekt nicht
+      einsammeln, solange eine lebende Referenz in einem session-weiten
+      Cache liegt. Da die Traversierung selbst laut ursprünglicher Analyse
+      ohnehin nicht der Engpass ist (~75.000 günstige Python-Schritte
+      gegenüber ~35–45 Min. CrossReference-Zeit), wurde das Risiko als
+      nicht gerechtfertigt bewertet. Kein Code geändert.
+- [x] **4.3 — abschließend geklärt, Status auf „n/a" heruntergestuft.**
+      Anhand der lokalen Openness-Referenz
+      (`~/Dokumente/ObsidianVault/Projekte/TiaOpenness/Openness-API-Referenz-fuer-Linter.md`)
+      bestätigt: `CrossReferenceFilter` hat genau vier Werte (`AllObjects`,
+      `ObjectsWithReferences`, `ObjectsWithoutReferences`, `UnusedObjects`)
+      und steuert, welche Objekte nach Verwendungsstatus zurückkommen —
+      kein Scope-Parameter für ein bereits einzeln adressiertes Objekt.
+      Da 12a/12b/13 bereits je ein einzelnes Tag abfragen und sowohl
+      Read- als auch Write-Zugriffe brauchen, ist `AllObjects` der einzig
+      existierende Filter, der beides liefert — kein engerer Filter
+      verfügbar. Kein Code geändert.
+
+`Review-Performance.md` entsprechend aktualisiert (Statusspalten aller vier
+Befunde sowie neue „Zu 1.4/3.2/3.3/4.3"-Begründungsabschnitte, Abschnitt
+„Stand nach Umsetzung" neu gefasst).
+
+Letzter Stand: "Alle 4 zuvor offenen Performance-Befunde bearbeitet — 1.4
+und 3.2 umgesetzt, 3.3 und 4.3 nach Prüfung bewusst nicht umgesetzt
+(Begründung in `Review-Performance.md`). pytest 78/78 grün (73 vorher + 5
+neue). Commit `968177d`, gepusht nach `origin/main`."
