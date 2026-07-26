@@ -114,6 +114,15 @@ class ZertifikatCheck(BaseCheck):
     gesetzt (siehe Pruefpunkte.md, Prüfpunkt 18c):
     kein Zertifikat vorhanden -> ERROR, abgelaufen -> ERROR, läuft innerhalb
     der konfigurierten Restlaufzeit ab -> WARNING, sonst -> OK.
+
+    Review-Security-Robustheit.md, Befund 3.2: Ist ``LocalCertificateManager``
+    für ein ``DeviceItem`` nicht verfügbar, wurde bislang trotzdem
+    weitergelaufen — ``getattr(None, "LocalCertificateStore", None)`` ergab
+    ``[]``, was denselben Zweig wie "kein Zertifikat vorhanden" traf und
+    fälschlich ``CheckStatus.ERROR`` meldete, obwohl der Dienst schlicht
+    nicht geprüft werden konnte. Analog zu ``SafetyPasswortCheck`` (drei
+    Klassen weiter oben in dieser Datei) wird ein fehlender Dienst jetzt
+    übersprungen statt als Befund gewertet.
     """
 
     def run(self, project: Any) -> list[CheckResult]:
@@ -132,6 +141,9 @@ class ZertifikatCheck(BaseCheck):
                     exc_info=True,
                 )
                 cert_manager = None
+
+            if cert_manager is None:
+                continue  # Zertifikatsdienst nicht verfügbar/lizenziert, kein Befund
 
             certificates = list(getattr(getattr(cert_manager, "LocalCertificateStore", None), "Certificates", []) or [])
             if not certificates:
