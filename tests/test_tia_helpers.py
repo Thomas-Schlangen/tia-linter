@@ -29,6 +29,7 @@ from tia_linter.checks._tia_helpers import (
     cached_cross_reference_locations,
     cross_reference_referenced_top_level_names,
     cross_reference_root_source,
+    cross_reference_tree_has_real_usage,
     read_comment,
     reset_export_cache,
     reset_xref_cache,
@@ -639,9 +640,10 @@ class _FakeGenericMethod:
 
 
 class FakeXrefLocation:
-    def __init__(self, access: str, reference_type: str) -> None:
+    def __init__(self, access: str, reference_type: str, reference_location: str = "") -> None:
         self.Access = access
         self.ReferenceType = reference_type
+        self.ReferenceLocation = reference_location
 
 
 class FakeXrefReference:
@@ -650,8 +652,11 @@ class FakeXrefReference:
 
 
 class FakeXrefSourceObject:
-    def __init__(self, references: list[FakeXrefReference]) -> None:
+    def __init__(
+        self, references: list[FakeXrefReference], children: list["FakeXrefSourceObject"] | None = None
+    ) -> None:
         self.References = references
+        self.Children = children or []
 
 
 class FakeXrefResult:
@@ -814,6 +819,96 @@ class FakeTopLevelSource:
     def __init__(self, name: str, children: list[FakeTopLevelChild]) -> None:
         self.Name = name
         self.Children = children
+
+
+class TestCrossReferenceTreeHasRealUsage:
+    """Dreiunddreißigster/Vierunddreißigster/Sechsunddreißigster Bug:
+    ``cross_reference_tree_has_real_usage()`` muss rekursiv den ganzen Baum
+    prüfen, ``InstanceType``-Meta-Referenzen ignorieren, und optional
+    Referenzen ausblenden, die vom eigenen Quell-FB selbst kommen (Instanz-
+    DB-Fall, ``LSNTP_ServerDb_1``)."""
+
+    def test_direct_reference_is_detected(self) -> None:
+        node = FakeXrefSourceObject([FakeXrefReference([FakeXrefLocation("Read", "UsedBy")])])
+
+        assert cross_reference_tree_has_real_usage(node) is True
+
+    def test_no_reference_anywhere_is_not_used(self) -> None:
+        node = FakeXrefSourceObject([])
+
+        assert cross_reference_tree_has_real_usage(node) is False
+
+    def test_only_instancetype_reference_is_not_used(self) -> None:
+        node = FakeXrefSourceObject([FakeXrefReference([FakeXrefLocation("Declaration", "InstanceType")])])
+
+        assert cross_reference_tree_has_real_usage(node) is False
+
+    def test_reference_on_grandchild_is_detected(self) -> None:
+        """Vierunddreißigster Bug (ConfigDb): das Kind selbst hat 0 eigene
+        References, das Enkelkind traegt die echte Referenz."""
+        leaf = FakeXrefSourceObject([FakeXrefReference([FakeXrefLocation("Read", "UsedBy")])])
+        child = FakeXrefSourceObject([], children=[leaf])
+        root = FakeXrefSourceObject([], children=[child])
+
+        assert cross_reference_tree_has_real_usage(root) is True
+
+    def test_self_reference_from_own_fb_is_excluded(self) -> None:
+        """Sechsunddreißigster Bug (LSNTP_ServerDb_1): eine Referenz, deren
+        ReferenceLocation auf den eigenen Quell-FB zeigt, zaehlt nicht als
+        Verwendung, wenn exclude_referencing_block gesetzt ist."""
+        node = FakeXrefSourceObject(
+            [FakeXrefReference([FakeXrefLocation("Read", "UsedBy", "@LSNTP_Server ▶ Ln: 1   Cl: 1")])]
+        )
+
+        assert cross_reference_tree_has_real_usage(node, exclude_referencing_block="LSNTP_Server") is False
+
+    def test_quoted_self_reference_with_member_path_is_excluded(self) -> None:
+        """Sechsunddreißigster Bug, zweiter Teil (live an
+        LSNTP_ServerDb_1.lastTimeSet gefunden): ReferenceLocation tritt auch
+        im Format '@"Block".Member ▶ Beschreibung' auf (z. B. bei
+        Access=DefaultValue/'Default value') -- der urspruengliche Regex
+        erkannte den Blocknamen hier nicht, weil vor '▶' kein Leerzeichen
+        steht."""
+        node = FakeXrefSourceObject(
+            [FakeXrefReference([FakeXrefLocation("DefaultValue", "Uses", '@"LSNTP_Server".lastTimeSet ▶ Default value')])]
+        )
+
+        assert cross_reference_tree_has_real_usage(node, exclude_referencing_block="LSNTP_Server") is False
+
+    def test_self_reference_without_exclude_parameter_still_counts(self) -> None:
+        """Ohne exclude_referencing_block (Global-/Array-DB-Fall) bleibt das
+        bisherige Verhalten unveraendert -- jede Nicht-InstanceType-Referenz
+        zaehlt."""
+        node = FakeXrefSourceObject(
+            [FakeXrefReference([FakeXrefLocation("Read", "UsedBy", "@LSNTP_Server ▶ Ln: 1   Cl: 1")])]
+        )
+
+        assert cross_reference_tree_has_real_usage(node) is True
+
+    def test_reference_from_different_block_is_not_excluded(self) -> None:
+        """Ein echter externer Zugriff (anderer Baustein als der Quell-FB,
+        z. B. ein genereller Aufruf oder externer Static-Zugriff wie bei
+        01TestOrgPrgDb) zaehlt weiterhin als Verwendung."""
+        node = FakeXrefSourceObject(
+            [FakeXrefReference([FakeXrefLocation("Undefined", "UsedBy", "@OrgPrg ▶ NW12")])]
+        )
+
+        assert cross_reference_tree_has_real_usage(node, exclude_referencing_block="LSNTP_Server") is True
+
+    def test_self_reference_excluded_but_external_reference_on_sibling_detected(self) -> None:
+        """Realistischer Mischfall: die meisten Member zeigen nur interne
+        Selbstreferenzen (ausgeblendet), aber ein einzelnes Member wird
+        zusaetzlich echt von aussen verwendet -- muss trotzdem als benutzt
+        erkannt werden."""
+        internal_only = FakeXrefSourceObject(
+            [FakeXrefReference([FakeXrefLocation("Read", "UsedBy", "@LSNTP_Server ▶ Ln: 1   Cl: 1")])]
+        )
+        externally_used = FakeXrefSourceObject(
+            [FakeXrefReference([FakeXrefLocation("Undefined", "UsedBy", "@OrgPrg ▶ NW12")])]
+        )
+        root = FakeXrefSourceObject([], children=[internal_only, externally_used])
+
+        assert cross_reference_tree_has_real_usage(root, exclude_referencing_block="LSNTP_Server") is True
 
 
 class TestCrossReferenceReferencedTopLevelNamesCache:

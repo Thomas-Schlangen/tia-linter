@@ -8,6 +8,7 @@ Bausteine/Tag-Tabellen rekursiv durchlaufen, Pfade einheitlich formatieren).
 from __future__ import annotations
 
 import logging
+import re
 import tempfile
 from collections import OrderedDict
 from pathlib import Path
@@ -775,7 +776,10 @@ def strip_cross_reference_prefix(name: str, root_name: str) -> str:
     return name
 
 
-def cross_reference_tree_has_real_usage(source_object: Any) -> bool:
+_REFERENCE_LOCATION_BLOCK_NAME = re.compile(r'^@"?([^".\s▶]+)')
+
+
+def cross_reference_tree_has_real_usage(source_object: Any, exclude_referencing_block: str | None = None) -> bool:
     """Rekursiv: trägt dieser ``SourceObject``-Knoten selbst oder irgendein
     Nachkomme (``.Children``, beliebig tief) mindestens eine
     ``References``-``Location`` mit ``ReferenceType`` ungleich
@@ -795,13 +799,56 @@ def cross_reference_tree_has_real_usage(source_object: Any) -> bool:
     einzige an ``Exists`` selbst). Der permanente ``InstanceType``-Meta-
     Eintrag (siehe "Siebenundzwanzigster"/"Dreiunddreißigster Bug") wird an
     jeder Ebene ignoriert, damit ein rein typbeschreibender Knoten ohne
-    echte Codestelle nicht als Verwendung zählt."""
+    echte Codestelle nicht als Verwendung zählt.
+
+    Sechsunddreißigster Bug (User-Testfall: ``LSNTP_ServerDb`` per Copy &
+    Paste zu ``LSNTP_ServerDb_1`` dupliziert, garantiert nirgends
+    aufgerufen — live verifiziert): Für eine **Instanz-DB** reicht "hat der
+    Baum irgendwo eine echte Referenz" allein nicht aus.
+    ``LSNTP_ServerDb_1`` zeigte trotz nachweislich nirgends aufgerufen zu
+    sein an praktisch jedem Static-Member ``ReferenceType.UsedBy``-
+    Referenzen — per ``Location.ReferenceLocation`` bestätigt, dass
+    **jede einzelne** dieser Referenzen auf ``@LSNTP_Server`` zeigt, den
+    Code des zugehörigen FB **selbst**: der FB liest/schreibt seine
+    eigenen Static-Member intern (``#member``-Zugriff), was für **jede**
+    Instanz identisch auftaucht, unabhängig davon, ob diese konkrete
+    Instanz je aufgerufen wird — ein rein strukturelles Signal, kein
+    Beleg für echte Verwendung *dieser* Instanz. ``exclude_referencing_block``
+    (vom Aufrufer mit ``InstanceOfName`` der Instanz-DB belegt) blendet
+    Referenzen aus, deren ``ReferenceLocation`` auf denselben Baustein wie
+    der eigene Quell-FB zeigt — übrig bleiben nur echte externe Zugriffe
+    (Aufruf von außen, siehe "Siebenundzwanzigster Bug", oder externer
+    Static-Zugriff aus einem anderen Baustein, siehe "Vierunddreißigster
+    Bug"/``01TestOrgPrgDb``). Für Global-/Array-DBs (kein eigener
+    Code-Body, jede Referenz kommt zwangsläufig von einem anderen
+    Baustein) ist dieser Parameter nicht nötig und bleibt ``None``.
+
+    ``ReferenceLocation`` tritt live in zwei verschiedenen Formaten auf --
+    ``@<Blockname> ▶ Ln: x   Cl: y`` (unquotiert, für echte Codestellen)
+    und ``@"<Blockname>".<Memberpfad> ▶ <Beschreibung>`` (quotiert plus
+    Memberpfad, für rein deklarative Metaeinträge wie ``Data type`` oder
+    ``Default value`` -- Letzteres live an ``LSNTP_ServerDb_1.lastTimeSet``
+    gefunden: eine ``ReferenceType.Uses``-Referenz mit
+    ``Access.DefaultValue``, die trotz korrektem
+    ``exclude_referencing_block`` durchrutschte, weil der ursprüngliche
+    Regex ``^@([^\\s▶]+)`` am fehlenden Leerzeichen vor ``▶`` scheiterte und
+    den kompletten Blob ``"LSNTP_Server".lastTimeSet`` statt nur
+    ``LSNTP_Server`` einfing). ``_REFERENCE_LOCATION_BLOCK_NAME``
+    berücksichtigt daher explizit optionale Anführungszeichen und bricht
+    zusätzlich an einem Punkt (Memberpfad-Trenner) ab, nicht nur an
+    Leerzeichen/``▶``."""
     for reference in getattr(source_object, "References", None) or []:
         for location in getattr(reference, "Locations", None) or []:
-            if str(getattr(location, "ReferenceType", "") or "") != "InstanceType":
-                return True
+            if str(getattr(location, "ReferenceType", "") or "") == "InstanceType":
+                continue
+            if exclude_referencing_block is not None:
+                reference_location = str(getattr(location, "ReferenceLocation", "") or "")
+                match = _REFERENCE_LOCATION_BLOCK_NAME.match(reference_location)
+                if match is not None and match.group(1) == exclude_referencing_block:
+                    continue
+            return True
     for child in getattr(source_object, "Children", None) or []:
-        if cross_reference_tree_has_real_usage(child):
+        if cross_reference_tree_has_real_usage(child, exclude_referencing_block):
             return True
     return False
 

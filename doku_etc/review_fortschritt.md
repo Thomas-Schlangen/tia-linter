@@ -4137,5 +4137,83 @@ die äußere Meldeschleife auf — Bibliotheks-FBs im ausgeschlossenen
 ausgeschlossenen) Instanz-DBs `LSNTP_ServerDb`/`PlcTimeDb` wurden
 fälschlich als 'verwaist' gemeldet. Fix: Existenzprüfung nutzt jetzt den
 vollständigen, unfilterten Baustein-Baum. Live verifiziert: 0 statt 2
-Befunde. pytest 144/145 grün (1 umgebungsbedingter Skip). Noch nicht
-committet."
+Befunde. pytest 144/145 grün (1 umgebungsbedingter Skip). Committet als
+`0648562` auf `main` (noch nicht gepusht)."
+
+## Runde 60 — Sechsunddreißigster Bug: Runde-58-Fix erkannte interne FB-Selbstzugriffe fälschlich als Verwendung einer Instanz-DB
+
+**Ausgangspunkt (User-Testfall, direkt im Anschluss an Runde 59):** "jetzt
+habe ich als Test den Baustein LSNTP_ServerDb kopiert. Es gibt jetzt einen
+LSNTP_ServerDb_1 der natürlich an keinem FB verwendet wird. Das wird aber
+nicht erkannt." — derselbe Prüfpunkt (11b) wie in Runde 57/58.
+
+**Untersuchung:** Live-Dump des kompletten CrossReference-Baums von
+``LSNTP_ServerDb_1`` (frisch per Copy&Paste dupliziert, garantiert nie
+aufgerufen) zeigte an praktisch jedem Static-Member
+``ReferenceType.UsedBy``-Referenzen. Per ``Location.ReferenceLocation``
+bestätigt: **jede einzelne** dieser Referenzen zeigt auf ``@LSNTP_Server``
+— den Code des zugehörigen FB **selbst**. Der FB liest/schreibt seine
+eigenen Static-Member intern (Standard-IEC-61131-Programmierstil,
+``#member``-Zugriff) — das taucht für **jede** Instanz identisch auf,
+unabhängig davon, ob diese konkrete Instanz je aufgerufen wird. Der
+Runde-58-Fix (rekursive Baumsuche nach irgendeiner Nicht-InstanceType-
+Referenz) konnte diesen rein strukturellen Selbstzugriff nicht von echter
+externer Verwendung unterscheiden.
+
+**Root Cause & Fix:** ``cross_reference_tree_has_real_usage()``
+(``_tia_helpers.py``) erhält einen neuen optionalen Parameter
+``exclude_referencing_block`` — Referenzen, deren ``ReferenceLocation``
+auf denselben Baustein wie der eigene Quell-FB zeigt, zählen nicht mehr
+als Verwendung. ``UnbenutzteBausteineCheck``s Instanz-DB-Zweig übergibt
+dafür ``InstanceOfName`` der Instanz-DB. Echte externe Nutzung (Aufruf von
+außen, siehe "Siebenundzwanzigster Bug", oder externer Static-Zugriff wie
+bei ``01TestOrgPrgDb``, siehe "Vierunddreißigster Bug") bleibt davon
+unberührt, da deren ``ReferenceLocation`` auf einen *anderen* Baustein
+zeigt. Für Global-/Array-DBs (kein eigener Code-Body) bleibt der Parameter
+``None``, unverändertes Verhalten.
+
+**Stolperstein während der Live-Verifikation:** Der erste Regex-Versuch
+(``^@([^\s▶]+)``) ließ die Instanz trotz korrektem Fix weiterhin als
+benutzt gelten — ``ReferenceLocation`` tritt live in zwei Formaten auf:
+unquotiert für echte Codestellen (``@LSNTP_Server ▶ Ln: x   Cl: y``) und
+quotiert mit Memberpfad für rein deklarative Metaeinträge
+(``@"LSNTP_Server".lastTimeSet ▶ Default value``, gefunden an einer
+``Access.DefaultValue``/``ReferenceType.Uses``-Referenz). Ohne Leerzeichen
+vor ``▶`` fing der ursprüngliche Regex den kompletten Blob
+(``"LSNTP_Server".lastTimeSet``) statt nur des Blocknamens ein. Fix:
+``_REFERENCE_LOCATION_BLOCK_NAME`` berücksichtigt jetzt optionale
+Anführungszeichen und bricht zusätzlich an einem Punkt (Memberpfad-
+Trenner) ab.
+
+**Verifiziert:**
+- 8 neue Unit-Tests (``TestCrossReferenceTreeHasRealUsage``): direkte/
+  Enkel-Referenz, nur-InstanceType, Selbstreferenz (beide
+  ``ReferenceLocation``-Formate) wird ausgeblendet, externe Referenz
+  bleibt erkannt, Mischfall (ein Member nur intern, ein anderes Member
+  echt extern genutzt) wird korrekt als benutzt erkannt. `pytest` 153/154
+  grün (1 umgebungsbedingter Tk/Tcl-Skip), keine Regression.
+- Live gegen die Salzmaschine (mit `project_settings.yaml`) verifiziert:
+  `UnbenutzteBausteineCheck` liefert jetzt genau **2** Befunde —
+  `LSNTP_ServerDb_1` (neu erkannt, korrekt) und `A03` (weiterhin korrekt).
+  Alle bereits bekannten echten Bausteine (`LSNTP_ServerDb`, `PlcTimeDb`,
+  `ConfigDb`, `SysDiagDb`, `FieldbusDb`, `A01`, `Mp01`, `01TestOrgPrgDb`)
+  bleiben korrekt unmarkiert — insbesondere `01TestOrgPrgDb` (externer
+  Static-Zugriff) zeigt, dass die Selbstreferenz-Ausblendung echte externe
+  Nutzung nicht mit ausblendet.
+
+**Dokumentiert:** Docstrings in `_tia_helpers.py`
+(`cross_reference_tree_has_real_usage`) und `structure.py`
+(`UnbenutzteBausteineCheck`) um den "Sechsunddreißigster Bug" ergänzt.
+Noch nicht committet — wartet auf Freigabe des Users.
+
+Letzter Stand: "Sechsunddreißigster Bug behoben: der Runde-58-Fix erkannte
+interne Selbstzugriffe eines FB auf seine eigenen Static-Member
+fälschlich als Beleg dafür, dass eine bestimmte Instanz-DB verwendet
+wird — trat bei jeder Instanz identisch auf, auch bei einer frisch
+kopierten, garantiert nie aufgerufenen (`LSNTP_ServerDb_1`, User-
+Testfall). Fix: `cross_reference_tree_has_real_usage()` blendet jetzt
+Referenzen aus, deren `ReferenceLocation` auf den eigenen Quell-FB
+zeigt (in zwei live beobachteten Formaten). 8 neue Tests, pytest 153/154
+grün (1 umgebungsbedingter Skip). Live verifiziert: PP11b meldet jetzt
+korrekt 2 Befunde (`LSNTP_ServerDb_1`, `A03`), alle anderen bekannten
+Instanzen bleiben unmarkiert. Noch nicht committet."

@@ -26,6 +26,7 @@ from tia_linter.checks._tia_helpers import (
     cross_reference_tree_has_real_usage,
     export_block_xml,
     format_path,
+    get_attribute,
     interface_section_member_paths,
     iter_blocks,
     iter_compile_units,
@@ -457,6 +458,25 @@ class UnbenutzteBausteineCheck(BaseCheck):
     (``_tia_helpers.py``), das rekursiv den **gesamten** Nachkommenbaum
     nach einer ``Reference`` mit ``ReferenceType`` ungleich
     ``InstanceType`` durchsucht, statt nur die oberste Ebene zu prüfen.
+
+    Sechsunddreißigster Bug (User-Testfall: ``LSNTP_ServerDb`` per Copy &
+    Paste zu ``LSNTP_ServerDb_1`` dupliziert, garantiert nirgends
+    aufgerufen, live verifiziert): Der Vierunddreißigster-Bug-Fix ging für
+    Instanz-DBs zu weit — der zugehörige FB (``LSNTP_Server``) liest/
+    schreibt seine eigenen Static-Member **intern** in seinem eigenen Code
+    (``#member``-Zugriff), was ``cross_reference_tree_has_real_usage()``
+    für **jede** Instanz gleichermaßen als "echte Referenz" erkannte,
+    unabhängig davon, ob diese konkrete Instanz je aufgerufen wird — bei
+    ``LSNTP_ServerDb_1`` zeigten praktisch alle Static-Member
+    ``ReferenceType.UsedBy``, jede einzelne Location aber mit
+    ``ReferenceLocation`` ``@LSNTP_Server ▶ ...`` (der FB-Code selbst, kein
+    externer Aufrufer). Fix: ``cross_reference_tree_has_real_usage()``
+    erhält jetzt zusätzlich ``exclude_referencing_block=instance_of``
+    (``InstanceOfName`` der Instanz-DB) — Referenzen, deren
+    ``ReferenceLocation`` auf den eigenen Quell-FB zeigt, zählen nicht mehr
+    als Verwendung. Echte externe Nutzung (Aufruf von außen oder externer
+    Static-Zugriff wie bei ``01TestOrgPrgDb``) bleibt davon unberührt, da
+    deren ``ReferenceLocation`` auf einen *anderen* Baustein zeigt.
     """
 
     def run(self, project: Any) -> list[CheckResult]:
@@ -473,7 +493,10 @@ class UnbenutzteBausteineCheck(BaseCheck):
                     is_used = bool(cross_reference_referenced_top_level_names(block, plc_software.Name))
                 elif isinstance(block, InstanceDB):
                     root_source = cross_reference_root_source(block, CrossReferenceFilter.AllObjects)
-                    is_used = root_source is not None and cross_reference_tree_has_real_usage(root_source)
+                    instance_of = str(get_attribute(block, "InstanceOfName", "") or "") or None
+                    is_used = root_source is not None and cross_reference_tree_has_real_usage(
+                        root_source, exclude_referencing_block=instance_of
+                    )
                 else:
                     is_used = bool(
                         cached_cross_reference_locations(block, CrossReferenceFilter.AllObjects, plc_software.Name)
