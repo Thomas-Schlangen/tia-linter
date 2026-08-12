@@ -4076,3 +4076,66 @@ tieferen Baumebenen sichtbar wird. Neue rekursive Hilfsfunktion
 Live verifiziert: `UnbenutzteBausteineCheck` meldet jetzt nur noch `A03`
 (vorher fälschlich 7 Befunde). 2 neue Tests, pytest 144/145 grün (1
 umgebungsbedingter Skip). Noch nicht committet."
+
+## Runde 59 — Fünfunddreißigster Bug: Prüfpunkt 23 meldete aktiv verwendete Bibliotheks-Instanz-DBs als "verwaist"
+
+**Ausgangspunkt (User-Meldung, direkt im Anschluss an Runde 58, ähnliches
+Symptommuster vermutet):** "Ich glaube wir haben noch ein ähnliches
+Problem bei Prüfpunkt 23. 2 DBs werden markiert als nicht verwendet. Aber
+beide werden verwendet, sogar sehr oft: `LSNTP_ServerDb` & `PlcTimeDb`.
+Und auch als InstanzDb werden sie verwendet."
+
+**Untersuchung:** `VerwaisteInstanzDbsCheck` (Prüfpunkt 23,
+`libraries.py`) meldet einen Befund, wenn `InstanceOfName` einer
+Instanz-DB nicht in der Menge aller im Projekt gefundenen FB-Namen
+(`fb_names`) auftaucht. Live geprüft: `InstanceOfName` beider DBs
+(`'LSNTP_Server'`/`'PlcTime'`) ist korrekt und exakt, die passenden FBs
+existieren nachweislich im Projekt. Der Fehler lag stattdessen in der
+Ordnerlage: Beide Quell-FBs liegen unter `ProjectBib > ...`
+(`PrgBibSiemens`/`PrgBibAlpma`) — dem einzigen in
+`project_settings.yaml` per `ausgeschlossene_ordner: ["ProjectBib"]`
+ausgeschlossenen Ordner —, während ihre Instanz-DBs
+(`LSNTP_ServerDb`/`PlcTimeDb`) in einem **nicht** ausgeschlossenen Ordner
+(`_Org > IDb`/`_Org > DDb`) liegen.
+
+**Root Cause:** `fb_names` wurde bislang mit
+`iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks)`
+aufgebaut — also mit **denselben** Ausschlüssen wie die äußere Schleife
+über die zu meldenden Instanz-DBs. Dadurch fielen `LSNTP_Server`/
+`PlcTime` aus `fb_names` heraus, sobald sie in einem ausgeschlossenen
+Ordner liegen, obwohl sie real existieren — jede ihrer (nicht
+ausgeschlossenen) Instanz-DBs wurde dadurch fälschlich als "Quell-FB
+existiert nicht mehr" gemeldet. Konzeptioneller Fehler:
+`ausgeschlossene_ordner`/`ausgeschlossene_bausteine` sollen steuern,
+**worüber** berichtet wird, nicht die interne Existenzprüfung eines
+Checks verfälschen, die (wie hier) auf Objekte außerhalb des gemeldeten
+Bausteins selbst angewiesen ist.
+
+**Fix:** `fb_names` wird jetzt aus dem vollständigen, unfilterten
+Baustein-Baum aufgebaut (`iter_blocks(plc_software)`, ohne Ausschlüsse) —
+nur die äußere Schleife über die zu meldenden Instanz-DBs
+(`iter_data_blocks(..., excluded_folders, excluded_blocks)`) respektiert
+weiterhin die konfigurierten Ausschlüsse, sodass Instanz-DBs in
+ausgeschlossenen Ordnern wie bisher nicht gemeldet werden.
+
+**Verifiziert:** Keine Unit-Tests möglich/vorhanden (wie bei allen
+`BaseCheck`-Unterklassen, siehe Runde 13 — braucht ein echtes/gefaktes
+Openness-`project`-Objekt). `pytest` weiterhin 144/145 grün (1
+umgebungsbedingter Tk/Tcl-Skip), keine Regression. Live gegen die
+Salzmaschine mit `project_settings.yaml` verifiziert: `VerwaisteInstanzDbsCheck`
+liefert jetzt **0** Befunde (vorher fälschlich 2:
+`LSNTP_ServerDb`/`PlcTimeDb`).
+
+**Dokumentiert:** Docstring der Klasse `VerwaisteInstanzDbsCheck`
+(`libraries.py`) um den "Fünfunddreißigster Bug" ergänzt. Noch nicht
+committet — wartet auf Freigabe des Users.
+
+Letzter Stand: "Fünfunddreißigster Bug behoben: Prüfpunkt 23 baute seine
+Liste bekannter FB-Namen mit denselben Ordner-/Baustein-Ausschlüssen wie
+die äußere Meldeschleife auf — Bibliotheks-FBs im ausgeschlossenen
+`ProjectBib`-Ordner fielen dadurch aus der Liste, ihre (nicht
+ausgeschlossenen) Instanz-DBs `LSNTP_ServerDb`/`PlcTimeDb` wurden
+fälschlich als 'verwaist' gemeldet. Fix: Existenzprüfung nutzt jetzt den
+vollständigen, unfilterten Baustein-Baum. Live verifiziert: 0 statt 2
+Befunde. pytest 144/145 grün (1 umgebungsbedingter Skip). Noch nicht
+committet."

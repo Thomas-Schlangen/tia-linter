@@ -101,14 +101,32 @@ class VeralteteBibliothekenCheck(BaseCheck):
 
 
 class VerwaisteInstanzDbsCheck(BaseCheck):
-    """Prüfpunkt 23: Instanz-DBs, deren Quell-FB nicht mehr im Projekt existiert."""
+    """Prüfpunkt 23: Instanz-DBs, deren Quell-FB nicht mehr im Projekt existiert.
+
+    Fünfunddreißigster Bug (User-Meldung, live an ``LSNTP_ServerDb``/
+    ``PlcTimeDb`` verifiziert — beide aktiv und häufig verwendet, trotzdem
+    als "verwaist" gemeldet): ``fb_names`` wurde bislang mit denselben
+    ``excluded_folders``/``excluded_blocks`` wie die äußere Instanz-DB-
+    Schleife aufgebaut. Die Quell-FBs beider DBs (``LSNTP_Server``,
+    ``PlcTime``) liegen aber im per ``ausgeschlossene_ordner: [\"ProjectBib\"]``
+    ausgeschlossenen Bibliotheksordner, während ihre Instanz-DBs
+    (``_Org > IDb``/``_Org > DDb``) außerhalb davon liegen — die FBs fielen
+    dadurch aus ``fb_names`` heraus, obwohl sie real existieren, wodurch
+    jede ihrer nicht ausgeschlossenen Instanz-DBs fälschlich als "Quell-FB
+    existiert nicht mehr" gemeldet wurde. ``ausgeschlossene_ordner``/
+    ``ausgeschlossene_bausteine`` sollen nur steuern, worüber berichtet
+    wird, nicht die Existenzprüfung selbst verfälschen. Fix: ``fb_names``
+    wird jetzt aus dem **vollständigen**, unfilterten Baustein-Baum
+    aufgebaut (ohne Ausschlüsse) — nur die äußere Schleife über die zu
+    meldenden Instanz-DBs respektiert weiterhin die konfigurierten
+    Ausschlüsse."""
 
     def run(self, project: Any) -> list[CheckResult]:
         from Siemens.Engineering.SW.Blocks import FB, InstanceDB
 
         results: list[CheckResult] = []
         for plc_software in iter_plc_software(project):
-            fb_names = {block.Name for block, _ in iter_blocks(plc_software, self.excluded_folders, self.excluded_blocks) if isinstance(block, FB)}
+            fb_names = {block.Name for block, _ in iter_blocks(plc_software) if isinstance(block, FB)}
 
             for db, group_path in iter_data_blocks(plc_software, self.excluded_folders, self.excluded_blocks):
                 if not isinstance(db, InstanceDB):
