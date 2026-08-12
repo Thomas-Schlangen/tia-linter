@@ -823,7 +823,31 @@ def cross_reference_referenced_top_level_names(engineering_object: Any, plc_name
     Unterfelder bleiben in ``UnusedObjects`` weiterhin als "unbenutzt"
     gelistet, obwohl die Variable in der Praxis sehr wohl verwendet wird
     und ein Melden jedes einzelnen Unterfelds als Fehlalarm empfunden wird.
-    Fix/Feature: siehe Spezifikation oben ("nur die oberste Ebene")."""
+    Fix/Feature: siehe Spezifikation oben ("nur die oberste Ebene").
+
+    Dreiunddreißigster Bug (User-Meldung mit selbst identifiziertem Testfall
+    ``A03``, Global-DB, live verifiziert): ``Sources[0].Children`` unter
+    Filter ``ObjectsWithReferences`` enthält bei Global-/Array-DB-Membern
+    teils Einträge, die serverseitig als "referenziert" klassifiziert
+    werden, obwohl sie **keine einzige echte Referenz** tragen (per
+    Reflection bestätigt: ``child.References`` liefert 0 Elemente) — bei
+    ``A03`` betraf das 5 von 11 Top-Level-Membern, obwohl ein XML-Export
+    aller 256 FB/FC/OB-Bausteine im Projekt bestätigt, dass der Baustein
+    nirgends im Code referenziert wird (0 Treffer für ``"A03"``). Live
+    verglichen mit einem echten Positiv-Beispiel (``V01St``, 19 Top-Level-
+    Member): jeder dort tatsächlich genutzte Member trägt mindestens eine
+    ``Reference`` mit einer ``Location``, deren ``ReferenceType`` **nicht**
+    ``InstanceType`` ist (i. d. R. ``Uses``/``UsedBy``) — dieselbe
+    permanente ``InstanceType``-Meta-Referenz, die bereits beim
+    "Siebenundzwanzigster Bug" für Instanz-DB-Roots gefiltert wurde, tritt
+    hier auch auf FB-instanztypisierten Struct-Membern auf (z. B. bei zwei
+    erkennbar nie verdrahteten Platzhaltern ``4XXX_30S1``/``4XXX_30S9`` in
+    ``V01St``: genau 1 Reference, Typ ``InstanceType``, sonst nichts).
+    Fix: ein Kind zählt nur noch als "referenziert", wenn mindestens eine
+    ``Location`` unter ``child.References`` einen ``ReferenceType`` ungleich
+    ``InstanceType`` trägt — ein Kind ganz ohne ``References`` (wie bei
+    ``A03``) oder mit ausschließlich der ``InstanceType``-Meta-Referenz
+    zählt nicht mehr als Verwendung."""
     obj_name = str(getattr(engineering_object, "Name", ""))
     cache_key = (plc_name, obj_name)
     if cache_key in _xref_top_level_cache:
@@ -855,6 +879,13 @@ def cross_reference_referenced_top_level_names(engineering_object: Any, plc_name
             for child in getattr(source, "Children", None) or []:
                 child_name = getattr(child, "Name", None)
                 if not child_name:
+                    continue
+                has_real_reference = any(
+                    str(getattr(location, "ReferenceType", "") or "") != "InstanceType"
+                    for reference in getattr(child, "References", None) or []
+                    for location in getattr(reference, "Locations", None) or []
+                )
+                if not has_real_reference:
                     continue
                 name = normalize_member_path(strip_cross_reference_prefix(child_name, root_name))
                 if name and name != root_name:

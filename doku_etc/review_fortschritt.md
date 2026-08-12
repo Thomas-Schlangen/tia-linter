@@ -3927,3 +3927,84 @@ Letzter Stand: "Alle 4 zuvor offenen Performance-Befunde bearbeitet — 1.4
 und 3.2 umgesetzt, 3.3 und 4.3 nach Prüfung bewusst nicht umgesetzt
 (Begründung in `Review-Performance.md`). pytest 78/78 grün (73 vorher + 5
 neue). Commit `968177d`, gepusht nach `origin/main`."
+
+## Runde 57 — Dreiunddreißigster Bug: Prüfpunkt 11b übersah komplett unbenutzten Global-DB "A03"
+
+**Ausgangspunkt (User-Meldung beim erneuten Durchtesten aller Prüfpunkte):**
+"Prüfpunkt 11b scheint noch nicht einwandfrei zu funktionieren. Es gibt in
+Programmbausteine -> 01 [4805] DrySaltingMachine einen Datenbaustein 'A03'
+der nirgendwo verwendet wird. Taucht aber in der Fehlerliste nicht auf."
+
+**Untersuchung (mehrstufig, alles headless read-only gegen die Salzmaschine
+verifiziert, kein TIA-Portal-GUI-Prozess lief währenddessen):**
+1. `A03` bestätigt als normaler `GlobalDB` (kein Array-/Instanz-DB),
+   `IsConsistent=True`.
+2. `GetCrossReferences(CrossReferenceFilter.ObjectsWithReferences)` auf
+   `A03` liefert 5 von 11 Top-Level-Membern (`4730_30M1`, `4735_30M11`,
+   `4740_30M1`, `4745_30M1`, `4730_30S1`) als angeblich referenziert — das
+   ist exakt der Wert, den `cross_reference_referenced_top_level_names()`
+   bislang ungeprüft übernahm, wodurch `UnbenutzteBausteineCheck`
+   (`is_used = bool(...)`) den DB fälschlich als benutzt einstufte.
+3. Per .NET-Reflection nachgewiesen: keines dieser 5 "referenzierten"
+   Kinder trägt auch nur eine einzige `Reference` (`child.References` mit
+   0 Elementen auf allen Ebenen, auch an den Blättern) — im Widerspruch
+   zur eigenen Filterbezeichnung.
+4. Unabhängige Ground-Truth-Prüfung: XML-Export **aller** 256 FB/FC/OB-
+   Bausteine im gesamten Projekt (beide PLCs) nach dem Literal `"A03"`
+   durchsucht — **0 Treffer**. `A03` wird tatsächlich nirgends im
+   PLC-Code referenziert, der User hatte recht.
+5. Positiv-Kontrolle an `V01St` (laut Historie, "Sechsundzwanzigster Bug",
+   mit 17 bekannt echten benutzten Top-Level-Membern): dort trägt jeder
+   tatsächlich genutzte Member mindestens eine `Reference` mit
+   `ReferenceType` `Uses`/`UsedBy` zusätzlich zur permanenten
+   `InstanceType`-Meta-Referenz — exakt zwei erkennbare, nie verdrahtete
+   Platzhalter-Member (`4XXX_30S1`, `4XXX_30S9`) haben dagegen **nur** die
+   `InstanceType`-Referenz und sonst nichts, tauchen aber ebenfalls unter
+   `ObjectsWithReferences` auf.
+
+**Root Cause:** `ObjectsWithReferences` schließt serverseitig (Openness/TIA
+Portal V21) bei bestimmten Global-DB-Struct-Membern Kinder ein, die keine
+einzige echte Verwendung tragen — entweder ganz ohne `References` (wie bei
+`A03`) oder nur mit der bereits aus dem "Siebenundzwanzigster Bug"
+(Instanz-DB-Root) bekannten permanenten `InstanceType`-Meta-Referenz (wie
+bei den `4XXX`-Platzhaltern in `V01St`). `cross_reference_referenced_top_level_names()`
+vertraute bislang blind der bloßen Kind-Zugehörigkeit im Filterergebnis,
+ohne die `References`/`Locations` selbst zu prüfen.
+
+**Fix:** In `_tia_helpers.py::cross_reference_referenced_top_level_names()`
+zählt ein Kind nur noch als "verwendet", wenn mindestens eine seiner
+`References`-`Locations` einen `ReferenceType` ungleich `InstanceType`
+trägt (`References`/`Locations`-Zugriff analog zu
+`cached_cross_reference_locations()`) — dasselbe Filtermuster wie beim
+Siebenundzwanzigster-Bug-Fix, jetzt auch auf Member-Ebene angewendet.
+Profitiert automatisch auch Prüfpunkt 11a (`_check_db_members`), das
+dieselbe Hilfsfunktion für die Unterelemente-Unterdrückung nutzt.
+
+**Verifiziert:**
+- 3 neue Unit-Tests in `tests/test_tia_helpers.py`
+  (`TestCrossReferenceReferencedTopLevelNamesCache`): Kind ganz ohne
+  `References` → nicht verwendet; Kind mit ausschließlich
+  `InstanceType`-Referenz → nicht verwendet; Kind mit `InstanceType` +
+  echter `UsedBy`-Referenz → weiterhin verwendet. `pytest` 141/141 grün
+  (2 plattformbedingt übersprungen), keine Regression.
+- Live gegen die reparierte Funktion direkt gegen die Salzmaschine
+  verifiziert: `A03` liefert jetzt **0** erkannte verwendete Top-Level-
+  Member (vorher 5) — `UnbenutzteBausteineCheck` würde ihn jetzt korrekt
+  melden. `V01St` liefert weiterhin exakt **17** (die historisch bekannte
+  Zahl aus dem Sechsundzwanzigster-Bug-Fix), die zwei `4XXX`-Platzhalter
+  werden jetzt korrekt nicht mehr mitgezählt — keine Regression an einem
+  echten Positivbeispiel.
+
+**Dokumentiert:** Docstrings in `_tia_helpers.py`
+(`cross_reference_referenced_top_level_names`) und `structure.py`
+(`UnbenutzteBausteineCheck`) um den "Dreiunddreißigster Bug" ergänzt.
+Noch nicht committet — wartet auf Freigabe des Users (User testet gerade
+selbst alle Prüfpunkte erneut durch).
+
+Letzter Stand: "Dreiunddreißigster Bug behoben: Prüfpunkt 11b (und
+mittelbar 11a) übersahen komplett unbenutzte Global-DBs, wenn
+`ObjectsWithReferences` einzelne Struct-Member fälschlich als referenziert
+listete, obwohl sie keine oder nur eine permanente `InstanceType`-Meta-
+Referenz trugen. Live an `A03` (jetzt korrekt 0 statt 5 'verwendete'
+Member) und `V01St` (weiterhin korrekt 17, keine Regression) verifiziert.
+3 neue Tests, pytest 141/141 grün. Noch nicht committet."

@@ -794,8 +794,14 @@ class TestCachedCrossReferenceLocations:
 
 
 class FakeTopLevelChild:
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str, references: list[FakeXrefReference] | None = None) -> None:
         self.Name = name
+        # Default: eine echte Nutzung (ReferenceType != InstanceType) -- die
+        # meisten bestehenden Tests prüfen das Cache-Verhalten, nicht die
+        # Referenz-Filterung selbst, daher default auf "wird verwendet".
+        self.References = (
+            references if references is not None else [FakeXrefReference([FakeXrefLocation("Undefined", "UsedBy")])]
+        )
 
 
 class FakeTopLevelSource:
@@ -842,6 +848,60 @@ class TestCrossReferenceReferencedTopLevelNamesCache:
 
         assert service.call_count == 1
         assert first == second == {"Member1"}
+
+    def test_child_without_any_reference_is_not_counted_as_used(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Dreiunddreißigster Bug (live an Global-DB 'A03' verifiziert):
+        ObjectsWithReferences listete Kinder ganz ohne echte References."""
+        _install_fake_cross_reference_module(monkeypatch)
+        source = FakeTopLevelSource("DB_X", [FakeTopLevelChild('"DB_X".Member1', references=[])])
+        service = FakeCrossReferenceService([source])
+        obj = FakeXrefObject("DB_X", service)
+
+        result = cross_reference_referenced_top_level_names(obj, "PLC_1")
+
+        assert result == set()
+
+    def test_child_with_only_instancetype_reference_is_not_counted_as_used(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Dreiunddreißigster Bug: dieselbe permanente InstanceType-Meta-
+        Referenz, die schon beim Siebenundzwanzigster-Bug-Fix (Instanz-DB-
+        Root) gefiltert wurde, tritt auch auf FB-instanztypisierten
+        Struct-Membern auf und darf nicht als echte Nutzung zählen."""
+        _install_fake_cross_reference_module(monkeypatch)
+        child = FakeTopLevelChild(
+            '"DB_X".Member1', references=[FakeXrefReference([FakeXrefLocation("Declaration", "InstanceType")])]
+        )
+        source = FakeTopLevelSource("DB_X", [child])
+        service = FakeCrossReferenceService([source])
+        obj = FakeXrefObject("DB_X", service)
+
+        result = cross_reference_referenced_top_level_names(obj, "PLC_1")
+
+        assert result == set()
+
+    def test_child_with_real_reference_alongside_instancetype_is_counted_as_used(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Ein tatsächlich genutzter FB-instanztypisierter Member trägt neben
+        der permanenten InstanceType-Referenz mindestens eine echte
+        Uses/UsedBy-Referenz -- die muss weiterhin als Nutzung erkannt
+        werden."""
+        _install_fake_cross_reference_module(monkeypatch)
+        child = FakeTopLevelChild(
+            '"DB_X".Member1',
+            references=[
+                FakeXrefReference([FakeXrefLocation("Declaration", "InstanceType")]),
+                FakeXrefReference([FakeXrefLocation("Undefined", "UsedBy")]),
+            ],
+        )
+        source = FakeTopLevelSource("DB_X", [child])
+        service = FakeCrossReferenceService([source])
+        obj = FakeXrefObject("DB_X", service)
+
+        result = cross_reference_referenced_top_level_names(obj, "PLC_1")
+
+        assert result == {"Member1"}
 
     def test_different_plc_name_is_queried_separately(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _install_fake_cross_reference_module(monkeypatch)

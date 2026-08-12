@@ -400,6 +400,8 @@ class UnbenutzteBausteineCheck(BaseCheck):
     verifiziert: 23 → 2 Befunde (alle 21 Global-/Array-DB-Fehlalarme
     verschwunden, die verbleibenden 2 (``BibVersion``, ``LGF_Description``)
     sind echte unbenutzte FCs, z. B. ``BibVersion`` mit 0 Root-Referenzen).
+    Siehe auch "Dreiunddreißigster Bug" unten — dieselbe Methode hatte
+    selbst noch einen Fehlalarm bei bestimmten Global-DB-Membern.
 
     Siebenundzwanzigster Bug (User-Meldung mit selbst angelegtem Testfall,
     live an Instanz-DB ``01TestOrgPrgDb`` verifiziert — FB ``01OrgPrg`` nie
@@ -420,6 +422,23 @@ class UnbenutzteBausteineCheck(BaseCheck):
     Feldbus Diagnose)``) plus denselben Meta-Eintrag. Fix: Bei Instanz-DBs
     werden ``InstanceType``-Locations vor der Verwendungsprüfung
     herausgefiltert — übrig bleiben nur echte Aufrufstellen.
+
+    Dreiunddreißigster Bug (User-Meldung, live an Global-DB ``A03``
+    verifiziert — 11 Struct-Member, 5 davon fälschlich als "verwendet"
+    erkannt, DB gemeldet als benutzt obwohl komplett unbenutzt): Für
+    Global-/Array-DBs verlässt sich diese Klasse auf
+    ``cross_reference_referenced_top_level_names()`` (siehe deren
+    Docstring, "Dreiunddreißigster Bug", für die vollständige Analyse).
+    Kurzfassung: ``ObjectsWithReferences`` listete 5 der 11 Top-Level-
+    Member von ``A03`` als "referenziert", obwohl keiner von ihnen eine
+    einzige echte ``Reference`` trägt (per Reflection bestätigt) — ein
+    projektweiter XML-Export aller 256 FB/FC/OB-Bausteine bestätigte 0
+    echte Vorkommen von ``"A03"`` im Code. Fix in der Hilfsfunktion
+    selbst: ein Top-Level-Member zählt nur noch als verwendet, wenn
+    mindestens eine seiner ``References``-Locations einen
+    ``ReferenceType`` ungleich ``InstanceType`` trägt — analog zum bereits
+    bekannten "Siebenundzwanzigster Bug"-Muster, hier aber auf
+    Member-Ebene statt auf Instanz-DB-Root-Ebene.
     """
 
     def run(self, project: Any) -> list[CheckResult]:
