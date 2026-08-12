@@ -794,7 +794,12 @@ class TestCachedCrossReferenceLocations:
 
 
 class FakeTopLevelChild:
-    def __init__(self, name: str, references: list[FakeXrefReference] | None = None) -> None:
+    def __init__(
+        self,
+        name: str,
+        references: list[FakeXrefReference] | None = None,
+        children: list["FakeTopLevelChild"] | None = None,
+    ) -> None:
         self.Name = name
         # Default: eine echte Nutzung (ReferenceType != InstanceType) -- die
         # meisten bestehenden Tests prüfen das Cache-Verhalten, nicht die
@@ -802,6 +807,7 @@ class FakeTopLevelChild:
         self.References = (
             references if references is not None else [FakeXrefReference([FakeXrefLocation("Undefined", "UsedBy")])]
         )
+        self.Children = children if children is not None else []
 
 
 class FakeTopLevelSource:
@@ -902,6 +908,40 @@ class TestCrossReferenceReferencedTopLevelNamesCache:
         result = cross_reference_referenced_top_level_names(obj, "PLC_1")
 
         assert result == {"Member1"}
+
+    def test_grandchild_reference_is_detected_recursively(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Vierunddreißigster Bug (live an Global-DB 'ConfigDb' verifiziert):
+        das Top-Level-Kind selbst kann 0 eigene References haben, während
+        die echte Nutzung erst an einem Enkel-Blatt sichtbar wird (z. B.
+        "ConfigDb".Exists.BlowOff bei einem Top-Level-Struct "Exists")."""
+        _install_fake_cross_reference_module(monkeypatch)
+        leaf = FakeTopLevelChild(
+            '"DB_X".Member1.Leaf', references=[FakeXrefReference([FakeXrefLocation("Read", "UsedBy")])]
+        )
+        child = FakeTopLevelChild('"DB_X".Member1', references=[], children=[leaf])
+        source = FakeTopLevelSource("DB_X", [child])
+        service = FakeCrossReferenceService([source])
+        obj = FakeXrefObject("DB_X", service)
+
+        result = cross_reference_referenced_top_level_names(obj, "PLC_1")
+
+        assert result == {"Member1"}
+
+    def test_grandchild_with_only_instancetype_reference_is_not_counted_as_used(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _install_fake_cross_reference_module(monkeypatch)
+        leaf = FakeTopLevelChild(
+            '"DB_X".Member1.Leaf', references=[FakeXrefReference([FakeXrefLocation("Declaration", "InstanceType")])]
+        )
+        child = FakeTopLevelChild('"DB_X".Member1', references=[], children=[leaf])
+        source = FakeTopLevelSource("DB_X", [child])
+        service = FakeCrossReferenceService([source])
+        obj = FakeXrefObject("DB_X", service)
+
+        result = cross_reference_referenced_top_level_names(obj, "PLC_1")
+
+        assert result == set()
 
     def test_different_plc_name_is_queried_separately(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _install_fake_cross_reference_module(monkeypatch)

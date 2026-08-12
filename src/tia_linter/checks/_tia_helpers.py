@@ -775,6 +775,37 @@ def strip_cross_reference_prefix(name: str, root_name: str) -> str:
     return name
 
 
+def cross_reference_tree_has_real_usage(source_object: Any) -> bool:
+    """Rekursiv: trägt dieser ``SourceObject``-Knoten selbst oder irgendein
+    Nachkomme (``.Children``, beliebig tief) mindestens eine
+    ``References``-``Location`` mit ``ReferenceType`` ungleich
+    ``InstanceType``?
+
+    Notwendig, weil eine echte Verwendung je nach Zugriffsart auf ganz
+    unterschiedlicher Baumtiefe sichtbar wird: Wird eine Struct-Variable als
+    Ganzes übergeben, trägt der Struct-Knoten selbst die Referenz (siehe
+    ``cross_reference_referenced_top_level_names``, "Zwanzigster
+    Bug/Feature"); wird stattdessen ein einzelnes Blattfeld per
+    Punktnotation angesprochen (z. B. ``"ConfigDb".Exists.BlowOff``),
+    erscheint die Referenz ausschließlich an diesem Blatt, während alle
+    Zwischenknoten (hier ``Exists``) 0 eigene References haben (siehe
+    ``cross_reference_referenced_top_level_names``, "Vierunddreißigster
+    Bug", live an ``ConfigDb`` verifiziert: 18 echte Referenzen, alle an
+    den beiden Blättern ``Exists.BlowOff``/``Exists.LevelSensor``, keine
+    einzige an ``Exists`` selbst). Der permanente ``InstanceType``-Meta-
+    Eintrag (siehe "Siebenundzwanzigster"/"Dreiunddreißigster Bug") wird an
+    jeder Ebene ignoriert, damit ein rein typbeschreibender Knoten ohne
+    echte Codestelle nicht als Verwendung zählt."""
+    for reference in getattr(source_object, "References", None) or []:
+        for location in getattr(reference, "Locations", None) or []:
+            if str(getattr(location, "ReferenceType", "") or "") != "InstanceType":
+                return True
+    for child in getattr(source_object, "Children", None) or []:
+        if cross_reference_tree_has_real_usage(child):
+            return True
+    return False
+
+
 _xref_top_level_cache: "OrderedDict[tuple[str, str], set[str]]" = OrderedDict()
 
 
@@ -843,11 +874,35 @@ def cross_reference_referenced_top_level_names(engineering_object: Any, plc_name
     hier auch auf FB-instanztypisierten Struct-Membern auf (z. B. bei zwei
     erkennbar nie verdrahteten Platzhaltern ``4XXX_30S1``/``4XXX_30S9`` in
     ``V01St``: genau 1 Reference, Typ ``InstanceType``, sonst nichts).
-    Fix: ein Kind zählt nur noch als "referenziert", wenn mindestens eine
-    ``Location`` unter ``child.References`` einen ``ReferenceType`` ungleich
-    ``InstanceType`` trägt — ein Kind ganz ohne ``References`` (wie bei
-    ``A03``) oder mit ausschließlich der ``InstanceType``-Meta-Referenz
-    zählt nicht mehr als Verwendung."""
+    Fix (erste Stufe): ein Kind zählt nur noch als "referenziert", wenn
+    mindestens eine ``Location`` unter ``child.References`` einen
+    ``ReferenceType`` ungleich ``InstanceType`` trägt.
+
+    Vierunddreißigster Bug (User-Meldung mit selbst identifiziertem
+    Testfall ``ConfigDb``, direkt im Anschluss an den Dreiunddreißigster-
+    Bug-Fix gefunden — derselbe Fix hatte hier das gegenteilige Problem
+    ausgelöst): ``child.References`` allein reicht nicht — bei
+    ``ConfigDb`` liegt die einzige Top-Level-Ebene (``Exists``) selbst bei
+    **0** eigenen References, obwohl das Struct über 6 Bausteine im
+    Projekt echt gelesen/geschrieben wird (18 XML-Treffer, live per
+    Ground-Truth-Suche bestätigt). Der Grund: die tatsächlichen
+    ``Uses``/``UsedBy``-Referenzen sitzen hier zwei Ebenen tiefer, direkt
+    an den einzeln adressierten Blatt-Membern (``Exists.BlowOff``:
+    12 Locations, ``Exists.LevelSensor``: 6 Locations) — TIA propagiert
+    die Referenz nur dann auf einen Zwischenknoten hoch, wenn der ganze
+    Struct als Ganzes übergeben wird (siehe "Zwanzigster Bug/Feature"),
+    nicht wenn einzelne Blätter direkt per Punktnotation
+    (``"ConfigDb".Exists.BlowOff``) angesprochen werden — dieser Fall war
+    beim ersten Fix nicht bedacht. Fix: Prüfung rekursiv über den
+    **gesamten** Nachkommenbaum eines Top-Level-Kindes (nicht nur dessen
+    eigene ``References``) via ``cross_reference_tree_has_real_usage()``.
+    Zusätzlich Filter von ``ObjectsWithReferences`` auf ``AllObjects``
+    umgestellt: ``AllObjects`` liefert garantiert die vollständige
+    Kindliste unabhängig von TIAs eigener (siehe Dreiunddreißigster Bug,
+    als unzuverlässig erwiesener) Verwendet/Unbenutzt-Klassifizierung —
+    die Verwendungsprüfung erfolgt jetzt ausschließlich selbst anhand der
+    ``References``/``Locations``-Daten, nicht mehr anhand der
+    Filterzugehörigkeit."""
     obj_name = str(getattr(engineering_object, "Name", ""))
     cache_key = (plc_name, obj_name)
     if cache_key in _xref_top_level_cache:
@@ -873,19 +928,14 @@ def cross_reference_referenced_top_level_names(engineering_object: Any, plc_name
         )
         service = None
     if service is not None:
-        result = service.GetCrossReferences(CrossReferenceFilter.ObjectsWithReferences)
+        result = service.GetCrossReferences(CrossReferenceFilter.AllObjects)
         for source in getattr(result, "Sources", None) or []:
             root_name = getattr(source, "Name", None) or ""
             for child in getattr(source, "Children", None) or []:
                 child_name = getattr(child, "Name", None)
                 if not child_name:
                     continue
-                has_real_reference = any(
-                    str(getattr(location, "ReferenceType", "") or "") != "InstanceType"
-                    for reference in getattr(child, "References", None) or []
-                    for location in getattr(reference, "Locations", None) or []
-                )
-                if not has_real_reference:
+                if not cross_reference_tree_has_real_usage(child):
                     continue
                 name = normalize_member_path(strip_cross_reference_prefix(child_name, root_name))
                 if name and name != root_name:

@@ -4008,3 +4008,71 @@ listete, obwohl sie keine oder nur eine permanente `InstanceType`-Meta-
 Referenz trugen. Live an `A03` (jetzt korrekt 0 statt 5 'verwendete'
 Member) und `V01St` (weiterhin korrekt 17, keine Regression) verifiziert.
 3 neue Tests, pytest 141/141 grün. Noch nicht committet."
+
+## Runde 58 — Vierunddreißigster Bug: Runde-57-Fix selbst zu streng, 6 neue Fehlalarme (ConfigDb, SysDiagDb, FieldbusDb, A01, Mp01, 01TestOrgPrgDb)
+
+**Ausgangspunkt (User-Meldung direkt nach dem Runde-57-Fix):** "jetzt gibt
+es sehr viele falsche warnings. Ich glaube alle der 7 warnings ausser A03
+sind Fehler. Als Beispiel für einen Fehler: ConfigDb."
+
+**Untersuchung:** Live-Lauf des reparierten `UnbenutzteBausteineCheck``
+gegen die Salzmaschine (mit `project_settings.yaml`, identisch zur GUI-
+Config) lieferte tatsächlich 7 Befunde:  `SysDiagDb`, `FieldbusDb`,
+`ConfigDb`, `A03`, `A01`, `Mp01` (alle Global-DBs) sowie `01TestOrgPrgDb`
+(Instanz-DB). Ground-Truth-XML-Suche über alle 256 FB/FC/OB-Bausteine
+bestätigte für alle 6 Nicht-`A03`-Kandidaten echte Codetreffer (`ConfigDb`
+z. B. in 6 verschiedenen Bausteinen, 18 Vorkommen) — der User hatte recht,
+das waren neue Fehlalarme, ausgelöst durch den Runde-57-Fix selbst.
+
+**Root Cause:** Tiefenanalyse an `ConfigDb` (per Reflection): dessen
+einziges Top-Level-Kind `Exists` hat **0 eigene** `References` — die 18
+echten Referenzen sitzen ausschließlich an den zwei Enkel-Blättern
+`Exists.BlowOff` (12) und `Exists.LevelSensor` (6), weil das Programm
+einzelne Blattfelder per Punktnotation anspricht
+(`"ConfigDb".Exists.BlowOff`) statt den ganzen Struct auf einmal zu
+übergeben (der einzige Fall, den "Zwanzigster Bug/Feature" und der
+Runde-57-Fix abdeckten). Der Runde-57-Fix prüfte aber nur die
+**unmittelbare** Kind-Ebene, nicht rekursiv den ganzen Baum — dieselbe
+Lücke betraf auch den Instanz-DB-Zweig (`01TestOrgPrgDb`: externer
+Static-Member-Zugriff aus `01Org`/Netzwerk 6 sitzt ebenfalls nicht am
+Root, siehe bereits bekannter "Siebenundzwanzigster Bug").
+
+**Fix:** Neue rekursive Hilfsfunktion
+`cross_reference_tree_has_real_usage()` (`_tia_helpers.py`) durchsucht
+den **gesamten** Nachkommenbaum eines Knotens (nicht nur seine eigenen
+`References`) nach mindestens einer `Location` mit `ReferenceType`
+ungleich `InstanceType`. Ersetzt die Prüfung an beiden betroffenen
+Stellen:
+- `cross_reference_referenced_top_level_names()` — zusätzlich Filter von
+  `ObjectsWithReferences` auf `AllObjects` umgestellt (garantiert
+  vollständige Kindliste, unabhängig von TIAs eigener, in Runde 57 als
+  unzuverlässig erwiesener Verwendet/Unbenutzt-Klassifizierung).
+- `UnbenutzteBausteineCheck.run()`, Instanz-DB-Zweig — ersetzt die
+  bisherige root-only `cached_cross_reference_locations()`-Prüfung.
+
+**Verifiziert:**
+- 2 neue Unit-Tests (`test_grandchild_reference_is_detected_recursively`,
+  `test_grandchild_with_only_instancetype_reference_is_not_counted_as_used`)
+  decken den Enkel-Ebenen-Fall ab. `pytest` 144/145 grün (1 Skip:
+  umgebungsbedingter Tk/Tcl-Init-Fehler in `test_gui.py`, unabhängig von
+  dieser Änderung), keine Regression.
+- Live gegen die Salzmaschine erneut mit `project_settings.yaml`
+  verifiziert: `UnbenutzteBausteineCheck` liefert jetzt genau **1**
+  Befund — nur noch `A03`. Alle 6 vorherigen Fehlalarme
+  (`SysDiagDb`/`FieldbusDb`/`ConfigDb`/`A01`/`Mp01`/`01TestOrgPrgDb`)
+  verschwunden.
+
+**Dokumentiert:** Docstrings in `_tia_helpers.py`
+(`cross_reference_tree_has_real_usage`,
+`cross_reference_referenced_top_level_names`) und `structure.py`
+(`UnbenutzteBausteineCheck`) um den "Vierunddreißigster Bug" ergänzt.
+Noch nicht committet — wartet auf Freigabe des Users.
+
+Letzter Stand: "Vierunddreißigster Bug behoben: der Runde-57-Fix prüfte
+nur die unmittelbare Kind-Ebene und übersah echte Nutzung, die (bei
+Global-DBs wie `ConfigDb` und Instanz-DBs wie `01TestOrgPrgDb`) erst auf
+tieferen Baumebenen sichtbar wird. Neue rekursive Hilfsfunktion
+`cross_reference_tree_has_real_usage()` behebt beide betroffenen Zweige.
+Live verifiziert: `UnbenutzteBausteineCheck` meldet jetzt nur noch `A03`
+(vorher fälschlich 7 Befunde). 2 neue Tests, pytest 144/145 grün (1
+umgebungsbedingter Skip). Noch nicht committet."

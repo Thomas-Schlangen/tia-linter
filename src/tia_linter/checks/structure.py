@@ -23,6 +23,7 @@ from tia_linter.checks._tia_helpers import (
     compile_unit_scl_line_count,
     cross_reference_referenced_top_level_names,
     cross_reference_root_source,
+    cross_reference_tree_has_real_usage,
     export_block_xml,
     format_path,
     interface_section_member_paths,
@@ -439,6 +440,23 @@ class UnbenutzteBausteineCheck(BaseCheck):
     ``ReferenceType`` ungleich ``InstanceType`` trägt — analog zum bereits
     bekannten "Siebenundzwanzigster Bug"-Muster, hier aber auf
     Member-Ebene statt auf Instanz-DB-Root-Ebene.
+
+    Vierunddreißigster Bug (User-Meldung, live an Global-DB ``ConfigDb``
+    und Instanz-DB ``01TestOrgPrgDb`` verifiziert — beide direkt im
+    Anschluss an den Dreiunddreißigster-Bug-Fix als neue Fehlalarme
+    gemeldet): sowohl der Global-/Array-DB-Zweig
+    (``cross_reference_referenced_top_level_names()``) als auch dieser
+    Instanz-DB-Zweig prüften bislang nur die **direkte** Referenz-/
+    Locations-Ebene des jeweils abgefragten Knotens — bei ``ConfigDb``
+    sitzen die echten Referenzen aber zwei Ebenen tiefer
+    (``Exists.BlowOff``/``Exists.LevelSensor``, 18 Referenzen laut
+    Ground-Truth-XML-Suche), bei ``01TestOrgPrgDb`` genauso auf
+    Static-Member-Ebene (externer Zugriff aus ``01Org``/Netzwerk 6, siehe
+    "Siebenundzwanzigster Bug" oben) statt am Root der Instanz-DB selbst.
+    Fix: beide Zweige nutzen jetzt ``cross_reference_tree_has_real_usage()``
+    (``_tia_helpers.py``), das rekursiv den **gesamten** Nachkommenbaum
+    nach einer ``Reference`` mit ``ReferenceType`` ungleich
+    ``InstanceType`` durchsucht, statt nur die oberste Ebene zu prüfen.
     """
 
     def run(self, project: Any) -> list[CheckResult]:
@@ -454,10 +472,8 @@ class UnbenutzteBausteineCheck(BaseCheck):
                 if isinstance(block, DataBlock) and not isinstance(block, InstanceDB):
                     is_used = bool(cross_reference_referenced_top_level_names(block, plc_software.Name))
                 elif isinstance(block, InstanceDB):
-                    locations = cached_cross_reference_locations(
-                        block, CrossReferenceFilter.AllObjects, plc_software.Name
-                    )
-                    is_used = any(reference_type != "InstanceType" for _access, reference_type in locations)
+                    root_source = cross_reference_root_source(block, CrossReferenceFilter.AllObjects)
+                    is_used = root_source is not None and cross_reference_tree_has_real_usage(root_source)
                 else:
                     is_used = bool(
                         cached_cross_reference_locations(block, CrossReferenceFilter.AllObjects, plc_software.Name)
