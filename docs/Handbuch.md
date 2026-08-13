@@ -523,7 +523,7 @@ Enthält den Projektnamen, die verwendete TIA-Portal-Version, das
 Prüfdatum sowie — sofern in der Konfiguration hinterlegt — den Namen des
 Prüfers und der Firma (siehe [Abschnitt 5.3](#53-angaben-für-den-report)).
 
-![Beispiel-Deckblatt eines PDF-Reports mit Projektname, TIA-Portal-Version, Prüfdatum, Prüfer und Firma](images/report-deckblatt.png)
+![Beispiel-Deckblatt eines PDF-Reports mit Projektname, TIA-Portal-Version, Prüfdatum, Prüfer und Firma](images/report-deckblatt.png){width=55%}
 
 **2. Prüfpunkte-Übersicht**
 
