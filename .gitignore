@@ -27,3 +27,5 @@ settings.json
 output/
 *.log
 *.pdf
+docs/pdf-export-linux-prompt.md
+doku_etc/
