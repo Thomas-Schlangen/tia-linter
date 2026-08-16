@@ -43,7 +43,6 @@
 
 - [A. Glossar](#anhang-a-glossar)
 - [B. Aus diesem Handbuch ein PDF erstellen](#anhang-b-aus-diesem-handbuch-ein-pdf-erstellen)
-- [C. Änderungshistorie dieses Handbuchs](AnhangC.md)
 
 ---
 
