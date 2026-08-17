@@ -7,6 +7,8 @@ erstellt einen PDF-Report der Befunde.
 
 ## Status
 
+Siehe auch das [Handbuch](docs/Handbuch.pdf) für eine ausführliche Beschreibung.
+
 **Aktuell in Entwicklung.** Diese Version enthält das vollständige Grundgerüst
 inklusive TIA-relevantem Code (Connector, alle Check-Module), wurde aber noch
 **nicht gegen ein echtes TIA-Portal-Projekt getestet** — die Entwicklung
